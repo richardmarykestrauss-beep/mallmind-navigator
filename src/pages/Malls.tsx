@@ -1,20 +1,41 @@
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Search, MapPin, Locate, Store, Tag } from "lucide-react";
+import { Search, MapPin, Locate, Store, Loader2 } from "lucide-react";
 import MobileShell from "@/components/MobileShell";
 import ScreenHeader from "@/components/ScreenHeader";
 import { Button } from "@/components/ui/button";
+import { supabase, type Mall } from "@/lib/supabaseClient";
 
-const malls = [
-  { name: "Mall of Africa", location: "Midrand, GP", stores: 300, deals: 84, hue: "from-primary/30 to-primary/5" },
-  { name: "Sandton City", location: "Sandton, GP", stores: 360, deals: 112, hue: "from-secondary/30 to-secondary/5" },
-  { name: "Gateway Theatre of Shopping", location: "Umhlanga, KZN", stores: 390, deals: 67, hue: "from-primary/30 to-secondary/10" },
-  { name: "Canal Walk", location: "Cape Town, WC", stores: 400, deals: 95, hue: "from-secondary/30 to-primary/10" },
-  { name: "Menlyn Park", location: "Pretoria, GP", stores: 500, deals: 73, hue: "from-primary/30 to-primary/5" },
-  { name: "V&A Waterfront", location: "Cape Town, WC", stores: 450, deals: 58, hue: "from-secondary/20 to-primary/10" },
+const hues = [
+  "from-primary/30 to-primary/5",
+  "from-secondary/30 to-secondary/5",
+  "from-primary/30 to-secondary/10",
+  "from-secondary/30 to-primary/10",
 ];
 
 const Malls = () => {
   const navigate = useNavigate();
+  const [malls, setMalls] = useState<Mall[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+
+  useEffect(() => {
+    const load = async () => {
+      const { data, error } = await supabase
+        .from("malls")
+        .select("id, name, city, province");
+      if (error) setError(error.message);
+      else setMalls((data ?? []) as Mall[]);
+      setLoading(false);
+    };
+    load();
+  }, []);
+
+  const filtered = malls.filter((m) =>
+    m.name.toLowerCase().includes(query.toLowerCase())
+  );
+
   return (
     <MobileShell>
       <ScreenHeader title="Find Your Mall" subtitle="Pick a mall to start shopping smart" />
@@ -24,12 +45,13 @@ const Malls = () => {
         <div className="relative">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
             placeholder="Which mall are you at?"
             className="w-full h-12 pl-11 pr-4 rounded-2xl bg-surface border border-border text-sm focus:outline-none focus:border-primary/50 focus:shadow-[0_0_0_3px_hsl(190_100%_50%/0.15)] transition-all"
           />
         </div>
 
-        {/* Detect location */}
         <Button variant="neonGreen" size="lg" className="w-full">
           <Locate className="h-5 w-5" />
           Detect My Location
@@ -41,20 +63,34 @@ const Malls = () => {
           <div className="flex-1 h-px bg-border" />
         </div>
 
+        {loading && (
+          <div className="flex items-center justify-center py-10 text-muted-foreground">
+            <Loader2 className="h-5 w-5 animate-spin" />
+          </div>
+        )}
+
+        {error && (
+          <div className="rounded-2xl border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
+            {error}
+          </div>
+        )}
+
+        {!loading && !error && filtered.length === 0 && (
+          <div className="text-center py-10 text-sm text-muted-foreground">
+            No malls found.
+          </div>
+        )}
+
         {/* Malls list */}
         <div className="space-y-3 pb-4">
-          {malls.map((m, i) => (
+          {filtered.map((m, i) => (
             <button
-              key={m.name}
+              key={m.id}
               onClick={() => navigate("/navigate")}
               className="group w-full text-left rounded-2xl border border-border bg-surface/70 backdrop-blur overflow-hidden hover:border-primary/50 transition-all animate-slide-up"
               style={{ animationDelay: `${i * 50}ms` }}
             >
-              <div className={`relative h-20 bg-gradient-to-br ${m.hue} grid-bg`}>
-                <div className="absolute top-2 right-2 flex items-center gap-1 rounded-full bg-secondary/20 border border-secondary/40 px-2.5 py-1">
-                  <Tag className="h-3 w-3 text-secondary" />
-                  <span className="text-[11px] font-semibold text-secondary">{m.deals} deals</span>
-                </div>
+              <div className={`relative h-20 bg-gradient-to-br ${hues[i % hues.length]} grid-bg`}>
                 <div className="absolute bottom-2 left-3 flex h-9 w-9 items-center justify-center rounded-xl bg-background/80 backdrop-blur border border-border">
                   <Store className="h-4 w-4 text-primary" />
                 </div>
@@ -64,9 +100,8 @@ const Malls = () => {
                 <div className="mt-1 flex items-center justify-between text-xs text-muted-foreground">
                   <span className="flex items-center gap-1">
                     <MapPin className="h-3 w-3" />
-                    {m.location}
+                    {[m.city, m.province].filter(Boolean).join(", ")}
                   </span>
-                  <span>{m.stores} stores</span>
                 </div>
               </div>
             </button>

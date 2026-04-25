@@ -1,23 +1,37 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Navigation, Trophy, Image as ImgIcon } from "lucide-react";
+import { Navigation, Trophy, Image as ImgIcon, Loader2 } from "lucide-react";
 import MobileShell from "@/components/MobileShell";
 import ScreenHeader from "@/components/ScreenHeader";
-import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { supabase, type BestDeal } from "@/lib/supabaseClient";
 
 const filters = ["All", "Electronics", "Clothing", "Food", "Home"];
-
-const deals = [
-  { rank: 1, product: "Sony WH-1000XM5", store: "iStore", price: "R5,499", saving: "R1,500", badge: "from-secondary to-primary" },
-  { rank: 2, product: "Levi's 501 Jeans", store: "Edgars", price: "R899", saving: "R400", badge: "from-primary to-primary-glow" },
-  { rank: 3, product: "Nespresso Capsules x50", store: "Woolworths", price: "R349", saving: "R120", badge: "from-primary to-secondary" },
-  { rank: 4, product: "Le Creuset 24cm Pan", store: "@home", store_acc: true, price: "R2,199", saving: "R600", badge: "from-secondary to-primary" },
+const badges = [
+  "from-secondary to-primary",
+  "from-primary to-primary-glow",
+  "from-primary to-secondary",
+  "from-secondary to-primary",
 ];
 
 const Deals = () => {
   const navigate = useNavigate();
   const [active, setActive] = useState("All");
+  const [deals, setDeals] = useState<BestDeal[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const load = async () => {
+      const { data, error } = await supabase
+        .from("best_deals")
+        .select("id, product_name, shop_name, price, discount_percentage");
+      if (error) setError(error.message);
+      else setDeals((data ?? []) as BestDeal[]);
+      setLoading(false);
+    };
+    load();
+  }, []);
 
   return (
     <MobileShell>
@@ -43,36 +57,53 @@ const Deals = () => {
 
       {/* Deals */}
       <div className="px-5 mt-3 space-y-3.5">
+        {loading && (
+          <div className="flex items-center justify-center py-10 text-muted-foreground">
+            <Loader2 className="h-5 w-5 animate-spin" />
+          </div>
+        )}
+
+        {error && (
+          <div className="rounded-2xl border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
+            {error}
+          </div>
+        )}
+
+        {!loading && !error && deals.length === 0 && (
+          <div className="text-center py-10 text-sm text-muted-foreground">No deals available.</div>
+        )}
+
         {deals.map((d, i) => (
           <div
-            key={d.rank}
+            key={d.id}
             className="rounded-2xl border border-border bg-surface/80 backdrop-blur overflow-hidden animate-slide-up"
             style={{ animationDelay: `${i * 60}ms` }}
           >
             <div className="flex gap-3 p-3.5">
-              {/* Image placeholder */}
               <div className="relative h-24 w-24 shrink-0 rounded-xl bg-gradient-to-br from-muted to-surface-elevated grid-bg flex items-center justify-center border border-border">
                 <ImgIcon className="h-8 w-8 text-muted-foreground" />
                 <span
-                  className={`absolute -top-2 -left-2 flex h-7 min-w-7 items-center justify-center rounded-full bg-gradient-to-br ${d.badge} px-2 text-[11px] font-bold text-background shadow-[0_0_15px_hsl(190_100%_50%/0.5)]`}
+                  className={`absolute -top-2 -left-2 flex h-7 min-w-7 items-center justify-center rounded-full bg-gradient-to-br ${badges[i % badges.length]} px-2 text-[11px] font-bold text-background shadow-[0_0_15px_hsl(190_100%_50%/0.5)]`}
                 >
-                  #{d.rank}
+                  #{i + 1}
                 </span>
               </div>
 
               <div className="flex-1 min-w-0 flex flex-col">
-                <p className="font-semibold text-sm leading-tight line-clamp-2">{d.product}</p>
+                <p className="font-semibold text-sm leading-tight line-clamp-2">{d.product_name}</p>
                 <div className="mt-1.5 flex items-center gap-1.5">
                   <div className="flex h-5 w-5 items-center justify-center rounded-full bg-muted">
                     <Trophy className="h-2.5 w-2.5 text-primary" />
                   </div>
-                  <span className="text-xs text-muted-foreground">{d.store}</span>
+                  <span className="text-xs text-muted-foreground">{d.shop_name}</span>
                 </div>
                 <div className="mt-auto flex items-end justify-between">
                   <div>
-                    <p className="font-display text-xl font-bold leading-none">{d.price}</p>
+                    <p className="font-display text-xl font-bold leading-none">
+                      R{Number(d.price).toLocaleString()}
+                    </p>
                     <span className="mt-1.5 inline-block rounded-full bg-secondary/15 border border-secondary/40 px-2 py-0.5 text-[10px] font-bold text-secondary">
-                      Save {d.saving}
+                      {Number(d.discount_percentage)}% OFF
                     </span>
                   </div>
                 </div>
