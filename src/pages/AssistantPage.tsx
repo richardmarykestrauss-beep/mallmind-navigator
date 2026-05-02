@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Mic, MicOff, Send, Bot, User, Route as RouteIcon,
-  Store, Sparkles, MapPin, Loader2, ShoppingBag, X
+  Store, Sparkles, MapPin, Loader2, ShoppingBag, X, Globe
 } from "lucide-react";
 import MobileShell from "@/components/MobileShell";
 import { Button } from "@/components/ui/button";
@@ -27,11 +27,17 @@ interface ProductResult {
   unit_number: string | null;
 }
 
+interface WebResult {
+  answer: string;
+  sources: string[];
+}
+
 interface ChatMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
   products?: ProductResult[];
+  webResults?: WebResult[];
   routeShopIds?: string[];
   routeSummary?: string;
   loading?: boolean;
@@ -78,6 +84,40 @@ function ProductCard({ p }: { p: ProductResult }) {
           <p className="text-[9px] uppercase tracking-wider text-secondary">Sale</p>
         )}
       </div>
+    </div>
+  );
+}
+
+// ── Web estimate card ─────────────────────────────────────────────────────────
+function WebResultCard({ result }: { result: WebResult }) {
+  return (
+    <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 space-y-2">
+      <div className="flex items-center gap-2">
+        <Globe className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+        <span className="text-[10px] uppercase tracking-wider text-amber-400 font-semibold">
+          Web estimate · not verified in-store
+        </span>
+      </div>
+      <p className="text-xs leading-relaxed text-foreground/90">{result.answer}</p>
+      {result.sources.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 pt-0.5">
+          {result.sources.map((src, i) => {
+            let label = src;
+            try { label = new URL(src).hostname.replace("www.", ""); } catch { /* ignore */ }
+            return (
+              <a
+                key={i}
+                href={src}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[9px] text-amber-400/80 underline underline-offset-2 hover:text-amber-400"
+              >
+                {label}
+              </a>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -176,6 +216,7 @@ const AssistantPage = () => {
         role: "assistant",
         content: data.message ?? "Sorry, I couldn't get a response.",
         products: data.products?.length ? data.products : undefined,
+        webResults: data.web_results?.length ? data.web_results : undefined,
         routeShopIds: data.build_route ? data.route_shop_ids : undefined,
         routeSummary: data.route_summary,
       };
@@ -357,11 +398,23 @@ const AssistantPage = () => {
                     </div>
                   )}
 
-                  {/* Product cards */}
+                  {/* Product cards (from database) */}
                   {msg.products && msg.products.length > 0 && (
                     <div className="space-y-2 w-full max-w-[300px]">
+                      <p className="text-[9px] uppercase tracking-wider text-primary/70 px-1 flex items-center gap-1">
+                        <Store className="h-3 w-3" /> Live mall prices
+                      </p>
                       {msg.products.map((p, i) => (
                         <ProductCard key={`${p.product_id}-${i}`} p={p} />
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Web estimate cards (from Gemini + Google Search) */}
+                  {msg.webResults && msg.webResults.length > 0 && (
+                    <div className="space-y-2 w-full max-w-[300px]">
+                      {msg.webResults.map((r, i) => (
+                        <WebResultCard key={i} result={r} />
                       ))}
                     </div>
                   )}
