@@ -1,0 +1,22 @@
+{
+  "name": "mallmind-scraper",
+  "version": "1.0.0",
+  "description": "Scrapes SA retail prices and pushes to MallMind Supabase",
+  "type": "module",
+  "scripts": {
+    "takealot": "node --loader ts-node/esm takealot.ts",
+    "pricecheck": "node --loader ts-node/esm pricecheck.ts",
+    "all": "node --loader ts-node/esm index.ts"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.0.0",
+    "cheerio": "^1.0.0",
+    "dotenv": "^16.0.0",
+    "node-fetch": "^3.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "ts-node": "^10.9.0",
+    "typescript": "^5.0.0"
+  }
+}
