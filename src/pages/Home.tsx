@@ -20,7 +20,10 @@ const Home = () => {
       <div className="px-5 pt-8 animate-fade-in">
         <div className="flex items-center justify-between">
           <Logo />
-          <button className="flex h-10 w-10 items-center justify-center rounded-xl border border-border bg-surface/60 backdrop-blur">
+          <button
+            onClick={() => navigate("/assistant")}
+            className="flex h-10 w-10 items-center justify-center rounded-xl border border-secondary/30 bg-secondary/10 backdrop-blur hover:bg-secondary/20 transition-all"
+          >
             <Sparkles className="h-4 w-4 text-secondary" />
           </button>
         </div>

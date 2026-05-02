@@ -14,6 +14,7 @@ import NavigateScreen from "./pages/NavigateScreen.tsx";
 import Parking from "./pages/Parking.tsx";
 import Rewards from "./pages/Rewards.tsx";
 import Profile from "./pages/Profile.tsx";
+import AssistantPage from "./pages/AssistantPage.tsx";
 import NotFound from "./pages/NotFound.tsx";
 
 const queryClient = new QueryClient();
@@ -32,6 +33,7 @@ const App = () => (
               <Route path="/search" element={<SearchPage />} />
               <Route path="/list" element={<ShoppingList />} />
               <Route path="/deals" element={<Deals />} />
+              <Route path="/assistant" element={<AssistantPage />} />
               <Route path="/navigate" element={<NavigateScreen />} />
               <Route path="/parking" element={<Parking />} />
               <Route path="/rewards" element={<Rewards />} />
