@@ -5,6 +5,7 @@ import MobileShell from "@/components/MobileShell";
 import ScreenHeader from "@/components/ScreenHeader";
 import { Button } from "@/components/ui/button";
 import { supabase, type Mall } from "@/lib/supabaseClient";
+import { useShoppingSession } from "@/context/ShoppingSessionContext";
 
 const hues = [
   "from-primary/30 to-primary/5",
@@ -15,6 +16,7 @@ const hues = [
 
 const Malls = () => {
   const navigate = useNavigate();
+  const { setSelectedMall } = useShoppingSession();
   const [malls, setMalls] = useState<Mall[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -86,7 +88,7 @@ const Malls = () => {
           {filtered.map((m, i) => (
             <button
               key={m.id}
-              onClick={() => navigate("/navigate")}
+              onClick={() => { setSelectedMall(m); navigate("/search"); }}
               className="group w-full text-left rounded-2xl border border-border bg-surface/70 backdrop-blur overflow-hidden hover:border-primary/50 transition-all animate-slide-up"
               style={{ animationDelay: `${i * 50}ms` }}
             >

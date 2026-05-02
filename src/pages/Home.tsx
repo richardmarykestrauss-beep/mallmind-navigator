@@ -1,8 +1,9 @@
 import { useNavigate } from "react-router-dom";
-import { Sparkles, MapPin, ListChecks, Car, Trophy } from "lucide-react";
+import { Sparkles, MapPin, ListChecks, Car, Trophy, Search, Route as RouteIcon } from "lucide-react";
 import MobileShell from "@/components/MobileShell";
 import Logo from "@/components/Logo";
 import { Button } from "@/components/ui/button";
+import { useShoppingSession } from "@/context/ShoppingSessionContext";
 
 const quickActions = [
   { label: "Parking", icon: Car, to: "/parking", color: "text-primary" },
@@ -12,6 +13,7 @@ const quickActions = [
 
 const Home = () => {
   const navigate = useNavigate();
+  const { selectedMall, routeStops } = useShoppingSession();
 
   return (
     <MobileShell>
@@ -48,16 +50,44 @@ const Home = () => {
         </p>
       </div>
 
+      {/* Active session banner */}
+      {(selectedMall || routeStops.length > 0) && (
+        <div className="mx-5 mt-6 rounded-2xl border border-primary/30 bg-primary/10 p-4 animate-slide-up">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs uppercase tracking-wider text-primary">Active session</p>
+              <p className="font-display font-bold text-sm mt-0.5">
+                {selectedMall?.name ?? "Shopping session"}
+              </p>
+              {routeStops.length > 0 && (
+                <p className="text-xs text-muted-foreground">{routeStops.length} stops planned</p>
+              )}
+            </div>
+            <Button
+              variant="glass"
+              size="sm"
+              onClick={() => navigate(routeStops.length > 0 ? "/navigate" : "/search")}
+            >
+              {routeStops.length > 0 ? (
+                <><RouteIcon className="h-4 w-4" /> Route</>
+              ) : (
+                <><Search className="h-4 w-4" /> Search</>
+              )}
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* CTAs */}
-      <div className="mt-10 px-5 space-y-3 animate-slide-up">
+      <div className="mt-6 px-5 space-y-3 animate-slide-up">
         <Button
           variant="neon"
           size="lg"
           className="w-full"
           onClick={() => navigate("/malls")}
         >
-          <MapPin className="h-5 w-5" />
-          Find My Mall
+          <Search className="h-5 w-5" />
+          Start Shopping Session
         </Button>
         <Button
           variant="glass"
@@ -66,7 +96,7 @@ const Home = () => {
           onClick={() => navigate("/list")}
         >
           <ListChecks className="h-5 w-5" />
-          Start Shopping List
+          Shopping List
         </Button>
       </div>
 
