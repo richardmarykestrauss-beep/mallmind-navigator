@@ -77,9 +77,10 @@ const SearchPage = () => {
       // Get matching products from those shops
       const { data: productData, error: prodErr } = await supabase
         .from("products")
-        .select("id, shop_id, name, category, price, special_price, is_on_special")
+        .select("id, shop_id, mall_id, name, category, brand, model, price, original_price, is_on_special, in_stock, verified")
         .in("shop_id", shopIds)
         .ilike("name", `%${q}%`)
+        .eq("in_stock", true)
         .order("price", { ascending: true });
 
       if (prodErr || !productData?.length) {
@@ -93,7 +94,7 @@ const SearchPage = () => {
       for (const p of productData) {
         const shop = shopMap[String(p.shop_id)] as Shop;
         if (!shop) continue;
-        const effectivePrice = p.is_on_special && p.special_price != null ? p.special_price : p.price;
+        const effectivePrice = p.is_on_special && p.original_price != null ? p.price : p.price;
         const key = p.name.toLowerCase();
         if (!grouped.has(key)) grouped.set(key, []);
         grouped.get(key)!.push({ product: p as Product, shop, effectivePrice });
@@ -279,9 +280,9 @@ const SearchPage = () => {
 
                     {/* Price */}
                     <div className="text-right shrink-0">
-                      {m.product.is_on_special && m.product.special_price != null && (
+                      {m.product.is_on_special && m.product.original_price != null && (
                         <p className="text-[10px] text-muted-foreground line-through">
-                          R{m.product.price.toFixed(0)}
+                          R{m.product.original_price.toFixed(0)}
                         </p>
                       )}
                       <p className={cn(

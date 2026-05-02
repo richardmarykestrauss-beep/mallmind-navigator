@@ -25,11 +25,18 @@ export type Shop = {
 export type Product = {
   id: string | number;
   shop_id: string | number;
+  mall_id: string | number | null;
   name: string;
   category: string | null;
+  brand: string | null;
+  model: string | null;
   price: number;
-  special_price: number | null;
+  original_price: number | null;
   is_on_special: boolean;
+  special_description: string | null;
+  image_url: string | null;
+  in_stock: boolean;
+  verified: boolean;
   shops?: Shop;
 };
 
