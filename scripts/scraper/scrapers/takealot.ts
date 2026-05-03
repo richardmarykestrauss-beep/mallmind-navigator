@@ -1,6 +1,15 @@
 /**
- * Takealot scraper — uses their public search API directly.
- * Most reliable SA source: structured JSON, no HTML parsing needed.
+ * Takealot scraper — uses their public search API.
+ *
+ * Confirmed response shape (2026-05):
+ *   { sections: { products: { results: [ { type, product_views: { ... } } ] } } }
+ *
+ * product_views fields used:
+ *   core.title, core.sku, core.category_trail
+ *   brand.name
+ *   buybox_summary.min_price (cents), min_selling_price (cents), min_list_price (cents)
+ *   gallery.images[0].source
+ *   badges.entries[].type === "saving" → on special
  */
 
 import { SmartFetcher } from "../framework/fetcher.js";
@@ -10,7 +19,6 @@ import type { ScrapedProduct } from "../db.js";
 const BASE = "https://api.takealot.com/rest/v-1-10-0";
 const HOME = "https://www.takealot.com";
 
-// Retailer name must match how it appears in the shops table
 const SHOP_NAMES = [
   "Takealot",
   "Game",
@@ -22,38 +30,47 @@ const SHOP_NAMES = [
   "Total Sport",
 ];
 
-interface TakealotProduct {
-  title?: string;
-  brand?: string;
-  display_name?: string;
-  buybox?: { price?: number };
-  buy_box?: { price?: number };
-  product_views?: {
-    listing_price?: number;
-    price?: number;
-    original_price?: number;
+interface ProductViews {
+  core?: {
+    title?: string;
+    sku?: string;
+    category_trail?: string[];
+  };
+  brand?: { name?: string };
+  buybox_summary?: {
+    min_price?: number;          // cents
+    min_selling_price?: number;  // cents (sale price)
+    min_list_price?: number;     // cents (original)
   };
   gallery?: { images?: Array<{ source?: string }> };
-  core?: { category_trail?: string[] };
+  badges?: {
+    entries?: Array<{ type?: string; value?: string }>;
+  };
+  title?: string; // fallback title field
 }
 
-function extractPrice(p: TakealotProduct): number | null {
-  const cents =
-    p.buybox?.price ??
-    p.buy_box?.price ??
-    p.product_views?.listing_price ??
-    p.product_views?.price;
-  return cents ? Math.round(cents / 100) : null;
+interface TakealotResult {
+  type?: string;
+  product_views?: ProductViews;
 }
 
-function extractOriginalPrice(p: TakealotProduct): number | null {
-  const cents = p.product_views?.original_price;
-  return cents && cents > (p.product_views?.price ?? 0) ? Math.round(cents / 100) : null;
+function centsToRands(cents: number | undefined): number | null {
+  if (!cents || cents <= 0) return null;
+  return Math.round(cents / 100);
 }
 
-function extractImage(p: TakealotProduct): string | null {
-  const src = p.gallery?.images?.[0]?.source;
-  return src ?? null;
+function isOnSpecial(pv: ProductViews): boolean {
+  return !!(pv.badges?.entries?.some((b) => b.type === "saving"));
+}
+
+function extractImage(pv: ProductViews): string | null {
+  return pv.gallery?.images?.[0]?.source ?? null;
+}
+
+function getCategory(pv: ProductViews, fallback: string): string {
+  const trail = pv.core?.category_trail;
+  if (trail?.length) return trail[trail.length - 1];
+  return fallback;
 }
 
 export async function scrapeTakealot(): Promise<ScrapedProduct[]> {
@@ -64,7 +81,8 @@ export async function scrapeTakealot(): Promise<ScrapedProduct[]> {
   const targets = RETAILER_TARGETS.takealot;
 
   for (const target of targets) {
-    const url = `${BASE}/searches/products?` +
+    const url =
+      `${BASE}/searches/products?` +
       `qsearch=${encodeURIComponent(target.query)}&rows=10&start=0` +
       `&sort=BestMatch&backend_version=1&filters=available:true`;
 
@@ -84,30 +102,42 @@ export async function scrapeTakealot(): Promise<ScrapedProduct[]> {
         continue;
       }
 
-      const data = res.json<{ results?: { products?: { results?: TakealotProduct[] } } }>();
-      const items = data?.results?.products?.results ?? [];
+      const data = res.json<{ sections?: { products?: { results?: TakealotResult[] } } }>();
+      const items = data?.sections?.products?.results ?? [];
 
-      for (const item of items.slice(0, 5)) {
-        const price = extractPrice(item);
-        if (!price || price < 10) continue;
+      let found = 0;
+      for (const item of items) {
+        if (item.type !== "product_views" || !item.product_views) continue;
+        const pv = item.product_views;
 
-        const name = item.title ?? item.display_name ?? "";
+        const name = pv.core?.title ?? pv.title;
         if (!name) continue;
 
-        const originalPrice = extractOriginalPrice(item);
+        const price = centsToRands(
+          pv.buybox_summary?.min_selling_price ??
+          pv.buybox_summary?.min_price
+        );
+        if (!price || price < 10) continue;
 
-        // Apply realistic in-store premium over online price (2–6%)
-        const applyPremium = (base: number) => Math.round((base * (1.02 + Math.random() * 0.04)) / 10) * 10;
+        // Original price only if there's a meaningful saving
+        const listPrice = centsToRands(pv.buybox_summary?.min_list_price);
+        const originalPrice = listPrice && listPrice > price ? listPrice : null;
 
-        // Create entries for each applicable shop
+        // Apply 2–6% in-store premium, round to nearest R10
+        const applyPremium = (base: number) =>
+          Math.round((base * (1.02 + Math.random() * 0.04)) / 10) * 10;
+
+        const cat = target.category;
+        const isElec = cat === "Electronics";
+        const isSport = cat === "Sport" || cat === "Clothing";
+        const nameLower = name.toLowerCase();
+
         for (const shopName of SHOP_NAMES) {
-          // Only assign to relevant shop categories
-          const cat = target.category;
-          const isElec = cat === "Electronics";
-          const isSport = cat === "Sport" || cat === "Clothing";
-
-          if (shopName === "iStore" && !name.toLowerCase().includes("apple") && !name.toLowerCase().includes("iphone") && !name.toLowerCase().includes("airpod") && !name.toLowerCase().includes("ipad")) continue;
-          if (shopName === "Samsung Experience Store" && !name.toLowerCase().includes("samsung")) continue;
+          if (shopName === "iStore" &&
+            !nameLower.includes("apple") && !nameLower.includes("iphone") &&
+            !nameLower.includes("airpod") && !nameLower.includes("ipad") &&
+            !nameLower.includes("macbook") && !nameLower.includes("imac")) continue;
+          if (shopName === "Samsung Experience Store" && !nameLower.includes("samsung")) continue;
           if ((shopName === "Sportsmans Warehouse" || shopName === "Total Sport") && !isSport) continue;
           if ((shopName === "Incredible Connection" || shopName === "Hi-Fi Corporation") && !isElec) continue;
           if (shopName === "Game" && !isElec && cat !== "Home") continue;
@@ -115,17 +145,24 @@ export async function scrapeTakealot(): Promise<ScrapedProduct[]> {
           results.push({
             retailerName: shopName,
             name,
-            brand: item.brand ?? null,
-            category: cat,
+            brand: pv.brand?.name ?? null,
+            category: getCategory(pv, cat),
             price: applyPremium(price),
             originalPrice: originalPrice ? applyPremium(originalPrice) : null,
-            isOnSpecial: !!originalPrice,
+            isOnSpecial: isOnSpecial(pv) || !!originalPrice,
             inStock: true,
-            imageUrl: extractImage(item),
+            imageUrl: extractImage(pv),
           });
-          break; // Only push to first matched shop — others resolved later
+          found++;
+          break; // one shop per product
         }
+
+        if (found >= 5) break;
       }
+
+      if (found > 0) console.log(`    ${found} products`);
+      else console.warn(`    No results for "${target.query}"`);
+
     } catch (e) {
       console.error(`    Error scraping "${target.query}":`, e);
     }

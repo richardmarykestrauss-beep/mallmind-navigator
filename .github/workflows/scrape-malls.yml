@@ -36,6 +36,6 @@ jobs:
 
       - name: Run mall scraper
         working-directory: scripts/scraper
-        run: node --loader ts-node/esm malls/index.ts
+        run: npx tsx malls/index.ts
         env:
           NODE_OPTIONS: "--max-old-space-size=512"

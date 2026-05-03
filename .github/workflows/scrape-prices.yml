@@ -41,14 +41,14 @@ jobs:
       - name: Run scraper (all retailers)
         if: ${{ github.event.inputs.retailer == '' }}
         working-directory: scripts/scraper
-        run: node --loader ts-node/esm index.ts
+        run: npx tsx index.ts
         env:
           NODE_OPTIONS: "--max-old-space-size=512"
 
       - name: Run scraper (single retailer)
         if: ${{ github.event.inputs.retailer != '' }}
         working-directory: scripts/scraper
-        run: npm run ${{ github.event.inputs.retailer }}
+        run: npx tsx scrapers/${{ github.event.inputs.retailer }}.ts
         env:
           NODE_OPTIONS: "--max-old-space-size=512"
 
