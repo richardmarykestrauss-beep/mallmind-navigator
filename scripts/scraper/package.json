@@ -1,22 +1,31 @@
 {
   "name": "mallmind-scraper",
-  "version": "1.0.0",
-  "description": "Scrapes SA retail prices and pushes to MallMind Supabase",
+  "version": "2.0.0",
+  "description": "SA retail price scraper for MallMind — 10 retailers, anti-blocking, Supabase upsert",
   "type": "module",
   "scripts": {
-    "takealot": "node --loader ts-node/esm takealot.ts",
-    "pricecheck": "node --loader ts-node/esm pricecheck.ts",
-    "all": "node --loader ts-node/esm index.ts"
+    "all":        "node --loader ts-node/esm index.ts",
+    "takealot":   "node --loader ts-node/esm -e \"import('./scrapers/takealot.js').then(m=>m.scrapeTakealot()).then(console.log)\"",
+    "checkers":   "node --loader ts-node/esm -e \"import('./scrapers/checkers.js').then(m=>m.scrapeCheckers()).then(console.log)\"",
+    "pnp":        "node --loader ts-node/esm -e \"import('./scrapers/pnp.js').then(m=>m.scrapePnP()).then(console.log)\"",
+    "woolworths": "node --loader ts-node/esm -e \"import('./scrapers/woolworths.js').then(m=>m.scrapeWoolworths()).then(console.log)\"",
+    "incredible": "node --loader ts-node/esm -e \"import('./scrapers/incredible.js').then(m=>m.scrapeIncredible()).then(console.log)\"",
+    "game":       "node --loader ts-node/esm -e \"import('./scrapers/game.js').then(m=>m.scrapeGame()).then(console.log)\"",
+    "clicks":     "node --loader ts-node/esm -e \"import('./scrapers/clicks.js').then(m=>m.scrapeClicks()).then(console.log)\"",
+    "dischem":    "node --loader ts-node/esm -e \"import('./scrapers/dischem.js').then(m=>m.scrapeDischem()).then(console.log)\"",
+    "mrprice":    "node --loader ts-node/esm -e \"import('./scrapers/mrprice.js').then(m=>m.scrapeMrPrice()).then(console.log)\"",
+    "sportsmans": "node --loader ts-node/esm -e \"import('./scrapers/sportsmans.js').then(m=>m.scrapeSportsmans()).then(console.log)\""
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.0.0",
+    "@supabase/supabase-js": "^2.45.0",
     "cheerio": "^1.0.0",
-    "dotenv": "^16.0.0",
-    "node-fetch": "^3.0.0"
+    "dotenv": "^16.4.0",
+    "node-fetch": "^3.3.0"
   },
   "devDependencies": {
-    "@types/node": "^20.0.0",
-    "ts-node": "^10.9.0",
-    "typescript": "^5.0.0"
+    "@types/cheerio": "^0.22.35",
+    "@types/node": "^20.14.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.5.0"
   }
 }
