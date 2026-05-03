@@ -1,0 +1,41 @@
+name: Weekly Mall & Store Scraper
+
+on:
+  schedule:
+    # Every Sunday at 1:00 AM SAST (23:00 UTC Saturday)
+    - cron: "0 23 * * 6"
+  workflow_dispatch:
+
+jobs:
+  scrape-malls:
+    name: Scrape mall & store data
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: scripts/scraper/package-lock.json
+
+      - name: Install dependencies
+        working-directory: scripts/scraper
+        run: npm ci
+
+      - name: Write .env
+        working-directory: scripts/scraper
+        run: |
+          echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}" >> .env
+          echo "SUPABASE_SERVICE_KEY=${{ secrets.SUPABASE_SERVICE_KEY }}" >> .env
+          echo "GOOGLE_PLACES_API_KEY=${{ secrets.GOOGLE_PLACES_API_KEY }}" >> .env
+
+      - name: Run mall scraper
+        working-directory: scripts/scraper
+        run: node --loader ts-node/esm malls/index.ts
+        env:
+          NODE_OPTIONS: "--max-old-space-size=512"

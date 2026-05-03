@@ -14,7 +14,8 @@
     "clicks":     "node --loader ts-node/esm -e \"import('./scrapers/clicks.js').then(m=>m.scrapeClicks()).then(console.log)\"",
     "dischem":    "node --loader ts-node/esm -e \"import('./scrapers/dischem.js').then(m=>m.scrapeDischem()).then(console.log)\"",
     "mrprice":    "node --loader ts-node/esm -e \"import('./scrapers/mrprice.js').then(m=>m.scrapeMrPrice()).then(console.log)\"",
-    "sportsmans": "node --loader ts-node/esm -e \"import('./scrapers/sportsmans.js').then(m=>m.scrapeSportsmans()).then(console.log)\""
+    "sportsmans": "node --loader ts-node/esm -e \"import('./scrapers/sportsmans.js').then(m=>m.scrapeSportsmans()).then(console.log)\"",
+    "malls":       "node --loader ts-node/esm malls/index.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",
