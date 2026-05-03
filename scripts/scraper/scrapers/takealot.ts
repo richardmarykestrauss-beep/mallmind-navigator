@@ -36,17 +36,22 @@ interface ProductViews {
     sku?: string;
     category_trail?: string[];
   };
-  brand?: { name?: string };
   buybox_summary?: {
-    min_price?: number;          // cents
-    min_selling_price?: number;  // cents (sale price)
-    min_list_price?: number;     // cents (original)
+    listing_price?: number;   // original/list price in Rands
+    prices?: number[];        // [0] = current sale price in Rands
+    saving?: number;          // saving amount in Rands
   };
-  gallery?: { images?: Array<{ source?: string }> };
+  gallery?: {
+    images?: string[];        // URL strings with {size} placeholder
+  };
   badges?: {
     entries?: Array<{ type?: string; value?: string }>;
   };
-  title?: string; // fallback title field
+  enhanced_ecommerce_impression?: {
+    ecommerce?: {
+      impressions?: Array<{ brand?: string; name?: string }>;
+    };
+  };
 }
 
 interface TakealotResult {
@@ -54,17 +59,29 @@ interface TakealotResult {
   product_views?: ProductViews;
 }
 
-function centsToRands(cents: number | undefined): number | null {
-  if (!cents || cents <= 0) return null;
-  return Math.round(cents / 100);
+function extractPrice(pv: ProductViews): { price: number | null; originalPrice: number | null } {
+  // prices[0] is the current selling price in Rands (already Rands, not cents)
+  const current = pv.buybox_summary?.prices?.[0];
+  const list    = pv.buybox_summary?.listing_price;
+  if (!current || current <= 0) return { price: null, originalPrice: null };
+  const originalPrice = list && list > current ? list : null;
+  return { price: Math.round(current), originalPrice: originalPrice ? Math.round(originalPrice) : null };
 }
 
 function isOnSpecial(pv: ProductViews): boolean {
-  return !!(pv.badges?.entries?.some((b) => b.type === "saving"));
+  return !!(pv.buybox_summary?.saving) ||
+    !!(pv.badges?.entries?.some((b) => b.type === "saving"));
 }
 
 function extractImage(pv: ProductViews): string | null {
-  return pv.gallery?.images?.[0]?.source ?? null;
+  const raw = pv.gallery?.images?.[0];
+  if (!raw) return null;
+  // Replace {size} placeholder — "zoom" gives a good product image
+  return raw.replace("{size}", "zoom");
+}
+
+function extractBrand(pv: ProductViews): string | null {
+  return pv.enhanced_ecommerce_impression?.ecommerce?.impressions?.[0]?.brand ?? null;
 }
 
 function getCategory(pv: ProductViews, fallback: string): string {
@@ -110,18 +127,11 @@ export async function scrapeTakealot(): Promise<ScrapedProduct[]> {
         if (item.type !== "product_views" || !item.product_views) continue;
         const pv = item.product_views;
 
-        const name = pv.core?.title ?? pv.title;
+        const name = pv.core?.title;
         if (!name) continue;
 
-        const price = centsToRands(
-          pv.buybox_summary?.min_selling_price ??
-          pv.buybox_summary?.min_price
-        );
+        const { price, originalPrice } = extractPrice(pv);
         if (!price || price < 10) continue;
-
-        // Original price only if there's a meaningful saving
-        const listPrice = centsToRands(pv.buybox_summary?.min_list_price);
-        const originalPrice = listPrice && listPrice > price ? listPrice : null;
 
         // Apply 2–6% in-store premium, round to nearest R10
         const applyPremium = (base: number) =>
@@ -145,7 +155,7 @@ export async function scrapeTakealot(): Promise<ScrapedProduct[]> {
           results.push({
             retailerName: shopName,
             name,
-            brand: pv.brand?.name ?? null,
+            brand: extractBrand(pv),
             category: getCategory(pv, cat),
             price: applyPremium(price),
             originalPrice: originalPrice ? applyPremium(originalPrice) : null,
@@ -154,7 +164,7 @@ export async function scrapeTakealot(): Promise<ScrapedProduct[]> {
             imageUrl: extractImage(pv),
           });
           found++;
-          break; // one shop per product
+          break;
         }
 
         if (found >= 5) break;
