@@ -27,7 +27,6 @@ export const SA_MALLS: MallSeed[] = [
     province: "Gauteng",
     lat: -26.1074,
     lng: 28.0564,
-    placeId: "ChIJM1gOBRZilR4R5hGBNKNiPSA",
     storesUrl: "https://www.sandtoncity.com/stores",
   },
   {
@@ -36,7 +35,6 @@ export const SA_MALLS: MallSeed[] = [
     province: "Gauteng",
     lat: -25.9968,
     lng: 28.1097,
-    placeId: "ChIJ-c7X0KJilR4R8QNKXB_Kc4s",
     storesUrl: "https://www.mallofafrica.co.za/stores",
   },
   {
@@ -45,7 +43,6 @@ export const SA_MALLS: MallSeed[] = [
     province: "Gauteng",
     lat: -25.7821,
     lng: 28.2762,
-    placeId: "ChIJGTKEFcFelR4Rq5eQYMJQMQg",
     storesUrl: "https://www.menlyn.co.za/stores",
   },
   {
@@ -54,7 +51,6 @@ export const SA_MALLS: MallSeed[] = [
     province: "Gauteng",
     lat: -26.1824,
     lng: 28.1057,
-    placeId: "ChIJWxdmkrFilR4RPdSSGJBP7_M",
     storesUrl: "https://www.eastgate.co.za/stores",
   },
   {
@@ -63,7 +59,6 @@ export const SA_MALLS: MallSeed[] = [
     province: "Gauteng",
     lat: -26.1459,
     lng: 28.0424,
-    placeId: "ChIJG37oY_FilR4Rq6LqXrFwHxA",
     storesUrl: "https://www.rosebankMall.co.za/stores",
   },
   {
@@ -126,7 +121,6 @@ export const SA_MALLS: MallSeed[] = [
     province: "Western Cape",
     lat: -33.8943,
     lng: 18.5120,
-    placeId: "ChIJX9f6rkxYzB0RpHJe0XHBQHI",
     storesUrl: "https://www.canalwalk.co.za/stores",
   },
   {
@@ -135,7 +129,6 @@ export const SA_MALLS: MallSeed[] = [
     province: "Western Cape",
     lat: -33.9022,
     lng: 18.4197,
-    placeId: "ChIJd0pGqFBYzB0RFiFBiToexXk",
     storesUrl: "https://www.waterfront.co.za/shops",
   },
   {
@@ -176,7 +169,6 @@ export const SA_MALLS: MallSeed[] = [
     province: "KwaZulu-Natal",
     lat: -29.7266,
     lng: 31.0777,
-    placeId: "ChIJw3zp2s9LlR4RiJT6lrGVR8I",
     storesUrl: "https://www.gateway.co.za/stores",
   },
   {
