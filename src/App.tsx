@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ShoppingSessionProvider } from "@/context/ShoppingSessionContext";
 import { LocationProvider } from "@/context/LocationContext";
+import { AuthProvider } from "@/context/AuthContext";
 import Index from "./pages/Index.tsx";
 import Malls from "./pages/Malls.tsx";
 import SearchPage from "./pages/SearchPage.tsx";
@@ -15,6 +16,7 @@ import Parking from "./pages/Parking.tsx";
 import Rewards from "./pages/Rewards.tsx";
 import Profile from "./pages/Profile.tsx";
 import AssistantPage from "./pages/AssistantPage.tsx";
+import AuthPage from "./pages/AuthPage.tsx";
 import NotFound from "./pages/NotFound.tsx";
 
 const queryClient = new QueryClient();
@@ -22,6 +24,7 @@ const queryClient = new QueryClient();
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
+      <AuthProvider>
       <ShoppingSessionProvider>
         <LocationProvider>
           <Toaster />
@@ -34,6 +37,7 @@ const App = () => (
               <Route path="/list" element={<ShoppingList />} />
               <Route path="/deals" element={<Deals />} />
               <Route path="/assistant" element={<AssistantPage />} />
+              <Route path="/auth" element={<AuthPage />} />
               <Route path="/navigate" element={<NavigateScreen />} />
               <Route path="/parking" element={<Parking />} />
               <Route path="/rewards" element={<Rewards />} />
@@ -44,6 +48,7 @@ const App = () => (
           </BrowserRouter>
         </LocationProvider>
       </ShoppingSessionProvider>
+      </AuthProvider>
     </TooltipProvider>
   </QueryClientProvider>
 );
