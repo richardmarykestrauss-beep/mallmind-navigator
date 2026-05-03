@@ -1,0 +1,62 @@
+name: Nightly Price Scraper
+
+on:
+  schedule:
+    # 2:00 AM SAST (UTC+2) = 00:00 UTC
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+    inputs:
+      retailer:
+        description: "Run single retailer (leave empty for all)"
+        required: false
+        default: ""
+
+jobs:
+  scrape:
+    name: Scrape retail prices
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: scripts/scraper/package-lock.json
+
+      - name: Install dependencies
+        working-directory: scripts/scraper
+        run: npm ci
+
+      - name: Write .env
+        working-directory: scripts/scraper
+        run: |
+          echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}" >> .env
+          echo "SUPABASE_SERVICE_KEY=${{ secrets.SUPABASE_SERVICE_KEY }}" >> .env
+
+      - name: Run scraper (all retailers)
+        if: ${{ github.event.inputs.retailer == '' }}
+        working-directory: scripts/scraper
+        run: npx tsx index.ts
+        env:
+          NODE_OPTIONS: "--max-old-space-size=512"
+
+      - name: Run scraper (single retailer)
+        if: ${{ github.event.inputs.retailer != '' }}
+        working-directory: scripts/scraper
+        run: npx tsx scrapers/${{ github.event.inputs.retailer }}.ts
+        env:
+          NODE_OPTIONS: "--max-old-space-size=512"
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scraper-logs-${{ github.run_id }}
+          path: scripts/scraper/*.log
+          retention-days: 7
+          if-no-files-found: ignore
