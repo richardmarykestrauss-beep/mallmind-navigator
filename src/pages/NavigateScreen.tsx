@@ -34,7 +34,7 @@ const NavigateScreen = () => {
   const { user, profile, refreshProfile } = useAuth();
   const [activeFloor, setActiveFloor] = useState<string>("G");
   const [completedIndices, setCompletedIndices] = useState<Set<number>>(new Set());
-  const [xpToast, setXpToast] = useState<{ xp: number; leveledUp: boolean } | null>(null);
+  const [xpToast, setXpToast] = useState<{ xp: number; leveledUp: boolean; badges: string[] } | null>(null);
   const xpAwardedRef = useRef(false);
 
   const { meters, minutes } = estimateRoute(routeStops);
@@ -47,8 +47,8 @@ const NavigateScreen = () => {
       xpAwardedRef.current = true;
       awardXP(user.id, XP_REWARDS.ROUTE_COMPLETE, profile.xp, profile.level).then((result) => {
         refreshProfile();
-        setXpToast({ xp: result.xpGained, leveledUp: result.leveledUp });
-        setTimeout(() => setXpToast(null), 4000);
+        setXpToast({ xp: result.xpGained, leveledUp: result.leveledUp, badges: result.newAchievements });
+        setTimeout(() => setXpToast(null), 5000);
       });
     }
   }, [allDone, user, profile, refreshProfile]);
@@ -292,6 +292,9 @@ const NavigateScreen = () => {
             {xpToast.leveledUp && (
               <p className="text-xs text-primary font-medium animate-pulse">🎉 Level up!</p>
             )}
+            {xpToast.badges.map((b) => (
+              <p key={b} className="text-xs text-secondary font-medium">🏆 Badge unlocked: {b}</p>
+            ))}
           </div>
         </div>
       )}

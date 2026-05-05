@@ -24,7 +24,7 @@ export default function PriceSubmitModal({ product, shop, onClose }: Props) {
   const { user, profile, refreshProfile } = useAuth();
   const [price, setPrice] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [done, setDone] = useState<{ xp: number; leveledUp: boolean; newLevel: number } | null>(null);
+  const [done, setDone] = useState<{ xp: number; leveledUp: boolean; newLevel: number; badges: string[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function handleSubmit() {
@@ -57,9 +57,10 @@ export default function PriceSubmitModal({ product, shop, onClose }: Props) {
           xp: result.xpGained,
           leveledUp: result.leveledUp,
           newLevel: result.newLevel,
+          badges: result.newAchievements,
         });
       } else {
-        setDone({ xp: 0, leveledUp: false, newLevel: 1 });
+        setDone({ xp: 0, leveledUp: false, newLevel: 1, badges: [] });
       }
     } catch (e) {
       setError((e as Error).message);
@@ -109,6 +110,11 @@ export default function PriceSubmitModal({ product, shop, onClose }: Props) {
                         🎉 Level up! You're now a {LEVEL_NAMES[done.newLevel]}
                       </p>
                     )}
+                    {done.badges.map((b) => (
+                      <p key={b} className="text-sm font-medium text-secondary animate-pulse">
+                        🏆 Badge unlocked: {b}
+                      </p>
+                    ))}
                   </div>
                 ) : (
                   <p className="text-sm text-muted-foreground mt-1">Sign in to earn XP for submissions</p>

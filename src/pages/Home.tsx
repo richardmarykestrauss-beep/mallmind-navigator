@@ -27,8 +27,13 @@ const Home = () => {
     if (!user || !profile) return;
     if (sessionStorage.getItem(SESSION_XP_KEY)) return;
     sessionStorage.setItem(SESSION_XP_KEY, "1");
-    awardXP(user.id, XP_REWARDS.SESSION_START, profile.xp, profile.level).then(() => {
+    awardXP(user.id, XP_REWARDS.SESSION_START, profile.xp, profile.level).then((result) => {
       refreshProfile();
+      // Surface badge unlocks (e.g. "First Find" on very first session)
+      if (result.newAchievements.length) {
+        // Store in sessionStorage so other pages can optionally show a welcome badge
+        sessionStorage.setItem("mm_new_badges", JSON.stringify(result.newAchievements));
+      }
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
