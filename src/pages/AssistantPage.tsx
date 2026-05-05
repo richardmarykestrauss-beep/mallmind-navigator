@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import {
   Mic, MicOff, Send, Bot, User, Route as RouteIcon,
   Store, Sparkles, MapPin, Loader2, ShoppingBag, X, Globe
@@ -51,6 +51,7 @@ const STARTERS = [
   "What's the cheapest iPhone?",
   "I need headphones and a laptop bag",
   "Show me specials on appliances",
+  "Budget mode: spend under R3000 on my whole list",
 ];
 
 // ── Product card rendered inside assistant messages ──────────────────────────
@@ -147,6 +148,7 @@ function TypingIndicator() {
 // ── Main page ─────────────────────────────────────────────────────────────────
 const AssistantPage = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { selectedMall, setRouteStops } = useShoppingSession();
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -161,6 +163,7 @@ const AssistantPage = () => {
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const prefillFiredRef = useRef(false);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -234,6 +237,17 @@ const AssistantPage = () => {
       setIsLoading(false);
     }
   }, [isLoading, messages, buildHistory, selectedMall]);
+
+  // Auto-send prefill from shopping list navigation
+  useEffect(() => {
+    const prefill = (location.state as { prefill?: string } | null)?.prefill;
+    if (!prefill || prefillFiredRef.current) return;
+    prefillFiredRef.current = true;
+    // Small delay so the page renders first
+    const t = setTimeout(() => sendMessage(prefill), 200);
+    return () => clearTimeout(t);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state]);
 
   function handleSend() {
     sendMessage(input);

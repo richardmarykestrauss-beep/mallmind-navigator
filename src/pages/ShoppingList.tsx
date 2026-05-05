@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Plus, ShoppingBag, Sparkles, ListChecks, Loader2 } from "lucide-react";
+import { Plus, ShoppingBag, Sparkles, ListChecks, Loader2, Trash2 } from "lucide-react";
 import MobileShell from "@/components/MobileShell";
 import ScreenHeader from "@/components/ScreenHeader";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,7 @@ const ShoppingList = () => {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [removing, setRemoving] = useState<string | number | null>(null);
 
   useEffect(() => {
     const load = async () => {
@@ -42,6 +43,19 @@ const ShoppingList = () => {
     setItems((prev) => [data as ShoppingListItem, ...prev]);
     setInput("");
   };
+
+  async function remove(id: string | number) {
+    setRemoving(id);
+    await supabase.from("shopping_list_items").delete().eq("id", id);
+    setItems((prev) => prev.filter((i) => i.id !== id));
+    setRemoving(null);
+  }
+
+  function findEverything() {
+    if (!items.length) return;
+    const query = items.map((i) => i.name).join(", ");
+    navigate("/assistant", { state: { prefill: query } });
+  }
 
   return (
     <MobileShell>
@@ -97,6 +111,16 @@ const ShoppingList = () => {
               <div className="flex-1 min-w-0">
                 <p className="font-medium text-sm truncate">{item.name}</p>
               </div>
+              <button
+                onClick={() => remove(item.id!)}
+                disabled={removing === item.id}
+                className="flex h-8 w-8 items-center justify-center rounded-xl text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-all disabled:opacity-40"
+              >
+                {removing === item.id
+                  ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  : <Trash2 className="h-3.5 w-3.5" />
+                }
+              </button>
             </div>
           ))
         )}
@@ -104,16 +128,19 @@ const ShoppingList = () => {
 
       {/* CTA */}
       {items.length > 0 && (
-        <div className="px-5 mt-6">
+        <div className="px-5 mt-6 space-y-2">
           <Button
-            variant="neonGreen"
+            variant="neon"
             size="lg"
-            className="w-full animate-pulse-glow-green"
-            onClick={() => navigate("/deals")}
+            className="w-full"
+            onClick={findEverything}
           >
             <Sparkles className="h-5 w-5" />
-            Find Best Deals
+            Find Everything on My List
           </Button>
+          <p className="text-[10px] text-center text-muted-foreground">
+            AI will find prices for all {items.length} item{items.length === 1 ? "" : "s"} and build your route
+          </p>
         </div>
       )}
     </MobileShell>
