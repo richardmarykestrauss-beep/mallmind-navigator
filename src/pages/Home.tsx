@@ -1,9 +1,15 @@
+import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Sparkles, MapPin, ListChecks, Car, Trophy, Search, Route as RouteIcon } from "lucide-react";
+import { Sparkles, MapPin, ListChecks, Car, Trophy, Search, Route as RouteIcon, Zap } from "lucide-react";
 import MobileShell from "@/components/MobileShell";
 import Logo from "@/components/Logo";
 import { Button } from "@/components/ui/button";
 import { useShoppingSession } from "@/context/ShoppingSessionContext";
+import { useAuth } from "@/context/AuthContext";
+import { awardXP, XP_REWARDS } from "@/lib/xp";
+import { LEVEL_NAMES, xpProgress } from "@/lib/levels";
+
+const SESSION_XP_KEY = "mm_session_xp_awarded";
 
 const quickActions = [
   { label: "Parking", icon: Car, to: "/parking", color: "text-primary" },
@@ -14,6 +20,18 @@ const quickActions = [
 const Home = () => {
   const navigate = useNavigate();
   const { selectedMall, routeStops } = useShoppingSession();
+  const { user, profile, refreshProfile } = useAuth();
+
+  // Award session-start XP once per browser session
+  useEffect(() => {
+    if (!user || !profile) return;
+    if (sessionStorage.getItem(SESSION_XP_KEY)) return;
+    sessionStorage.setItem(SESSION_XP_KEY, "1");
+    awardXP(user.id, XP_REWARDS.SESSION_START, profile.xp, profile.level).then(() => {
+      refreshProfile();
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
   return (
     <MobileShell>
@@ -27,6 +45,35 @@ const Home = () => {
             <Sparkles className="h-4 w-4 text-secondary" />
           </button>
         </div>
+
+        {/* XP progress strip — only for logged-in users */}
+        {user && profile && (() => {
+          const prog = xpProgress(profile.xp, profile.level);
+          return (
+            <button
+              onClick={() => navigate("/rewards")}
+              className="mt-4 w-full flex items-center gap-3 rounded-2xl border border-secondary/20 bg-secondary/8 px-3 py-2.5 hover:bg-secondary/15 transition-all"
+            >
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-secondary/20 border border-secondary/30">
+                <Zap className="h-4 w-4 text-secondary" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-bold text-secondary">
+                    Lv {profile.level} · {LEVEL_NAMES[profile.level]}
+                  </span>
+                  <span className="text-[10px] text-muted-foreground">{profile.xp} XP</span>
+                </div>
+                <div className="h-1.5 w-full rounded-full bg-secondary/20 overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-secondary transition-all duration-700"
+                    style={{ width: `${prog.pct}%` }}
+                  />
+                </div>
+              </div>
+            </button>
+          );
+        })()}
       </div>
 
       {/* Hero */}

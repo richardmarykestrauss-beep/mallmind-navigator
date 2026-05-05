@@ -1,0 +1,20 @@
+{
+  "name": "MallMind — Smart Mall Companion",
+  "short_name": "MallMind",
+  "description": "Find deals, navigate malls and save more. SA's gamified shopping assistant.",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0a0a0f",
+  "theme_color": "#00d4ff",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/x-icon"
+    }
+  ],
+  "categories": ["shopping", "lifestyle", "navigation"],
+  "lang": "en-ZA",
+  "scope": "/"
+}
