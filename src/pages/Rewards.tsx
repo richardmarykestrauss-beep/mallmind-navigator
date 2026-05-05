@@ -21,7 +21,8 @@ const BADGES = [
   { id: "legend",      name: "Legend",      Icon: Sparkles, xpRequired: 6000, color: "from-secondary to-primary",         desc: "Top 1% of SA shoppers" },
 ];
 
-function formatDate(iso: string) {
+function formatDate(iso: string | undefined) {
+  if (!iso) return "";
   return new Date(iso).toLocaleDateString("en-ZA", { day: "numeric", month: "short", year: "numeric" });
 }
 
@@ -37,7 +38,7 @@ const Rewards = () => {
     getUserAchievements(user.id)
       .then((rows: UserAchievement[]) => {
         const map: Record<string, string> = {};
-        rows.forEach((r) => { map[r.achievement_id] = r.earned_at; });
+        rows.forEach((r) => { map[r.name] = r.unlocked_at; });
         setEarnedMap(map);
       })
       .finally(() => setAchLoading(false));
@@ -149,7 +150,7 @@ const Rewards = () => {
 
         <div className="grid grid-cols-3 gap-3">
           {BADGES.map((b) => {
-            const earnedAt = earnedMap[b.id];
+            const earnedAt = earnedMap[b.name];
             // Fallback: also unlock visually if XP threshold is met (handles migration period)
             const unlocked = !!earnedAt || xp >= b.xpRequired;
             const isRecent = earnedAt

@@ -2,19 +2,25 @@
 -- Migration 002 — Seed achievements table
 --
 -- Run this in Supabase → SQL Editor
--- Safe to re-run (ON CONFLICT DO NOTHING)
+-- Safe to re-run (ON CONFLICT (name) DO NOTHING)
 -- ================================================================
 
--- Seed the 6 badge definitions
-INSERT INTO achievements (id, name, description, icon, xp_required)
+-- Add unique constraint on name so the ON CONFLICT clause works
+ALTER TABLE achievements
+  ADD CONSTRAINT IF NOT EXISTS achievements_name_unique UNIQUE (name);
+
+-- Seed the 6 XP-milestone badges
+-- condition_type = 'xp'  → unlock when profile.xp >= condition_value
+-- xp_reward = 0          → these are milestone badges, not reward-granting ones
+INSERT INTO achievements (name, description, icon, xp_reward, condition_type, condition_value)
 VALUES
-  ('first-find',  'First Find',  'Start your MallMind journey',    'Star',     0),
-  ('deal-hunter', 'Deal Hunter', 'Reach 100 XP',                   'Target', 100),
-  ('streak-x7',   'Streak x7',   'Reach 300 XP',                   'Flame',  300),
-  ('vip-saver',   'VIP Saver',   'Reach 1,000 XP',                 'Crown',  1000),
-  ('mall-master', 'Mall Master', 'Reach 3,000 XP',                 'Award',  3000),
-  ('legend',      'Legend',      'Top 1% of SA shoppers (6k XP)',  'Sparkles', 6000)
-ON CONFLICT (id) DO NOTHING;
+  ('First Find',  'Start your MallMind journey',   'Star',     0, 'xp', 0),
+  ('Deal Hunter', 'Reach 100 XP',                  'Target',   0, 'xp', 100),
+  ('Streak x7',   'Reach 300 XP',                  'Flame',    0, 'xp', 300),
+  ('VIP Saver',   'Reach 1,000 XP',                'Crown',    0, 'xp', 1000),
+  ('Mall Master', 'Reach 3,000 XP',                'Award',    0, 'xp', 3000),
+  ('Legend',      'Top 1% of SA shoppers',         'Sparkles', 0, 'xp', 6000)
+ON CONFLICT (name) DO NOTHING;
 
 -- Enable RLS on user_achievements (if not already enabled)
 ALTER TABLE user_achievements ENABLE ROW LEVEL SECURITY;
