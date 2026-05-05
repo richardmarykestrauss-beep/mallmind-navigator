@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { supabase, type Product, type Shop } from "@/lib/supabaseClient";
 import { useShoppingSession } from "@/context/ShoppingSessionContext";
 import PriceSubmitModal from "@/components/PriceSubmitModal";
+import PriceAlertButton from "@/components/PriceAlertButton";
 import { cn } from "@/lib/utils";
 
 const FLOOR_ORDER: Record<string, number> = { B1: 0, G: 1, L1: 2, L2: 3, L3: 4, L4: 5 };
@@ -309,8 +310,8 @@ const SearchPage = () => {
                       }
                     </button>
 
-                    {/* Price submit nudge */}
-                    <div className="px-4 pb-2 flex justify-end">
+                    {/* Price submit nudge + alert bell */}
+                    <div className="px-4 pb-2 flex items-center justify-between">
                       <button
                         onClick={() => setPriceSubmit({ product: m.product, shop: m.shop })}
                         className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-secondary transition-colors"
@@ -318,6 +319,7 @@ const SearchPage = () => {
                         <Zap className="h-3 w-3" />
                         Seen a different price? +50 XP
                       </button>
+                      <PriceAlertButton productId={String(m.product.id)} />
                     </div>
                   </div>
                 );
