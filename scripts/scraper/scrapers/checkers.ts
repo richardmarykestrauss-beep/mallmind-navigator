@@ -1,174 +1,169 @@
 /**
- * Checkers / Shoprite scraper.
- * Targets the Sixty60 / Checkers website API (SAP Commerce Cloud).
- * Falls back to JSON-LD structured data embedded in search result pages.
+ * Checkers Sixty60 scraper — uses their internal POST API.
+ *
+ * How it works:
+ *  1. Playwright loads the homepage to acquire the `storeContexts` session cookie
+ *     (the cookie auto-assigns a Joburg fulfilment store)
+ *  2. We POST to /api/catalogue/get-products-filter from within the browser context
+ *     so the session cookie is automatically included in the request
+ *  3. Two strategies per query:
+ *     A. Search: productListSource.searchQuery + url "/api/v3/products/search-results"
+ *     B. If search returns 0: navigate to search page and intercept product API calls
+ *
+ * Price fields (confirmed from live response):
+ *   product.price            — full/original price in Rands
+ *   product.discountedPrice  — actual selling price (lower when on promo)
+ *   product.isOnPromotion    — boolean
+ *   product.imageProductCardURL — product image URL
  */
 
-import * as cheerio from "cheerio";
-import { SmartFetcher, extractJsonLd, dig } from "../framework/fetcher.js";
+import { getBrowser, newStealthPage, goto } from "../framework/browser.js";
 import { RETAILER_TARGETS } from "../targets.js";
 import type { ScrapedProduct } from "../db.js";
 
-const HOME    = "https://www.checkers.co.za";
-const SHOP_NAME = "Checkers";
+const FILTER_API = "https://www.checkers.co.za/api/catalogue/get-products-filter";
 
-interface HybrisProduct {
-  name?: string;
-  brand?: { name?: string };
-  price?: { value?: number; formattedValue?: string };
-  images?: Array<{ format?: string; url?: string }>;
-  categories?: Array<{ name?: string }>;
-  stock?: { stockLevelStatus?: string };
-  potentialPromotions?: Array<{ description?: string }>;
+interface Sixty60Product {
+  name: string;
+  displayName?: string;
+  price: number;
+  discountedPrice: number;
+  isOnPromotion: boolean;
+  outOfStock: boolean;
+  imageProductCardURL?: string;
+  imageURL?: string;
 }
 
-function parsePrice(raw: string | undefined): number | null {
-  if (!raw) return null;
-  const n = parseFloat(raw.replace(/[^0-9.]/g, ""));
-  return isNaN(n) ? null : Math.round(n);
+function mapProduct(p: Sixty60Product, category: string): ScrapedProduct | null {
+  const name = p.displayName ?? p.name;
+  if (!name) return null;
+  const price = Math.round(p.discountedPrice ?? p.price);
+  if (!price || price < 2) return null;
+  const originalPrice = p.price > price ? Math.round(p.price) : null;
+  return {
+    retailerName: "Checkers",
+    name,
+    brand: null,
+    category,
+    price,
+    originalPrice,
+    isOnSpecial: p.isOnPromotion || !!originalPrice,
+    inStock: !p.outOfStock,
+    imageUrl: p.imageProductCardURL ?? p.imageURL ?? null,
+  };
 }
 
-function extractFromHybris(data: unknown): ScrapedProduct[] {
-  const products: unknown[] =
-    (dig(data, "products") as unknown[]) ??
-    (dig(data, "searchPageData.results") as unknown[]) ??
-    [];
+async function postFilter(
+  page: import("playwright").Page,
+  body: unknown
+): Promise<Sixty60Product[]> {
+  const result = await page.evaluate(
+    async ({ url, body }: { url: string; body: unknown }) => {
+      try {
+        const r = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "*/*" },
+          credentials: "include",
+          body: JSON.stringify(body),
+        });
+        if (!r.ok) return { ok: false, status: r.status, text: "" };
+        return { ok: true, status: r.status, text: await r.text() };
+      } catch (e) {
+        return { ok: false, status: -1, text: String(e) };
+      }
+    },
+    { url: FILTER_API, body }
+  );
 
-  return products
-    .filter(Boolean)
-    .map((p): ScrapedProduct | null => {
-      const hp = p as HybrisProduct;
-      const price = hp.price?.value ?? parsePrice(hp.price?.formattedValue);
-      if (!price || price < 2) return null;
-      const name = hp.name;
-      if (!name) return null;
-      const img = hp.images?.find((i) => i.format === "product")?.url;
-      return {
-        retailerName: SHOP_NAME,
-        name,
-        brand: hp.brand?.name ?? null,
-        category: hp.categories?.[0]?.name ?? "Grocery",
-        price,
-        originalPrice: null,
-        isOnSpecial: (hp.potentialPromotions?.length ?? 0) > 0,
-        inStock: hp.stock?.stockLevelStatus !== "outOfStock",
-        imageUrl: img ? (img.startsWith("http") ? img : `${HOME}${img}`) : null,
-      };
-    })
-    .filter((p): p is ScrapedProduct => p !== null);
-}
-
-function extractFromJsonLd(blocks: unknown[]): ScrapedProduct[] {
-  const results: ScrapedProduct[] = [];
-  for (const block of blocks) {
-    const arr = Array.isArray(block) ? block : [block];
-    for (const item of arr) {
-      const name = (item as Record<string, unknown>)["name"] as string | undefined;
-      const priceSpec = (item as Record<string, unknown>)["offers"] as Record<string, unknown> | undefined;
-      const price = parsePrice(String(priceSpec?.["price"] ?? ""));
-      if (!name || !price) continue;
-      const img = ((item as Record<string, unknown>)["image"] as string | undefined) ?? null;
-      results.push({
-        retailerName: SHOP_NAME,
-        name,
-        brand: null,
-        category: "Grocery",
-        price,
-        originalPrice: null,
-        isOnSpecial: false,
-        inStock: priceSpec?.["availability"] !== "OutOfStock",
-        imageUrl: img,
-      });
-    }
+  if (!result.ok) return [];
+  try {
+    const data = JSON.parse(result.text) as { products?: Sixty60Product[] };
+    return data.products ?? [];
+  } catch {
+    return [];
   }
-  return results;
-}
-
-function extractFromHtml(html: string): ScrapedProduct[] {
-  const $ = cheerio.load(html);
-  const results: ScrapedProduct[] = [];
-
-  $("[data-product-name], .item-product, .product-item, .product-grid-item").each((_, el) => {
-    const name =
-      $(el).attr("data-product-name") ??
-      $(el).find(".product-name, .item-name, h2, h3").first().text().trim();
-    const priceText =
-      $(el).find("[data-price], .price, .product-price, .item-price").first().text().trim();
-    const price = parsePrice(priceText);
-    if (!name || !price) return;
-    const img = $(el).find("img").first().attr("src") ?? null;
-    results.push({
-      retailerName: SHOP_NAME,
-      name,
-      brand: null,
-      category: "Grocery",
-      price,
-      originalPrice: null,
-      isOnSpecial: $(el).find(".badge-sale, .sale-badge, .special").length > 0,
-      inStock: true,
-      imageUrl: img,
-    });
-  });
-
-  return results;
 }
 
 export async function scrapeCheckers(): Promise<ScrapedProduct[]> {
-  const fetcher = new SmartFetcher({ meanDelay: 3000, stdDelay: 1000 });
-  await fetcher.warmUp(HOME);
-
+  const browser = await getBrowser();
+  const { page, context } = await newStealthPage(browser);
   const results: ScrapedProduct[] = [];
-  const targets = RETAILER_TARGETS.checkers;
+
+  console.log("  [checkers] warming up — acquiring store session cookie…");
+  try {
+    await goto(page, "https://www.checkers.co.za");
+    await page.waitForTimeout(3000);
+  } catch { /* continue */ }
+
+  const targets = RETAILER_TARGETS["checkers"] ?? [];
 
   for (const target of targets) {
     console.log(`  [checkers] → "${target.query}"`);
 
-    // Strategy 1: SAP Commerce / Hybris JSON API
-    const apiUrl = `${HOME}/api/2.0/page/search?q=${encodeURIComponent(target.query)}&pageSize=20&lang=en`;
-    try {
-      const apiRes = await fetcher.get(apiUrl, {
-        referer: `${HOME}/search?q=${encodeURIComponent(target.query)}`,
-        extraHeaders: { "Accept": "application/json" },
-      });
+    // Strategy A: POST search query directly to the filter API
+    const searchBody = {
+      storeContexts: [],
+      filterData: {
+        filter: {
+          showAllDisplayVariants: false,
+          showNotRangedProducts: false,
+          productListSource: { searchQuery: target.query },
+          paginationOptions: { page: 0, pageSize: 20 },
+          filterOptions: { dealsOnly: false, serviceOptions: [], facetOptions: [] },
+          sortOptions: null,
+        },
+        displayOptions: {},
+      },
+      forYouBonusBuyIds: [],
+      url: "/api/v3/products/search-results",
+      isCarousel: false,
+    };
 
-      if (apiRes.ok) {
-        const data = apiRes.json();
-        const products = extractFromHybris(data);
-        if (products.length) {
-          console.log(`    API: ${products.length} products`);
-          results.push(...products.slice(0, 8));
-          continue;
-        }
-      }
-    } catch { /* fall through */ }
+    const searchProducts = await postFilter(page, searchBody);
+    const mapped = searchProducts
+      .map((p) => mapProduct(p, target.category))
+      .filter((p): p is ScrapedProduct => p !== null);
 
-    // Strategy 2: Parse search results page HTML
-    const pageUrl = `${HOME}/search?q=${encodeURIComponent(target.query)}`;
-    try {
-      const pageRes = await fetcher.get(pageUrl, { referer: HOME });
-      if (pageRes.ok) {
-        const jsonLd = extractJsonLd(pageRes.text);
-        const ldProducts = extractFromJsonLd(jsonLd);
-        if (ldProducts.length) {
-          console.log(`    JSON-LD: ${ldProducts.length} products`);
-          results.push(...ldProducts.slice(0, 8));
-          continue;
-        }
-
-        const htmlProducts = extractFromHtml(pageRes.text);
-        if (htmlProducts.length) {
-          console.log(`    HTML: ${htmlProducts.length} products`);
-          results.push(...htmlProducts.slice(0, 8));
-          continue;
-        }
-      }
-    } catch (e) {
-      console.error(`    Error: ${e}`);
+    if (mapped.length) {
+      console.log(`    ${mapped.length} products (via search API)`);
+      results.push(...mapped.slice(0, 8));
+      await page.waitForTimeout(800 + Math.random() * 700);
+      continue;
     }
 
-    console.warn(`    No results for "${target.query}"`);
+    // Strategy B: navigate search page and intercept any product API responses
+    const captured: Sixty60Product[] = [];
+    const interceptor = async (res: import("playwright").Response) => {
+      if (!res.url().includes("/api/catalogue/get-products-filter")) return;
+      try {
+        const data = (await res.json()) as { products?: Sixty60Product[] };
+        if (data.products?.length) captured.push(...data.products);
+      } catch { /* ignore */ }
+    };
+    page.on("response", interceptor);
+
+    try {
+      await goto(page, `https://www.checkers.co.za/search?q=${encodeURIComponent(target.query)}`);
+      await page.waitForTimeout(4000);
+    } catch { /* ignore */ }
+
+    page.off("response", interceptor);
+
+    const interceptMapped = captured
+      .map((p) => mapProduct(p, target.category))
+      .filter((p): p is ScrapedProduct => p !== null);
+
+    if (interceptMapped.length) {
+      console.log(`    ${interceptMapped.length} products (via intercept)`);
+      results.push(...interceptMapped.slice(0, 8));
+    } else {
+      console.warn(`    No results for "${target.query}"`);
+    }
+
+    await page.waitForTimeout(1000 + Math.random() * 1000);
   }
 
+  await context.close();
   console.log(`  [checkers] ${results.length} products collected`);
   return results;
 }

@@ -16,14 +16,17 @@
 
 import { scrapeTakealot }   from "./scrapers/takealot.js";
 import { scrapeCheckers }   from "./scrapers/checkers.js";
-import { scrapePnP }        from "./scrapers/pnp.js";
-import { scrapeWoolworths } from "./scrapers/woolworths.js";
 import { scrapeIncredible } from "./scrapers/incredible.js";
-import { scrapeGame }       from "./scrapers/game.js";
-import { scrapeClicks }     from "./scrapers/clicks.js";
 import { scrapeDischem }    from "./scrapers/dischem.js";
-import { scrapeMrPrice }    from "./scrapers/mrprice.js";
-import { scrapeSportsmans } from "./scrapers/sportsmans.js";
+import {
+  scrapePnP,
+  scrapeWoolworths,
+  scrapeGame,
+  scrapeClicks,
+  scrapeMrPrice,
+  scrapeSportsmans,
+} from "./scrapers/playwrightScraper.js";
+import { closeBrowser }     from "./framework/browser.js";
 import { upsertProducts }   from "./db.js";
 
 interface ScraperResult {
@@ -104,6 +107,8 @@ async function main() {
   console.log(`  Total: ${totalInserted} inserted, ${totalUpdated} updated, ${totalSkipped} skipped`);
   console.log(`  Duration: ${elapsed}s`);
   console.log(`  Finished: ${finished.toLocaleString("en-ZA")}`);
+
+  await closeBrowser();
 }
 
 main().catch(console.error);
