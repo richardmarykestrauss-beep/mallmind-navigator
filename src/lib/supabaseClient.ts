@@ -70,9 +70,17 @@ export type ShoppingListItem = {
 };
 
 export type BestDeal = {
-  id: string | number;
+  // best_deals is a view — no id column; use row index as UI key
   product_name: string;
+  brand: string | null;
+  category: string | null;
   shop_name: string;
+  mall_name: string | null;
   price: number;
-  discount_percentage: number;
+  original_price: number | null;
+  is_on_special: boolean;
+  discount_percent: number;
+  floor: string | null;
+  unit_number: string | null;
+  price_rank: number | null;
 };
