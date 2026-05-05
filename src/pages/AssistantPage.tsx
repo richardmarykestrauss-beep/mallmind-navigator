@@ -2,7 +2,8 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import {
   Mic, MicOff, Send, Bot, User, Route as RouteIcon,
-  Store, Sparkles, MapPin, Loader2, ShoppingBag, X, Globe
+  Store, Sparkles, MapPin, Loader2, ShoppingBag, X, Globe,
+  Volume2, VolumeX
 } from "lucide-react";
 import MobileShell from "@/components/MobileShell";
 import { Button } from "@/components/ui/button";
@@ -145,6 +146,35 @@ function TypingIndicator() {
   );
 }
 
+// ── TTS helpers ───────────────────────────────────────────────────────────────
+
+/** Strip markdown so TTS doesn't say "asterisk asterisk" */
+function stripMarkdown(text: string): string {
+  return text
+    .replace(/\*\*(.*?)\*\*/g, "$1")   // **bold**
+    .replace(/\*(.*?)\*/g, "$1")        // *italic*
+    .replace(/#{1,6}\s/g, "")           // ## headings
+    .replace(/`[^`]+`/g, "")           // `code`
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1") // [link](url)
+    .replace(/\n{2,}/g, ". ")           // paragraph breaks → pause
+    .replace(/\n/g, ", ")               // single newlines → comma
+    .trim();
+}
+
+/**
+ * Pick the best available voice: en-ZA first, then en-GB, then en-US, then any en-.
+ * Voices load asynchronously on Android/iOS — we retry until they appear.
+ */
+function pickVoice(): SpeechSynthesisVoice | null {
+  const voices = window.speechSynthesis.getVoices();
+  const priority = ["en-ZA", "en-GB", "en-AU", "en-US"];
+  for (const lang of priority) {
+    const v = voices.find((v) => v.lang === lang);
+    if (v) return v;
+  }
+  return voices.find((v) => v.lang.startsWith("en")) ?? voices[0] ?? null;
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 const AssistantPage = () => {
   const navigate = useNavigate();
@@ -164,6 +194,48 @@ const AssistantPage = () => {
   const inputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const prefillFiredRef = useRef(false);
+
+  // TTS
+  const [ttsEnabled, setTtsEnabled] = useState(true);
+  const ttsSupported = typeof window !== "undefined" && "speechSynthesis" in window;
+
+  /** Speak a response aloud — cancels any in-progress speech first */
+  const speak = useCallback((text: string) => {
+    if (!ttsEnabled || !ttsSupported) return;
+    window.speechSynthesis.cancel();
+
+    const clean = stripMarkdown(text);
+    if (!clean) return;
+
+    const utter = new SpeechSynthesisUtterance(clean);
+    utter.lang = "en-ZA";
+    utter.rate = 1.05;   // slightly faster — feels snappier on mobile
+    utter.pitch = 1.0;
+
+    // voices may not be ready yet on first load — use a small retry
+    const trySpeak = () => {
+      const voice = pickVoice();
+      if (voice) utter.voice = voice;
+      window.speechSynthesis.speak(utter);
+    };
+
+    if (window.speechSynthesis.getVoices().length > 0) {
+      trySpeak();
+    } else {
+      window.speechSynthesis.onvoiceschanged = () => {
+        window.speechSynthesis.onvoiceschanged = null;
+        trySpeak();
+      };
+    }
+  }, [ttsEnabled, ttsSupported]);
+
+  /** Stop speech immediately (e.g. when user sends a new message) */
+  const stopSpeech = useCallback(() => {
+    if (ttsSupported) window.speechSynthesis.cancel();
+  }, [ttsSupported]);
+
+  // Stop speaking when component unmounts (navigating away)
+  useEffect(() => () => stopSpeech(), [stopSpeech]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -192,6 +264,7 @@ const AssistantPage = () => {
       loading: true,
     };
 
+    stopSpeech(); // cancel any ongoing speech when user sends a new message
     setMessages((prev) => [...prev, userMsg, loadingMsg]);
     setInput("");
     setIsLoading(true);
@@ -214,10 +287,11 @@ const AssistantPage = () => {
 
       const data = await res.json();
 
+      const replyText = data.message ?? "Sorry, I couldn't get a response.";
       const assistantMsg: ChatMessage = {
         id: crypto.randomUUID(),
         role: "assistant",
-        content: data.message ?? "Sorry, I couldn't get a response.",
+        content: replyText,
         products: data.products?.length ? data.products : undefined,
         webResults: data.web_results?.length ? data.web_results : undefined,
         routeShopIds: data.build_route ? data.route_shop_ids : undefined,
@@ -225,6 +299,7 @@ const AssistantPage = () => {
       };
 
       setMessages((prev) => prev.filter((m) => !m.loading).concat(assistantMsg));
+      speak(replyText);
     } catch {
       setMessages((prev) =>
         prev.filter((m) => !m.loading).concat({
@@ -236,7 +311,7 @@ const AssistantPage = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [isLoading, messages, buildHistory, selectedMall]);
+  }, [isLoading, messages, buildHistory, selectedMall, speak, stopSpeech]);
 
   // Auto-send prefill from shopping list navigation
   useEffect(() => {
@@ -327,12 +402,35 @@ const AssistantPage = () => {
             </p>
           </div>
         </div>
-        {selectedMall && (
-          <div className="flex items-center gap-1.5 rounded-xl border border-primary/30 bg-primary/10 px-3 py-1.5 text-xs text-primary">
-            <MapPin className="h-3 w-3" />
-            {selectedMall.city ?? selectedMall.name}
-          </div>
-        )}
+        <div className="flex items-center gap-2">
+          {/* TTS toggle — only shown when supported */}
+          {ttsSupported && (
+            <button
+              onClick={() => {
+                if (ttsEnabled) stopSpeech();
+                setTtsEnabled((v) => !v);
+              }}
+              title={ttsEnabled ? "Mute AI voice" : "Unmute AI voice"}
+              className={cn(
+                "flex h-9 w-9 items-center justify-center rounded-xl border transition-all",
+                ttsEnabled
+                  ? "border-secondary/40 bg-secondary/15 text-secondary"
+                  : "border-border bg-surface/60 text-muted-foreground"
+              )}
+            >
+              {ttsEnabled
+                ? <Volume2 className="h-4 w-4" />
+                : <VolumeX className="h-4 w-4" />
+              }
+            </button>
+          )}
+          {selectedMall && (
+            <div className="flex items-center gap-1.5 rounded-xl border border-primary/30 bg-primary/10 px-3 py-1.5 text-xs text-primary">
+              <MapPin className="h-3 w-3" />
+              {selectedMall.city ?? selectedMall.name}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Messages */}
