@@ -5,9 +5,14 @@
 -- Safe to re-run (ON CONFLICT (name) DO NOTHING)
 -- ================================================================
 
--- Add unique constraint on name so the ON CONFLICT clause works
-ALTER TABLE achievements
-  ADD CONSTRAINT IF NOT EXISTS achievements_name_unique UNIQUE (name);
+-- Add unique constraint on name so the ON CONFLICT clause works (safe re-run)
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'achievements_name_unique'
+  ) THEN
+    ALTER TABLE achievements ADD CONSTRAINT achievements_name_unique UNIQUE (name);
+  END IF;
+END $$;
 
 -- Seed the 6 XP-milestone badges
 -- condition_type = 'xp'  → unlock when profile.xp >= condition_value
