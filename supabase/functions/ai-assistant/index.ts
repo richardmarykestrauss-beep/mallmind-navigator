@@ -1,18 +1,13 @@
 /**
  * MallMind AI Assistant — Edge Function
- * Claude (tool use) + Gemini Flash (Google Search grounding) hybrid.
- *
- * Flow:
- *   1. Claude searches your Supabase product DB via search_products tool
- *   2. If nothing found, Claude calls search_web → Gemini Flash queries Google
- *   3. Claude presents both sources clearly, flagging web results as estimates
+ * Claude Haiku (tool use) + Gemini Flash (Google Search grounding) hybrid.
  *
  * Deploy:
  *   supabase functions deploy ai-assistant
  *
  * Required secrets:
  *   supabase secrets set ANTHROPIC_API_KEY=sk-ant-...
- *   supabase secrets set GEMINI_API_KEY=AIza...
+ *   supabase secrets set GEMINI_API_KEY=AIza...   (optional — web fallback)
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -62,7 +57,7 @@ const tools = [
   },
   {
     name: "search_web",
-    description: "Search Google for SA retail prices via Gemini. Use ONLY as a fallback when search_products returns no results. Results are web estimates, not verified in-store prices.",
+    description: "Search Google for SA retail prices via Gemini. Use ONLY as a fallback when search_products returns no results.",
     input_schema: {
       type: "object",
       properties: {
@@ -88,8 +83,6 @@ const tools = [
     },
   },
 ];
-
-// ── Tool: search Supabase ────────────────────────────────────────────────────
 
 interface ProductRow {
   id: string | number;
@@ -143,11 +136,8 @@ async function searchProducts(query: string, mallId: string, maxPrice?: number) 
     shop_name: shopMap[String(p.shop_id)]?.name ?? "Unknown Store",
     floor: shopMap[String(p.shop_id)]?.floor ?? null,
     unit_number: shopMap[String(p.shop_id)]?.unit_number ?? null,
-    source: "database" as const,
   }));
 }
-
-// ── Tool: Gemini web search ──────────────────────────────────────────────────
 
 interface WebSearchResult {
   answer: string;
@@ -155,10 +145,7 @@ interface WebSearchResult {
 }
 
 async function searchWeb(query: string): Promise<WebSearchResult> {
-  if (!GEMINI_API_KEY) {
-    return { answer: "Web search is not configured.", sources: [] };
-  }
-
+  if (!GEMINI_API_KEY) return { answer: "Web search is not configured.", sources: [] };
   try {
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,
@@ -166,70 +153,42 @@ async function searchWeb(query: string): Promise<WebSearchResult> {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          contents: [{
-            role: "user",
-            parts: [{
-              text: `What is the current retail price of ${query} in South Africa? ` +
-                `Give the price in Rand (R). Mention the cheapest option and which stores sell it. ` +
-                `Be concise — 2-3 sentences max.`,
-            }],
-          }],
+          contents: [{ role: "user", parts: [{ text: `What is the current retail price of ${query} in South Africa? Give the price in Rand (R). Mention the cheapest option and which stores sell it. Be concise — 2-3 sentences max.` }] }],
           tools: [{ google_search: {} }],
           generationConfig: { maxOutputTokens: 256 },
         }),
       }
     );
-
-    if (!res.ok) {
-      return { answer: "Web search unavailable right now.", sources: [] };
-    }
-
+    if (!res.ok) return { answer: "Web search unavailable.", sources: [] };
     const data = await res.json();
     const parts = data.candidates?.[0]?.content?.parts ?? [];
     const answer = parts.map((p: { text?: string }) => p.text ?? "").join("").trim();
     const chunks = data.candidates?.[0]?.groundingMetadata?.groundingChunks ?? [];
-    const sources: string[] = chunks
-      .map((c: { web?: { uri?: string } }) => c.web?.uri)
-      .filter(Boolean)
-      .slice(0, 3);
-
+    const sources: string[] = chunks.map((c: { web?: { uri?: string } }) => c.web?.uri).filter(Boolean).slice(0, 3);
     return { answer: answer || "No web results found.", sources };
   } catch {
     return { answer: "Web search failed.", sources: [] };
   }
 }
 
-// ── Edge function handler ────────────────────────────────────────────────────
-
 Deno.serve(async (req: Request) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: CORS });
-  }
-  if (req.method !== "POST") {
-    return new Response("Method not allowed", { status: 405, headers: CORS });
-  }
+  if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
+  if (req.method !== "POST") return new Response("Method not allowed", { status: 405, headers: CORS });
 
   try {
     const { messages, mall_id, mall_name } = await req.json();
-
-    if (!messages?.length) {
-      return new Response(JSON.stringify({ error: "messages required" }), {
-        status: 400,
-        headers: { "Content-Type": "application/json", ...CORS },
-      });
-    }
+    if (!messages?.length) return new Response(JSON.stringify({ error: "messages required" }), { status: 400, headers: { "Content-Type": "application/json", ...CORS } });
 
     const systemPrompt = mall_id
       ? `${SYSTEM_PROMPT}\n\nUser's current mall: ${mall_name ?? "Unknown"} (mall_id: ${mall_id})`
-      : `${SYSTEM_PROMPT}\n\nNote: No mall selected yet. You can still use search_web for general price info, but remind the user to select a mall for in-store results.`;
+      : `${SYSTEM_PROMPT}\n\nNote: No mall selected yet. Use search_web for general price info and remind the user to select a mall for in-store results.`;
 
     const history = [...messages];
-    const allProducts: ReturnType<typeof searchProducts> extends Promise<infer T> ? T : never[] = [];
+    const allProducts: Awaited<ReturnType<typeof searchProducts>> = [];
     const webResults: WebSearchResult[] = [];
     let routeShopIds: string[] = [];
     let routeSummary = "";
 
-    // Agentic loop — Claude may call multiple tools before final answer
     for (let turn = 0; turn < 8; turn++) {
       const res = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
@@ -247,46 +206,44 @@ Deno.serve(async (req: Request) => {
         }),
       });
 
+      if (!res.ok) {
+        const err = await res.json();
+        console.error("Anthropic error:", err);
+        break;
+      }
+
       const data = await res.json();
 
       if (data.stop_reason === "end_turn") {
         const text = data.content?.find((c: { type: string; text?: string }) => c.type === "text")?.text ?? "";
         return new Response(
-          JSON.stringify({
-            message: text,
-            products: allProducts.flat(),
-            web_results: webResults,
-            route_shop_ids: routeShopIds,
-            route_summary: routeSummary,
-            build_route: routeShopIds.length > 0,
-          }),
+          JSON.stringify({ message: text, products: allProducts, web_results: webResults, route_shop_ids: routeShopIds, route_summary: routeSummary, build_route: routeShopIds.length > 0 }),
           { headers: { "Content-Type": "application/json", ...CORS } }
         );
       }
 
       if (data.stop_reason === "tool_use") {
         history.push({ role: "assistant", content: data.content });
-
         const toolResults = [];
+
         for (const block of data.content) {
           if (block.type !== "tool_use") continue;
-
           let result: string;
 
           if (block.name === "search_products") {
             if (mall_id) {
               const found = await searchProducts(block.input.query, mall_id, block.input.max_price);
-              allProducts.push(...(found as never[]));
+              allProducts.push(...found);
               result = found.length > 0
-                ? `Found ${found.length} products in database: ${JSON.stringify(found)}`
-                : `No products found in database for "${block.input.query}". You may want to try search_web as a fallback.`;
+                ? `Found ${found.length} products: ${JSON.stringify(found)}`
+                : `No products found for "${block.input.query}". Try search_web as fallback.`;
             } else {
-              result = "No mall selected — cannot search database. Use search_web for general price info.";
+              result = "No mall selected — use search_web for general price info.";
             }
           } else if (block.name === "search_web") {
             const webResult = await searchWeb(block.input.query);
             webResults.push(webResult);
-            result = `Web search result: ${webResult.answer}${webResult.sources.length ? ` Sources: ${webResult.sources.join(", ")}` : ""}`;
+            result = `Web result: ${webResult.answer}${webResult.sources.length ? ` Sources: ${webResult.sources.join(", ")}` : ""}`;
           } else if (block.name === "build_route") {
             routeShopIds = block.input.shop_ids.map(String);
             routeSummary = block.input.summary ?? "";
@@ -295,11 +252,7 @@ Deno.serve(async (req: Request) => {
             result = "Unknown tool.";
           }
 
-          toolResults.push({
-            type: "tool_result",
-            tool_use_id: block.id,
-            content: result,
-          });
+          toolResults.push({ type: "tool_result", tool_use_id: block.id, content: result });
         }
 
         history.push({ role: "user", content: toolResults });
@@ -314,9 +267,6 @@ Deno.serve(async (req: Request) => {
     );
   } catch (err) {
     console.error("ai-assistant error:", err);
-    return new Response(
-      JSON.stringify({ error: String(err) }),
-      { status: 500, headers: { "Content-Type": "application/json", ...CORS } }
-    );
+    return new Response(JSON.stringify({ error: String(err) }), { status: 500, headers: { "Content-Type": "application/json", ...CORS } });
   }
 });
