@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import {
   Mic, MicOff, Send, Bot, User, Route as RouteIcon,
   Store, Sparkles, MapPin, Loader2, ShoppingBag, X, Globe,
-  Volume2, VolumeX
+  Volume2, VolumeX, Wallet, ChevronRight
 } from "lucide-react";
 import MobileShell from "@/components/MobileShell";
 import { Button } from "@/components/ui/button";
@@ -54,6 +54,23 @@ const STARTERS = [
   "Show me specials on appliances",
   "Budget mode: spend under R3000 on my whole list",
 ];
+
+// ── Budget helpers ────────────────────────────────────────────────────────────
+
+/**
+ * Group products by first 3 words of name, keep cheapest per group.
+ * Gives a reasonable "what would this shopping trip cost at cheapest options" total.
+ */
+function computeTotalCost(products: ProductResult[]): number {
+  const groups: Record<string, number> = {};
+  for (const p of products) {
+    const key = p.name.toLowerCase().split(/\s+/).slice(0, 3).join(" ");
+    if (groups[key] === undefined || p.price < groups[key]) {
+      groups[key] = p.price;
+    }
+  }
+  return Object.values(groups).reduce((sum, price) => sum + price, 0);
+}
 
 // ── Product card rendered inside assistant messages ──────────────────────────
 function ProductCard({ p }: { p: ProductResult }) {
@@ -148,23 +165,18 @@ function TypingIndicator() {
 
 // ── TTS helpers ───────────────────────────────────────────────────────────────
 
-/** Strip markdown so TTS doesn't say "asterisk asterisk" */
 function stripMarkdown(text: string): string {
   return text
-    .replace(/\*\*(.*?)\*\*/g, "$1")   // **bold**
-    .replace(/\*(.*?)\*/g, "$1")        // *italic*
-    .replace(/#{1,6}\s/g, "")           // ## headings
-    .replace(/`[^`]+`/g, "")           // `code`
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1") // [link](url)
-    .replace(/\n{2,}/g, ". ")           // paragraph breaks → pause
-    .replace(/\n/g, ", ")               // single newlines → comma
+    .replace(/\*\*(.*?)\*\*/g, "$1")
+    .replace(/\*(.*?)\*/g, "$1")
+    .replace(/#{1,6}\s/g, "")
+    .replace(/`[^`]+`/g, "")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/\n{2,}/g, ". ")
+    .replace(/\n/g, ", ")
     .trim();
 }
 
-/**
- * Pick the best available voice: en-ZA first, then en-GB, then en-US, then any en-.
- * Voices load asynchronously on Android/iOS — we retry until they appear.
- */
 function pickVoice(): SpeechSynthesisVoice | null {
   const voices = window.speechSynthesis.getVoices();
   const priority = ["en-ZA", "en-GB", "en-AU", "en-US"];
@@ -190,8 +202,14 @@ const AssistantPage = () => {
       ("SpeechRecognition" in window || "webkitSpeechRecognition" in window);
   });
 
+  // Budget state
+  const [budget, setBudget] = useState<number | null>(null);
+  const [budgetInput, setBudgetInput] = useState("");
+  const [showBudgetInput, setShowBudgetInput] = useState(false);
+
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const budgetInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const prefillFiredRef = useRef(false);
 
@@ -200,41 +218,29 @@ const AssistantPage = () => {
   const ttsSupported = typeof window !== "undefined" && "speechSynthesis" in window;
   const ttsUnlockedRef = useRef(false);
 
-  /**
-   * iOS blocks speechSynthesis.speak() unless the first call happens directly
-   * inside a user-gesture handler. We fire a silent, zero-duration utterance on
-   * the very first tap (mic or send) to unlock the audio pipeline — subsequent
-   * calls from async code (after the AI responds) then work correctly.
-   */
   const unlockTts = useCallback(() => {
     if (!ttsSupported || ttsUnlockedRef.current) return;
     ttsUnlockedRef.current = true;
     const silent = new SpeechSynthesisUtterance(" ");
     silent.volume = 0;
-    silent.rate = 10; // finish instantly
+    silent.rate = 10;
     window.speechSynthesis.speak(silent);
   }, [ttsSupported]);
 
-  /** Speak a response aloud — cancels any in-progress speech first */
   const speak = useCallback((text: string) => {
     if (!ttsEnabled || !ttsSupported) return;
     window.speechSynthesis.cancel();
-
     const clean = stripMarkdown(text);
     if (!clean) return;
-
     const utter = new SpeechSynthesisUtterance(clean);
     utter.lang = "en-ZA";
-    utter.rate = 1.05;   // slightly faster — feels snappier on mobile
+    utter.rate = 1.05;
     utter.pitch = 1.0;
-
-    // voices may not be ready yet on first load — use a small retry
     const trySpeak = () => {
       const voice = pickVoice();
       if (voice) utter.voice = voice;
       window.speechSynthesis.speak(utter);
     };
-
     if (window.speechSynthesis.getVoices().length > 0) {
       trySpeak();
     } else {
@@ -245,19 +251,40 @@ const AssistantPage = () => {
     }
   }, [ttsEnabled, ttsSupported]);
 
-  /** Stop speech immediately (e.g. when user sends a new message) */
   const stopSpeech = useCallback(() => {
     if (ttsSupported) window.speechSynthesis.cancel();
   }, [ttsSupported]);
 
-  // Stop speaking when component unmounts (navigating away)
   useEffect(() => () => stopSpeech(), [stopSpeech]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // Build the message history in the format Claude expects
+  // Focus budget input when it opens
+  useEffect(() => {
+    if (showBudgetInput) {
+      setTimeout(() => budgetInputRef.current?.focus(), 50);
+    }
+  }, [showBudgetInput]);
+
+  // Compute running total from all assistant messages' products
+  const allFoundProducts = messages
+    .filter((m) => m.products?.length)
+    .flatMap((m) => m.products!);
+  const totalCost = allFoundProducts.length > 0 ? computeTotalCost(allFoundProducts) : 0;
+  const budgetPct = budget ? Math.min(100, (totalCost / budget) * 100) : 0;
+  const overBudget = budget !== null && totalCost > budget;
+
+  function confirmBudget() {
+    const val = parseFloat(budgetInput.replace(/[^0-9.]/g, ""));
+    if (!isNaN(val) && val > 0) {
+      setBudget(val);
+      setBudgetInput("");
+      setShowBudgetInput(false);
+    }
+  }
+
   const buildHistory = useCallback((msgs: ChatMessage[]) => {
     return msgs
       .filter((m) => !m.loading)
@@ -280,7 +307,7 @@ const AssistantPage = () => {
       loading: true,
     };
 
-    stopSpeech(); // cancel any ongoing speech when user sends a new message
+    stopSpeech();
     setMessages((prev) => [...prev, userMsg, loadingMsg]);
     setInput("");
     setIsLoading(true);
@@ -298,6 +325,7 @@ const AssistantPage = () => {
           messages: history,
           mall_id: selectedMall?.id ? String(selectedMall.id) : null,
           mall_name: selectedMall?.name ?? null,
+          budget: budget ?? undefined,
         }),
       });
 
@@ -327,21 +355,20 @@ const AssistantPage = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [isLoading, messages, buildHistory, selectedMall, speak, stopSpeech]);
+  }, [isLoading, messages, buildHistory, selectedMall, budget, speak, stopSpeech]);
 
   // Auto-send prefill from shopping list navigation
   useEffect(() => {
     const prefill = (location.state as { prefill?: string } | null)?.prefill;
     if (!prefill || prefillFiredRef.current) return;
     prefillFiredRef.current = true;
-    // Small delay so the page renders first
     const t = setTimeout(() => sendMessage(prefill), 200);
     return () => clearTimeout(t);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.state]);
 
   function handleSend() {
-    unlockTts(); // iOS audio context unlock — must be in a gesture handler
+    unlockTts();
     sendMessage(input);
   }
 
@@ -354,7 +381,7 @@ const AssistantPage = () => {
   }
 
   function startVoice() {
-    unlockTts(); // iOS audio context unlock — must be in a gesture handler
+    unlockTts();
     if (!speechSupported) return;
     const SR = (window as typeof window & { webkitSpeechRecognition?: typeof SpeechRecognition })
       .SpeechRecognition ?? (window as typeof window & { webkitSpeechRecognition?: typeof SpeechRecognition }).webkitSpeechRecognition;
@@ -385,7 +412,6 @@ const AssistantPage = () => {
   }
 
   async function handleBuildRoute(shopIds: string[]) {
-    // Fetch shop details and build route
     const { data } = await supabase
       .from("shops")
       .select("id, mall_id, name, floor, unit_number, category, opening_hours")
@@ -409,47 +435,82 @@ const AssistantPage = () => {
   return (
     <MobileShell>
       {/* Header */}
-      <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-border/50 shrink-0">
-        <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/15 border border-primary/30 glow-primary">
-            <Sparkles className="h-4 w-4 text-primary" />
-          </div>
-          <div>
-            <p className="font-display font-bold text-sm">MallMind AI</p>
-            <p className="text-[10px] text-muted-foreground">
-              {selectedMall ? selectedMall.name : "Select a mall to start"}
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          {/* TTS toggle — only shown when supported */}
-          {ttsSupported && (
-            <button
-              onClick={() => {
-                if (ttsEnabled) stopSpeech();
-                setTtsEnabled((v) => !v);
-              }}
-              title={ttsEnabled ? "Mute AI voice" : "Unmute AI voice"}
-              className={cn(
-                "flex h-9 w-9 items-center justify-center rounded-xl border transition-all",
-                ttsEnabled
-                  ? "border-secondary/40 bg-secondary/15 text-secondary"
-                  : "border-border bg-surface/60 text-muted-foreground"
-              )}
-            >
-              {ttsEnabled
-                ? <Volume2 className="h-4 w-4" />
-                : <VolumeX className="h-4 w-4" />
-              }
-            </button>
-          )}
-          {selectedMall && (
-            <div className="flex items-center gap-1.5 rounded-xl border border-primary/30 bg-primary/10 px-3 py-1.5 text-xs text-primary">
-              <MapPin className="h-3 w-3" />
-              {selectedMall.city ?? selectedMall.name}
+      <div className="shrink-0 border-b border-border/50">
+        <div className="flex items-center justify-between px-5 pt-5 pb-3">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/15 border border-primary/30 glow-primary">
+              <Sparkles className="h-4 w-4 text-primary" />
             </div>
-          )}
+            <div>
+              <p className="font-display font-bold text-sm">MallMind AI</p>
+              <p className="text-[10px] text-muted-foreground">
+                {selectedMall ? selectedMall.name : "Select a mall to start"}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {ttsSupported && (
+              <button
+                onClick={() => { if (ttsEnabled) stopSpeech(); setTtsEnabled((v) => !v); }}
+                title={ttsEnabled ? "Mute AI voice" : "Unmute AI voice"}
+                className={cn(
+                  "flex h-9 w-9 items-center justify-center rounded-xl border transition-all",
+                  ttsEnabled
+                    ? "border-secondary/40 bg-secondary/15 text-secondary"
+                    : "border-border bg-surface/60 text-muted-foreground"
+                )}
+              >
+                {ttsEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+              </button>
+            )}
+            {selectedMall && (
+              <div className="flex items-center gap-1.5 rounded-xl border border-primary/30 bg-primary/10 px-3 py-1.5 text-xs text-primary">
+                <MapPin className="h-3 w-3" />
+                {selectedMall.city ?? selectedMall.name}
+              </div>
+            )}
+          </div>
         </div>
+
+        {/* Budget bar — shown when budget is set */}
+        {budget !== null && (
+          <div className="px-5 pb-3 animate-fade-in">
+            <div className="flex items-center justify-between mb-1">
+              <div className="flex items-center gap-1.5">
+                <Wallet className={cn("h-3.5 w-3.5", overBudget ? "text-destructive" : "text-secondary")} />
+                <span className={cn("text-xs font-bold", overBudget ? "text-destructive" : "text-secondary")}>
+                  {totalCost > 0
+                    ? `R${Math.round(totalCost).toLocaleString()} spent`
+                    : "Budget set"
+                  }
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-muted-foreground">
+                  {overBudget
+                    ? `R${Math.round(totalCost - budget).toLocaleString()} over`
+                    : `R${Math.round(budget - totalCost).toLocaleString()} left`
+                  } · R{budget.toLocaleString()} budget
+                </span>
+                <button
+                  onClick={() => { setBudget(null); setBudgetInput(""); }}
+                  className="text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
+            <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+              <div
+                className={cn(
+                  "h-full rounded-full transition-all duration-500",
+                  overBudget ? "bg-destructive" : "bg-secondary"
+                )}
+                style={{ width: `${budgetPct}%` }}
+              />
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Messages */}
@@ -496,7 +557,6 @@ const AssistantPage = () => {
         {/* Message list */}
         {messages.map((msg) => (
           <div key={msg.id} className={cn("flex gap-2", msg.role === "user" ? "flex-row-reverse" : "flex-row")}>
-            {/* Avatar */}
             <div className={cn(
               "flex h-7 w-7 shrink-0 items-center justify-center rounded-xl self-end",
               msg.role === "user"
@@ -509,7 +569,6 @@ const AssistantPage = () => {
               }
             </div>
 
-            {/* Bubble */}
             <div className={cn(
               "max-w-[80%] space-y-2",
               msg.role === "user" ? "items-end" : "items-start"
@@ -529,7 +588,6 @@ const AssistantPage = () => {
                     </div>
                   )}
 
-                  {/* Product cards (from database) */}
                   {msg.products && msg.products.length > 0 && (
                     <div className="space-y-2 w-full max-w-[300px]">
                       <p className="text-[9px] uppercase tracking-wider text-primary/70 px-1 flex items-center gap-1">
@@ -541,7 +599,6 @@ const AssistantPage = () => {
                     </div>
                   )}
 
-                  {/* Web estimate cards (from Gemini + Google Search) */}
                   {msg.webResults && msg.webResults.length > 0 && (
                     <div className="space-y-2 w-full max-w-[300px]">
                       {msg.webResults.map((r, i) => (
@@ -550,7 +607,6 @@ const AssistantPage = () => {
                     </div>
                   )}
 
-                  {/* Route action */}
                   {msg.routeShopIds && msg.routeShopIds.length > 0 && (
                     <div className="rounded-2xl border border-primary/30 bg-primary/10 p-3 space-y-2 w-full max-w-[300px]">
                       <div className="flex items-center gap-2">
@@ -584,16 +640,69 @@ const AssistantPage = () => {
 
       {/* Input bar */}
       <div className="shrink-0 px-4 pb-24 pt-2 border-t border-border/50 bg-background/80 backdrop-blur">
-        {/* Clear chat */}
-        {messages.length > 0 && !isLoading && (
-          <div className="flex justify-end mb-2">
+
+        {/* Budget input row */}
+        {showBudgetInput && (
+          <div className="flex items-center gap-2 mb-2 animate-slide-up">
+            <div className="flex-1 flex items-center h-10 rounded-2xl border border-secondary/40 bg-secondary/10 overflow-hidden px-3 gap-2">
+              <span className="text-sm font-bold text-secondary">R</span>
+              <input
+                ref={budgetInputRef}
+                type="number"
+                min="1"
+                value={budgetInput}
+                onChange={(e) => setBudgetInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") confirmBudget(); if (e.key === "Escape") setShowBudgetInput(false); }}
+                placeholder="Enter your total budget"
+                className="flex-1 bg-transparent text-sm focus:outline-none placeholder:text-muted-foreground/60"
+              />
+            </div>
             <button
-              onClick={() => setMessages([])}
-              className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+              onClick={confirmBudget}
+              disabled={!budgetInput}
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-secondary/50 bg-secondary/20 text-secondary disabled:opacity-40 transition-all"
             >
-              <X className="h-3 w-3" />
-              Clear chat
+              <ChevronRight className="h-4 w-4" />
             </button>
+            <button
+              onClick={() => setShowBudgetInput(false)}
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-border text-muted-foreground transition-all"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        )}
+
+        {/* Toolbar row: clear + budget chip */}
+        {(messages.length > 0 || budget !== null) && !isLoading && (
+          <div className="flex items-center justify-between mb-2">
+            {messages.length > 0 ? (
+              <button
+                onClick={() => setMessages([])}
+                className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <X className="h-3 w-3" />
+                Clear chat
+              </button>
+            ) : <div />}
+
+            {!showBudgetInput && (
+              <button
+                onClick={() => {
+                  if (budget !== null) { setBudget(null); setBudgetInput(""); }
+                  else setShowBudgetInput(true);
+                }}
+                className={cn(
+                  "flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-medium transition-all",
+                  budget !== null
+                    ? "border-secondary/40 bg-secondary/10 text-secondary"
+                    : "border-border bg-surface/60 text-muted-foreground hover:text-foreground hover:border-secondary/40"
+                )}
+              >
+                <Wallet className="h-3 w-3" />
+                {budget !== null ? `R${budget.toLocaleString()} budget ×` : "Set budget"}
+              </button>
+            )}
           </div>
         )}
 
@@ -617,7 +726,7 @@ const AssistantPage = () => {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={isListening ? "Listening…" : "Ask about any product…"}
+            placeholder={isListening ? "Listening…" : budget ? `Ask within R${budget.toLocaleString()} budget…` : "Ask about any product…"}
             disabled={isLoading}
             className="flex-1 h-11 rounded-2xl border border-border bg-surface/80 px-4 text-sm focus:outline-none focus:border-primary/50 focus:shadow-[0_0_0_3px_hsl(190_100%_50%/0.15)] transition-all disabled:opacity-50"
           />

@@ -42,6 +42,19 @@ Rules:
 - Support South African English naturally (Afrikaans words are fine)
 - If nothing is found anywhere, say so and suggest alternatives`;
 
+function buildBudgetPrompt(budget: number): string {
+  return `
+
+User's budget: R${budget}
+Budget mode rules (IMPORTANT — follow these strictly):
+- For every product searched, always prefer and highlight the CHEAPEST option found
+- After finding all products, calculate the running total (sum of cheapest option per unique item)
+- Always end your response with a budget summary line, e.g. "💰 Total: R890 of your R${budget} budget (R${budget - 890} remaining)"
+- If the total exceeds R${budget}, flag which items are the most expensive, suggest cheaper alternatives or removal
+- When building a route, only include stores that carry items within the remaining budget
+- If a single item alone exceeds the budget, say so clearly and offer web alternatives`;
+}
+
 const tools = [
   {
     name: "search_products",
@@ -176,12 +189,16 @@ Deno.serve(async (req: Request) => {
   if (req.method !== "POST") return new Response("Method not allowed", { status: 405, headers: CORS });
 
   try {
-    const { messages, mall_id, mall_name } = await req.json();
+    const { messages, mall_id, mall_name, budget } = await req.json();
     if (!messages?.length) return new Response(JSON.stringify({ error: "messages required" }), { status: 400, headers: { "Content-Type": "application/json", ...CORS } });
 
-    const systemPrompt = mall_id
-      ? `${SYSTEM_PROMPT}\n\nUser's current mall: ${mall_name ?? "Unknown"} (mall_id: ${mall_id})`
-      : `${SYSTEM_PROMPT}\n\nNote: No mall selected yet. Use search_web for general price info and remind the user to select a mall for in-store results.`;
+    const mallContext = mall_id
+      ? `\n\nUser's current mall: ${mall_name ?? "Unknown"} (mall_id: ${mall_id})`
+      : `\n\nNote: No mall selected yet. Use search_web for general price info and remind the user to select a mall for in-store results.`;
+
+    const budgetContext = budget ? buildBudgetPrompt(Number(budget)) : "";
+
+    const systemPrompt = `${SYSTEM_PROMPT}${mallContext}${budgetContext}`;
 
     const history = [...messages];
     const allProducts: Awaited<ReturnType<typeof searchProducts>> = [];
