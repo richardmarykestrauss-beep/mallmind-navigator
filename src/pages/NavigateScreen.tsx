@@ -1,13 +1,15 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Clock, Footprints, MapPin, Route as RouteIcon,
-  CheckCircle2, Store, ArrowRight, RotateCcw, Search
+  CheckCircle2, Store, ArrowRight, RotateCcw, Search, Zap
 } from "lucide-react";
 import MobileShell from "@/components/MobileShell";
 import ScreenHeader from "@/components/ScreenHeader";
 import { Button } from "@/components/ui/button";
 import { useShoppingSession } from "@/context/ShoppingSessionContext";
+import { useAuth } from "@/context/AuthContext";
+import { awardXP, XP_REWARDS } from "@/lib/xp";
 import { cn } from "@/lib/utils";
 
 const floors = ["G", "L1", "L2", "L3"];
@@ -29,12 +31,27 @@ function estimateRoute(stops: { floor: string | null }[]): { meters: number; min
 const NavigateScreen = () => {
   const navigate = useNavigate();
   const { selectedMall, routeStops, currentStopIndex, advanceStop, resetSession } = useShoppingSession();
+  const { user, profile, refreshProfile } = useAuth();
   const [activeFloor, setActiveFloor] = useState<string>("G");
   const [completedIndices, setCompletedIndices] = useState<Set<number>>(new Set());
+  const [xpToast, setXpToast] = useState<{ xp: number; leveledUp: boolean } | null>(null);
+  const xpAwardedRef = useRef(false);
 
   const { meters, minutes } = estimateRoute(routeStops);
   const currentStop = routeStops[currentStopIndex];
   const allDone = completedIndices.size === routeStops.length && routeStops.length > 0;
+
+  // Award XP once when all stops are completed
+  useEffect(() => {
+    if (allDone && !xpAwardedRef.current && user && profile) {
+      xpAwardedRef.current = true;
+      awardXP(user.id, XP_REWARDS.ROUTE_COMPLETE, profile.xp, profile.level).then((result) => {
+        refreshProfile();
+        setXpToast({ xp: result.xpGained, leveledUp: result.leveledUp });
+        setTimeout(() => setXpToast(null), 4000);
+      });
+    }
+  }, [allDone, user, profile, refreshProfile]);
 
   function markDone(idx: number) {
     setCompletedIndices((prev) => {
@@ -265,6 +282,19 @@ const NavigateScreen = () => {
           );
         })}
       </div>
+
+      {/* XP toast */}
+      {xpToast && (
+        <div className="mx-5 mb-3 flex items-center gap-2 rounded-2xl border border-secondary/40 bg-secondary/15 px-4 py-3 animate-slide-up">
+          <Zap className="h-4 w-4 text-secondary shrink-0" />
+          <div>
+            <p className="text-sm font-bold text-secondary">+{xpToast.xp} XP — Route Complete!</p>
+            {xpToast.leveledUp && (
+              <p className="text-xs text-primary font-medium animate-pulse">🎉 Level up!</p>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Return to car CTA */}
       {allDone && (

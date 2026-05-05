@@ -2,13 +2,14 @@ import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Search, MapPin, Route as RouteIcon, ShoppingBag,
-  Tag, CheckCircle2, Loader2, Store, ChevronRight, X
+  Tag, CheckCircle2, Loader2, Store, ChevronRight, X, Zap
 } from "lucide-react";
 import MobileShell from "@/components/MobileShell";
 import ScreenHeader from "@/components/ScreenHeader";
 import { Button } from "@/components/ui/button";
 import { supabase, type Product, type Shop } from "@/lib/supabaseClient";
 import { useShoppingSession } from "@/context/ShoppingSessionContext";
+import PriceSubmitModal from "@/components/PriceSubmitModal";
 import { cn } from "@/lib/utils";
 
 const FLOOR_ORDER: Record<string, number> = { B1: 0, G: 1, L1: 2, L2: 3, L3: 4, L4: 5 };
@@ -45,6 +46,7 @@ const SearchPage = () => {
   const [loading, setLoading] = useState(false);
   const [groups, setGroups] = useState<ProductGroup[]>([]);
   const [selectedShopIds, setSelectedShopIds] = useState<Set<string | number>>(new Set());
+  const [priceSubmit, setPriceSubmit] = useState<{ product: Product; shop: Shop } | null>(null);
 
   // Debounce search input 400ms
   useEffect(() => {
@@ -250,60 +252,74 @@ const SearchPage = () => {
                 const isSelected = selectedShopIds.has(m.shop.id);
                 const isCheapest = idx === 0 && group.matches.length > 1;
                 return (
-                  <button
+                  <div
                     key={`${m.product.id}`}
-                    onClick={() => toggleShop(m.shop.id)}
                     className={cn(
-                      "w-full flex items-center gap-3 px-4 py-3 text-left transition-all",
-                      isSelected
-                        ? "bg-primary/10"
-                        : "hover:bg-muted/30"
+                      "flex flex-col transition-all",
+                      isSelected ? "bg-primary/10" : "hover:bg-muted/30"
                     )}
                   >
-                    {/* Store icon */}
-                    <div className={cn(
-                      "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border",
-                      isSelected
-                        ? "bg-primary/20 border-primary/40 text-primary"
-                        : "bg-surface border-border text-muted-foreground"
-                    )}>
-                      <Store className="h-4 w-4" />
-                    </div>
-
-                    {/* Store + floor info */}
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-sm truncate">{m.shop.name}</p>
-                      <p className="text-[11px] text-muted-foreground">
-                        Floor {m.shop.floor ?? "?"} · Unit {m.shop.unit_number ?? "—"}
-                      </p>
-                    </div>
-
-                    {/* Price */}
-                    <div className="text-right shrink-0">
-                      {m.product.is_on_special && m.product.original_price != null && (
-                        <p className="text-[10px] text-muted-foreground line-through">
-                          R{m.product.original_price.toFixed(0)}
-                        </p>
-                      )}
-                      <p className={cn(
-                        "font-display font-bold text-base",
-                        m.product.is_on_special ? "text-secondary" : "text-foreground"
+                    {/* Main row — tapping selects the stop */}
+                    <button
+                      onClick={() => toggleShop(m.shop.id)}
+                      className="w-full flex items-center gap-3 px-4 py-3 text-left"
+                    >
+                      {/* Store icon */}
+                      <div className={cn(
+                        "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border",
+                        isSelected
+                          ? "bg-primary/20 border-primary/40 text-primary"
+                          : "bg-surface border-border text-muted-foreground"
                       )}>
-                        R{m.effectivePrice.toFixed(0)}
-                      </p>
-                      {isCheapest && (
-                        <span className="text-[9px] uppercase tracking-wider text-secondary">
-                          Cheapest
-                        </span>
-                      )}
-                    </div>
+                        <Store className="h-4 w-4" />
+                      </div>
 
-                    {/* Selected indicator */}
-                    {isSelected
-                      ? <CheckCircle2 className="h-5 w-5 text-primary shrink-0" />
-                      : <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
-                    }
-                  </button>
+                      {/* Store + floor info */}
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-sm truncate">{m.shop.name}</p>
+                        <p className="text-[11px] text-muted-foreground">
+                          Floor {m.shop.floor ?? "?"} · Unit {m.shop.unit_number ?? "—"}
+                        </p>
+                      </div>
+
+                      {/* Price */}
+                      <div className="text-right shrink-0">
+                        {m.product.is_on_special && m.product.original_price != null && (
+                          <p className="text-[10px] text-muted-foreground line-through">
+                            R{m.product.original_price.toFixed(0)}
+                          </p>
+                        )}
+                        <p className={cn(
+                          "font-display font-bold text-base",
+                          m.product.is_on_special ? "text-secondary" : "text-foreground"
+                        )}>
+                          R{m.effectivePrice.toFixed(0)}
+                        </p>
+                        {isCheapest && (
+                          <span className="text-[9px] uppercase tracking-wider text-secondary">
+                            Cheapest
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Selected indicator */}
+                      {isSelected
+                        ? <CheckCircle2 className="h-5 w-5 text-primary shrink-0" />
+                        : <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                      }
+                    </button>
+
+                    {/* Price submit nudge */}
+                    <div className="px-4 pb-2 flex justify-end">
+                      <button
+                        onClick={() => setPriceSubmit({ product: m.product, shop: m.shop })}
+                        className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-secondary transition-colors"
+                      >
+                        <Zap className="h-3 w-3" />
+                        Seen a different price? +50 XP
+                      </button>
+                    </div>
+                  </div>
                 );
               })}
             </div>
@@ -343,6 +359,15 @@ const SearchPage = () => {
             <ChevronRight className="h-4 w-4 text-primary" />
           </button>
         </div>
+      )}
+
+      {/* Price submit modal */}
+      {priceSubmit && (
+        <PriceSubmitModal
+          product={priceSubmit.product}
+          shop={priceSubmit.shop}
+          onClose={() => setPriceSubmit(null)}
+        />
       )}
     </MobileShell>
   );
