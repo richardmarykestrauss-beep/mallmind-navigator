@@ -10,6 +10,8 @@ export type Mall = {
   name: string;
   city: string | null;
   province: string | null;
+  lat: number | null;
+  lng: number | null;
 };
 
 export type Shop = {

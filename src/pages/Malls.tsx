@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Search, MapPin, Locate, Store, Loader2 } from "lucide-react";
+import { Search, MapPin, Locate, Store, Loader2, Navigation } from "lucide-react";
 import MobileShell from "@/components/MobileShell";
 import ScreenHeader from "@/components/ScreenHeader";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,19 @@ const hues = [
   "from-secondary/30 to-primary/10",
 ];
 
+// Haversine formula — returns distance in km
+function haversine(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) *
+    Math.cos((lat2 * Math.PI) / 180) *
+    Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 const Malls = () => {
   const navigate = useNavigate();
   const { setSelectedMall } = useShoppingSession();
@@ -21,12 +34,15 @@ const Malls = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const [userPos, setUserPos] = useState<{ lat: number; lng: number } | null>(null);
+  const [locating, setLocating] = useState(false);
+  const [locError, setLocError] = useState<string | null>(null);
 
   useEffect(() => {
     const load = async () => {
       const { data, error } = await supabase
         .from("malls")
-        .select("id, name, city, province");
+        .select("id, name, city, province, lat, lng");
       if (error) setError(error.message);
       else setMalls((data ?? []) as Mall[]);
       setLoading(false);
@@ -34,9 +50,40 @@ const Malls = () => {
     load();
   }, []);
 
-  const filtered = malls.filter((m) =>
-    m.name.toLowerCase().includes(query.toLowerCase())
-  );
+  function detectLocation() {
+    if (!navigator.geolocation) {
+      setLocError("Geolocation not supported on this device.");
+      return;
+    }
+    setLocating(true);
+    setLocError(null);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setUserPos({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        setLocating(false);
+      },
+      () => {
+        setLocError("Couldn't get your location. Please allow access and try again.");
+        setLocating(false);
+      },
+      { timeout: 8000 }
+    );
+  }
+
+  // Sort by distance if we have user position, otherwise alphabetical
+  const sorted = [...malls]
+    .filter((m) => m.name.toLowerCase().includes(query.toLowerCase()))
+    .sort((a, b) => {
+      if (userPos && a.lat && a.lng && b.lat && b.lng) {
+        return (
+          haversine(userPos.lat, userPos.lng, a.lat, a.lng) -
+          haversine(userPos.lat, userPos.lng, b.lat, b.lng)
+        );
+      }
+      return a.name.localeCompare(b.name);
+    });
+
+  const filtered = sorted;
 
   return (
     <MobileShell>
@@ -54,14 +101,30 @@ const Malls = () => {
           />
         </div>
 
-        <Button variant="neonGreen" size="lg" className="w-full">
-          <Locate className="h-5 w-5" />
-          Detect My Location
+        <Button
+          variant={userPos ? "glass" : "neonGreen"}
+          size="lg"
+          className="w-full"
+          onClick={detectLocation}
+          disabled={locating}
+        >
+          {locating
+            ? <><Loader2 className="h-5 w-5 animate-spin" /> Locating…</>
+            : userPos
+            ? <><Navigation className="h-5 w-5" /> Sorted by Distance</>
+            : <><Locate className="h-5 w-5" /> Detect My Location</>
+          }
         </Button>
+
+        {locError && (
+          <p className="text-xs text-destructive text-center -mt-2">{locError}</p>
+        )}
 
         <div className="flex items-center gap-3 pt-2">
           <div className="flex-1 h-px bg-border" />
-          <span className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Popular Malls</span>
+          <span className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
+            {userPos ? "Nearest First" : "Popular Malls"}
+          </span>
           <div className="flex-1 h-px bg-border" />
         </div>
 
@@ -104,6 +167,12 @@ const Malls = () => {
                     <MapPin className="h-3 w-3" />
                     {[m.city, m.province].filter(Boolean).join(", ")}
                   </span>
+                  {userPos && m.lat && m.lng && (
+                    <span className="flex items-center gap-1 text-primary font-medium">
+                      <Navigation className="h-3 w-3" />
+                      {haversine(userPos.lat, userPos.lng, m.lat, m.lng).toFixed(0)} km
+                    </span>
+                  )}
                 </div>
               </div>
             </button>
