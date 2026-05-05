@@ -198,6 +198,22 @@ const AssistantPage = () => {
   // TTS
   const [ttsEnabled, setTtsEnabled] = useState(true);
   const ttsSupported = typeof window !== "undefined" && "speechSynthesis" in window;
+  const ttsUnlockedRef = useRef(false);
+
+  /**
+   * iOS blocks speechSynthesis.speak() unless the first call happens directly
+   * inside a user-gesture handler. We fire a silent, zero-duration utterance on
+   * the very first tap (mic or send) to unlock the audio pipeline — subsequent
+   * calls from async code (after the AI responds) then work correctly.
+   */
+  const unlockTts = useCallback(() => {
+    if (!ttsSupported || ttsUnlockedRef.current) return;
+    ttsUnlockedRef.current = true;
+    const silent = new SpeechSynthesisUtterance(" ");
+    silent.volume = 0;
+    silent.rate = 10; // finish instantly
+    window.speechSynthesis.speak(silent);
+  }, [ttsSupported]);
 
   /** Speak a response aloud — cancels any in-progress speech first */
   const speak = useCallback((text: string) => {
@@ -325,17 +341,20 @@ const AssistantPage = () => {
   }, [location.state]);
 
   function handleSend() {
+    unlockTts(); // iOS audio context unlock — must be in a gesture handler
     sendMessage(input);
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      handleSend();
+      unlockTts();
+      sendMessage(input);
     }
   }
 
   function startVoice() {
+    unlockTts(); // iOS audio context unlock — must be in a gesture handler
     if (!speechSupported) return;
     const SR = (window as typeof window & { webkitSpeechRecognition?: typeof SpeechRecognition })
       .SpeechRecognition ?? (window as typeof window & { webkitSpeechRecognition?: typeof SpeechRecognition }).webkitSpeechRecognition;
