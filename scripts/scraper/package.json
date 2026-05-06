@@ -4,24 +4,25 @@
   "description": "SA retail price scraper for MallMind — 10 retailers, anti-blocking, Supabase upsert",
   "type": "module",
   "scripts": {
-    "all":        "node --import=tsx/esm index.ts",
-    "takealot":   "node --import=tsx/esm scrapers/takealot.ts",
-    "checkers":   "node --import=tsx/esm scrapers/checkers.ts",
-    "pnp":        "node --import=tsx/esm scrapers/pnp.ts",
-    "woolworths": "node --import=tsx/esm scrapers/woolworths.ts",
-    "incredible": "node --import=tsx/esm scrapers/incredible.ts",
-    "game":       "node --import=tsx/esm scrapers/game.ts",
-    "clicks":     "node --import=tsx/esm scrapers/clicks.ts",
-    "dischem":    "node --import=tsx/esm scrapers/dischem.ts",
-    "mrprice":    "node --import=tsx/esm scrapers/mrprice.ts",
-    "sportsmans": "node --import=tsx/esm scrapers/sportsmans.ts",
-    "malls":      "node --import=tsx/esm malls/index.ts"
+    "all": "npx tsx index.ts",
+    "takealot": "npx tsx scrapers/takealot.ts",
+    "checkers": "npx tsx --eval \"import('./scrapers/playwrightScraper.ts').then(m=>m.scrapeCheckers()).then(p=>console.log(p.length+' products'))\"",
+    "pnp": "npx tsx --eval \"import('./scrapers/playwrightScraper.ts').then(m=>m.scrapePnP()).then(p=>console.log(p.length+' products'))\"",
+    "woolworths": "npx tsx --eval \"import('./scrapers/playwrightScraper.ts').then(m=>m.scrapeWoolworths()).then(p=>console.log(p.length+' products'))\"",
+    "incredible": "npx tsx scrapers/incredible.ts",
+    "game": "npx tsx --eval \"import('./scrapers/playwrightScraper.ts').then(m=>m.scrapeGame()).then(p=>console.log(p.length+' products'))\"",
+    "clicks": "npx tsx --eval \"import('./scrapers/playwrightScraper.ts').then(m=>m.scrapeClicks()).then(p=>console.log(p.length+' products'))\"",
+    "dischem": "npx tsx scrapers/dischem.ts",
+    "mrprice": "npx tsx --eval \"import('./scrapers/playwrightScraper.ts').then(m=>m.scrapeMrPrice()).then(p=>console.log(p.length+' products'))\"",
+    "sportsmans": "npx tsx --eval \"import('./scrapers/playwrightScraper.ts').then(m=>m.scrapeSportsmans()).then(p=>console.log(p.length+' products'))\"",
+    "malls": "npx tsx malls/index.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",
     "cheerio": "^1.0.0",
     "dotenv": "^16.4.0",
-    "node-fetch": "^3.3.0"
+    "node-fetch": "^3.3.0",
+    "playwright": "^1.59.1"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",

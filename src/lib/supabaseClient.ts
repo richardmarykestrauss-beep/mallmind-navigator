@@ -1,7 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 
 const SUPABASE_URL = "https://qspsouemjtcdcfnivpnt.supabase.co";
-const SUPABASE_ANON_KEY = "sb_publishable_46teArH5kq3ndUUBHwLsjw_NnFRGCsI";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFzcHNvdWVtanRjZGNmbml2cG50Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcxMTIzNTAsImV4cCI6MjA5MjY4ODM1MH0.f94Lbzo-EgmcMsklgYiWW6tNhM4hvGm2Z8_37Xp8nkg";
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
@@ -10,6 +10,8 @@ export type Mall = {
   name: string;
   city: string | null;
   province: string | null;
+  lat: number | null;
+  lng: number | null;
 };
 
 export type Shop = {
@@ -68,9 +70,17 @@ export type ShoppingListItem = {
 };
 
 export type BestDeal = {
-  id: string | number;
+  // best_deals is a view — no id column; use row index as UI key
   product_name: string;
+  brand: string | null;
+  category: string | null;
   shop_name: string;
+  mall_name: string | null;
   price: number;
-  discount_percentage: number;
+  original_price: number | null;
+  is_on_special: boolean;
+  discount_percent: number;
+  floor: string | null;
+  unit_number: string | null;
+  price_rank: number | null;
 };

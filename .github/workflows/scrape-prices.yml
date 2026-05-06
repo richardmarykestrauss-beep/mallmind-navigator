@@ -38,6 +38,10 @@ jobs:
           echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}" >> .env
           echo "SUPABASE_SERVICE_KEY=${{ secrets.SUPABASE_SERVICE_KEY }}" >> .env
 
+      - name: Install Playwright browser
+        working-directory: scripts/scraper
+        run: npx playwright install chromium --with-deps
+
       - name: Run scraper (all retailers)
         if: ${{ github.event.inputs.retailer == '' }}
         working-directory: scripts/scraper

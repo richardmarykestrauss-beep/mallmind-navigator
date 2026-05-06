@@ -1,0 +1,154 @@
+import { Store, Navigation, ShoppingBag, Tag, CheckCircle2, Clock } from "lucide-react";
+import { cn } from "@/lib/utils";
+
+export interface ProductResult {
+  product_id: string;
+  shop_id: string;
+  name: string;
+  brand: string | null;
+  price: number;
+  original_price: number | null;
+  is_on_special: boolean;
+  discount_pct?: number | null;
+  shop_name: string;
+  floor: string | null;
+  unit_number: string | null;
+  is_cheapest?: boolean;
+  is_open_now?: boolean | null;
+  reason?: string;
+}
+
+interface RecommendationCardProps {
+  product: ProductResult;
+  onNavigate?: (product: ProductResult) => void;
+  onAddToList?: (product: ProductResult) => void;
+  compact?: boolean;
+}
+
+export default function RecommendationCard({
+  product: p,
+  onNavigate,
+  onAddToList,
+  compact = false,
+}: RecommendationCardProps) {
+  const hasDiscount = p.is_on_special && p.original_price != null;
+  const savings = hasDiscount ? Math.round(p.original_price! - p.price) : null;
+
+  return (
+    <div className={cn(
+      "rounded-2xl border bg-surface overflow-hidden transition-all",
+      p.is_cheapest
+        ? "border-secondary/50 shadow-[0_0_12px_hsl(142_70%_45%/0.15)]"
+        : "border-border"
+    )}>
+      {/* Header strip for cheapest/special */}
+      {(p.is_cheapest || hasDiscount) && (
+        <div className={cn(
+          "flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider",
+          p.is_cheapest ? "bg-secondary/15 text-secondary" : "bg-primary/10 text-primary"
+        )}>
+          {p.is_cheapest && <CheckCircle2 className="h-3 w-3" />}
+          {p.is_cheapest ? "Cheapest in mall" : ""}
+          {hasDiscount && savings && (
+            <span className={p.is_cheapest ? "ml-auto" : ""}>
+              {p.discount_pct ? `${p.discount_pct}% off · ` : ""}Save R{savings}
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Main content */}
+      <div className="p-3 space-y-2.5">
+        <div className="flex items-start gap-3">
+          {/* Store icon */}
+          <div className={cn(
+            "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border mt-0.5",
+            p.is_cheapest
+              ? "bg-secondary/15 border-secondary/30 text-secondary"
+              : "bg-primary/10 border-primary/20 text-primary"
+          )}>
+            <Store className="h-4.5 w-4.5 h-5 w-5" />
+          </div>
+
+          {/* Product info */}
+          <div className="flex-1 min-w-0">
+            <p className="font-semibold text-sm leading-tight truncate">{p.name}</p>
+            {p.brand && (
+              <p className="text-[11px] text-muted-foreground">{p.brand}</p>
+            )}
+            <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+              <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                <Tag className="h-3 w-3" />
+                {p.shop_name}
+              </span>
+              <span className="text-muted-foreground/40 text-[10px]">·</span>
+              <span className="text-[11px] text-muted-foreground">
+                Floor {p.floor ?? "?"} · {p.unit_number ?? "—"}
+              </span>
+              {p.is_open_now === true && (
+                <>
+                  <span className="text-muted-foreground/40 text-[10px]">·</span>
+                  <span className="flex items-center gap-0.5 text-[10px] text-green-500 font-medium">
+                    <Clock className="h-3 w-3" /> Open
+                  </span>
+                </>
+              )}
+              {p.is_open_now === false && (
+                <>
+                  <span className="text-muted-foreground/40 text-[10px]">·</span>
+                  <span className="flex items-center gap-0.5 text-[10px] text-destructive font-medium">
+                    <Clock className="h-3 w-3" /> Closed
+                  </span>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Price */}
+          <div className="text-right shrink-0">
+            {hasDiscount && (
+              <p className="text-[10px] text-muted-foreground line-through">
+                R{p.original_price!.toFixed(0)}
+              </p>
+            )}
+            <p className={cn(
+              "font-display font-bold text-base",
+              hasDiscount ? "text-secondary" : "text-foreground"
+            )}>
+              R{p.price.toFixed(0)}
+            </p>
+          </div>
+        </div>
+
+        {/* Reason tag */}
+        {p.reason && !compact && (
+          <p className="text-[10px] text-muted-foreground/80 italic px-0.5">{p.reason}</p>
+        )}
+
+        {/* Actions */}
+        {!compact && (onNavigate || onAddToList) && (
+          <div className="flex items-center gap-2 pt-0.5">
+            {onNavigate && (
+              <button
+                onClick={() => onNavigate(p)}
+                className="flex-1 flex items-center justify-center gap-1.5 h-8 rounded-xl bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-all glow-primary"
+              >
+                <Navigation className="h-3.5 w-3.5" />
+                Guide me there
+              </button>
+            )}
+            {onAddToList && (
+              <button
+                onClick={() => onAddToList(p)}
+                className="flex items-center justify-center gap-1.5 h-8 px-3 rounded-xl border border-border bg-surface/80 text-xs font-medium text-muted-foreground hover:border-primary/40 hover:text-primary transition-all"
+              >
+                <ShoppingBag className="h-3.5 w-3.5" />
+                Add to list
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Trophy, Zap, Tag, TrendingUp, Award, Lock,
@@ -8,20 +9,40 @@ import ScreenHeader from "@/components/ScreenHeader";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/context/AuthContext";
 import { LEVEL_NAMES, xpProgress } from "@/lib/levels";
+import { getUserAchievements, type UserAchievement } from "@/lib/achievements";
 
-// Badge definitions — unlocked based on XP milestones
+// Must stay in sync with ACHIEVEMENT_DEFS in achievements.ts
 const BADGES = [
-  { name: "First Find", Icon: Star, xpRequired: 0, color: "from-primary to-primary-glow" },
-  { name: "Deal Hunter", Icon: Target, xpRequired: 100, color: "from-secondary to-secondary-glow" },
-  { name: "Streak x7", Icon: Flame, xpRequired: 300, color: "from-primary to-secondary" },
-  { name: "VIP Saver", Icon: Crown, xpRequired: 1000, color: "from-secondary to-primary-glow" },
-  { name: "Mall Master", Icon: Award, xpRequired: 3000, color: "from-primary to-secondary" },
-  { name: "Legend", Icon: Sparkles, xpRequired: 6000, color: "from-secondary to-primary" },
+  { id: "first-find",  name: "First Find",  Icon: Star,     xpRequired: 0,    color: "from-primary to-primary-glow",      desc: "Start your MallMind journey" },
+  { id: "deal-hunter", name: "Deal Hunter", Icon: Target,   xpRequired: 100,  color: "from-secondary to-secondary-glow",  desc: "Reach 100 XP" },
+  { id: "streak-x7",   name: "Streak x7",   Icon: Flame,    xpRequired: 300,  color: "from-primary to-secondary",         desc: "Reach 300 XP" },
+  { id: "vip-saver",   name: "VIP Saver",   Icon: Crown,    xpRequired: 1000, color: "from-secondary to-primary-glow",    desc: "Reach 1,000 XP" },
+  { id: "mall-master", name: "Mall Master", Icon: Award,    xpRequired: 3000, color: "from-primary to-secondary",         desc: "Reach 3,000 XP" },
+  { id: "legend",      name: "Legend",      Icon: Sparkles, xpRequired: 6000, color: "from-secondary to-primary",         desc: "Top 1% of SA shoppers" },
 ];
+
+function formatDate(iso: string | undefined) {
+  if (!iso) return "";
+  return new Date(iso).toLocaleDateString("en-ZA", { day: "numeric", month: "short", year: "numeric" });
+}
 
 const Rewards = () => {
   const navigate = useNavigate();
   const { user, profile, loading } = useAuth();
+  const [earnedMap, setEarnedMap] = useState<Record<string, string>>({}); // achievement_id → earned_at
+  const [achLoading, setAchLoading] = useState(false);
+
+  useEffect(() => {
+    if (!user) return;
+    setAchLoading(true);
+    getUserAchievements(user.id)
+      .then((rows: UserAchievement[]) => {
+        const map: Record<string, string> = {};
+        rows.forEach((r) => { map[r.name] = r.unlocked_at; });
+        setEarnedMap(map);
+      })
+      .finally(() => setAchLoading(false));
+  }, [user]);
 
   if (loading) {
     return (
@@ -61,7 +82,7 @@ const Rewards = () => {
   const xp = profile.xp ?? 0;
   const levelName = LEVEL_NAMES[level] ?? "Newcomer";
   const { current, required, pct } = xpProgress(xp, level);
-  const unlockedCount = BADGES.filter((b) => xp >= b.xpRequired).length;
+  const unlockedCount = BADGES.filter((b) => earnedMap[b.id]).length;
 
   return (
     <MobileShell>
@@ -106,9 +127,9 @@ const Rewards = () => {
       {/* Stats */}
       <div className="px-5 mt-4 grid grid-cols-3 gap-2.5 animate-fade-in">
         {[
-          { label: "XP Earned", value: xp.toLocaleString(), icon: TrendingUp, color: "text-secondary" },
-          { label: "Level", value: String(level), icon: Tag, color: "text-primary" },
-          { label: "Badges", value: `${unlockedCount}/${BADGES.length}`, icon: Zap, color: "text-secondary" },
+          { label: "XP Earned",  value: xp.toLocaleString(),             icon: TrendingUp, color: "text-secondary" },
+          { label: "Level",      value: String(level),                    icon: Tag,        color: "text-primary"   },
+          { label: "Badges",     value: `${unlockedCount}/${BADGES.length}`, icon: Zap,    color: "text-secondary" },
         ].map(({ label, value, icon: Icon, color }) => (
           <div key={label} className="rounded-2xl border border-border bg-surface/70 backdrop-blur p-3 text-center">
             <Icon className={`mx-auto h-5 w-5 ${color} mb-1.5`} />
@@ -122,16 +143,29 @@ const Rewards = () => {
       <div className="px-5 mt-6">
         <div className="flex items-center justify-between mb-3">
           <h2 className="font-display font-bold text-base">Achievements</h2>
-          <span className="text-xs text-muted-foreground">{unlockedCount} / {BADGES.length} unlocked</span>
+          <span className="text-xs text-muted-foreground">
+            {achLoading ? "…" : `${unlockedCount} / ${BADGES.length} unlocked`}
+          </span>
         </div>
+
         <div className="grid grid-cols-3 gap-3">
           {BADGES.map((b) => {
-            const unlocked = xp >= b.xpRequired;
+            const earnedAt = earnedMap[b.name];
+            // Fallback: also unlock visually if XP threshold is met (handles migration period)
+            const unlocked = !!earnedAt || xp >= b.xpRequired;
+            const isRecent = earnedAt
+              ? Date.now() - new Date(earnedAt).getTime() < 24 * 60 * 60 * 1000
+              : false;
+
             return (
               <div
-                key={b.name}
-                className={`flex flex-col items-center gap-2 rounded-2xl border p-3 ${
-                  unlocked ? "border-border bg-surface/70" : "border-dashed border-border bg-surface/30"
+                key={b.id}
+                className={`flex flex-col items-center gap-2 rounded-2xl border p-3 transition-all ${
+                  unlocked
+                    ? isRecent
+                      ? "border-secondary/60 bg-secondary/10 animate-pulse"
+                      : "border-border bg-surface/70"
+                    : "border-dashed border-border bg-surface/30"
                 }`}
               >
                 <div
@@ -144,11 +178,19 @@ const Rewards = () => {
                     : <Lock className="h-5 w-5 text-muted-foreground" />
                   }
                 </div>
-                <p className={`text-[11px] font-medium text-center ${unlocked ? "" : "text-muted-foreground"}`}>
+
+                <p className={`text-[11px] font-medium text-center leading-tight ${unlocked ? "" : "text-muted-foreground"}`}>
                   {b.name}
                 </p>
-                {!unlocked && (
+
+                {unlocked && earnedAt ? (
+                  <p className="text-[9px] text-muted-foreground/70 text-center">
+                    {formatDate(earnedAt)}
+                  </p>
+                ) : !unlocked ? (
                   <p className="text-[9px] text-muted-foreground/60">{b.xpRequired.toLocaleString()} XP</p>
+                ) : (
+                  <p className="text-[9px] text-secondary/70">{b.desc}</p>
                 )}
               </div>
             );
@@ -156,8 +198,28 @@ const Rewards = () => {
         </div>
       </div>
 
+      {/* How to earn XP */}
+      <div className="px-5 mt-6">
+        <h2 className="font-display font-bold text-base mb-3">How to Earn XP</h2>
+        <div className="space-y-2">
+          {[
+            { action: "Submit a price correction",  xp: 50, icon: Zap,     color: "text-secondary" },
+            { action: "Complete a shopping route",  xp: 30, icon: Trophy,  color: "text-primary"   },
+            { action: "Start a new session",        xp: 20, icon: Sparkles, color: "text-secondary" },
+          ].map(({ action, xp: pts, icon: Icon, color }) => (
+            <div key={action} className="flex items-center justify-between rounded-xl border border-border bg-surface/50 px-4 py-3">
+              <div className="flex items-center gap-3">
+                <Icon className={`h-4 w-4 ${color}`} />
+                <span className="text-sm">{action}</span>
+              </div>
+              <span className={`text-sm font-bold ${color}`}>+{pts} XP</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
       {/* Submit price CTA */}
-      <div className="px-5 mt-6 mb-2">
+      <div className="px-5 mt-6 mb-6">
         <Button variant="neon" size="lg" className="w-full" onClick={() => navigate("/search")}>
           <Zap className="h-5 w-5" />
           Submit a Price · Earn 50 XP
