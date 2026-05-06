@@ -108,7 +108,6 @@ async function recommendProducts(mallId: string, query: string, budget?: number 
     .select("id, shop_id, name, brand, price, original_price, is_on_special")
     .in("shop_id", shopIds)
     .ilike("name", `%${query}%`)
-    .eq("in_stock", true)
     .order("price", { ascending: true })
     .limit(12);
 

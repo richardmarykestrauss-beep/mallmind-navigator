@@ -39,8 +39,6 @@ interface ProductRow {
   price: number;
   original_price: number | null;
   is_on_special: boolean;
-  in_stock: boolean;
-  verified: boolean | null;
 }
 
 interface ScoredProduct {
@@ -53,8 +51,6 @@ interface ScoredProduct {
   original_price: number | null;
   is_on_special: boolean;
   discount_pct: number | null;
-  in_stock: boolean;
-  verified: boolean;
   shop_name: string;
   floor: string | null;
   unit_number: string | null;
@@ -100,9 +96,6 @@ function scoreProduct(
   let score = 0;
   const reasons: string[] = [];
 
-  // Must be in stock
-  if (!product.in_stock) return { score: -1, reason: "Out of stock" };
-
   // On special = big boost
   if (product.is_on_special && product.original_price != null) {
     const discPct = Math.round((1 - product.price / product.original_price) * 100);
@@ -127,12 +120,6 @@ function scoreProduct(
       score += Math.min(headroomPct / 5, 15); // up to +15 for good headroom
       reasons.push(`R${Math.round(budget - product.price)} under budget`);
     }
-  }
-
-  // Verified price
-  if (product.verified) {
-    score += 5;
-    reasons.push("Verified price");
   }
 
   // Store is open now
@@ -200,10 +187,9 @@ Deno.serve(async (req: Request) => {
     // 2. Search products
     let productQuery = supabase
       .from("products")
-      .select("id, shop_id, name, brand, category, price, original_price, is_on_special, in_stock, verified")
+      .select("id, shop_id, name, brand, category, price, original_price, is_on_special")
       .in("shop_id", shopIds)
       .ilike("name", `%${query.trim()}%`)
-      .eq("in_stock", true)
       .order("price", { ascending: true })
       .limit(30);
 
@@ -235,7 +221,7 @@ Deno.serve(async (req: Request) => {
       if (!shop) continue;
 
       const { score, reason } = scoreProduct(p, shop, query, budget ?? null, cheapestPriceForName);
-      if (score < 0) continue; // skip out-of-stock / massively over budget
+      if (score <= -50) continue; // skip massively over-budget items
 
       const discountPct =
         p.is_on_special && p.original_price != null
@@ -252,8 +238,6 @@ Deno.serve(async (req: Request) => {
         original_price: p.original_price,
         is_on_special: p.is_on_special,
         discount_pct: discountPct,
-        in_stock: p.in_stock,
-        verified: p.verified ?? false,
         shop_name: shop.name,
         floor: shop.floor,
         unit_number: shop.unit_number,

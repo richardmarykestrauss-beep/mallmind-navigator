@@ -156,6 +156,80 @@ function TypingIndicator() {
   );
 }
 
+// ── Markdown renderer (no external deps) ─────────────────────────────────────
+
+function renderInline(text: string): React.ReactNode {
+  // Split on **bold** and *italic* markers
+  const parts = text.split(/(\*\*[^*\n]+\*\*|\*[^*\n]+\*)/g);
+  return parts.map((part, i) => {
+    if (part.startsWith("**") && part.endsWith("**"))
+      return <strong key={i} className="font-semibold text-foreground">{part.slice(2, -2)}</strong>;
+    if (part.startsWith("*") && part.endsWith("*"))
+      return <em key={i}>{part.slice(1, -1)}</em>;
+    return part;
+  });
+}
+
+function renderMarkdown(text: string): React.ReactNode {
+  const lines = text.split("\n");
+  const nodes: React.ReactNode[] = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+
+    // Empty line → skip (natural spacing from parent space-y)
+    if (!line.trim()) { i++; continue; }
+
+    // Bullet list block
+    if (/^[-*•]\s/.test(line)) {
+      const items: string[] = [];
+      while (i < lines.length && /^[-*•]\s/.test(lines[i])) {
+        items.push(lines[i].replace(/^[-*•]\s+/, ""));
+        i++;
+      }
+      nodes.push(
+        <ul key={`ul-${i}`} className="list-disc list-inside space-y-0.5 my-0.5">
+          {items.map((item, j) => <li key={j}>{renderInline(item)}</li>)}
+        </ul>
+      );
+      continue;
+    }
+
+    // Numbered list block
+    if (/^\d+[.)]\s/.test(line)) {
+      const items: string[] = [];
+      while (i < lines.length && /^\d+[.)]\s/.test(lines[i])) {
+        items.push(lines[i].replace(/^\d+[.)]\s+/, ""));
+        i++;
+      }
+      nodes.push(
+        <ol key={`ol-${i}`} className="list-decimal list-inside space-y-0.5 my-0.5">
+          {items.map((item, j) => <li key={j}>{renderInline(item)}</li>)}
+        </ol>
+      );
+      continue;
+    }
+
+    // Heading
+    const hMatch = line.match(/^(#{1,3})\s+(.*)/);
+    if (hMatch) {
+      nodes.push(
+        <p key={`h-${i}`} className="font-semibold text-foreground mt-1">
+          {renderInline(hMatch[2])}
+        </p>
+      );
+      i++; continue;
+    }
+
+    // Regular paragraph
+    nodes.push(<p key={`p-${i}`}>{renderInline(line)}</p>);
+    i++;
+  }
+
+  return <div className="space-y-1 text-sm leading-relaxed">{nodes}</div>;
+}
+
 // ── TTS helpers ───────────────────────────────────────────────────────────────
 
 function stripMarkdown(text: string): string {
@@ -193,6 +267,7 @@ const AssistantPage = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [voiceError, setVoiceError] = useState<string | null>(null);
+  const voiceErrorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [speechSupported] = useState(() => {
     return typeof window !== "undefined" &&
       ("SpeechRecognition" in window || "webkitSpeechRecognition" in window);
@@ -340,7 +415,14 @@ const AssistantPage = () => {
         role: "assistant",
         content: replyText,
         products: data.products?.length ? data.products : undefined,
-        webResults: data.web_results?.length ? data.web_results : undefined,
+        // Filter out failed/empty web results (e.g. "Web search unavailable")
+        webResults: data.web_results?.filter(
+          (r: WebResult) => r.answer && !r.answer.toLowerCase().includes("unavailable") && !r.answer.toLowerCase().includes("error")
+        ).length
+          ? data.web_results.filter(
+              (r: WebResult) => r.answer && !r.answer.toLowerCase().includes("unavailable") && !r.answer.toLowerCase().includes("error")
+            )
+          : undefined,
         routeShopIds: data.build_route ? data.route_shop_ids : undefined,
         routeSummary: data.route_summary,
       };
@@ -407,16 +489,22 @@ const AssistantPage = () => {
     }
   }
 
+  function setVoiceErrorAutoDismiss(msg: string) {
+    setVoiceError(msg);
+    if (voiceErrorTimerRef.current) clearTimeout(voiceErrorTimerRef.current);
+    voiceErrorTimerRef.current = setTimeout(() => setVoiceError(null), 4000);
+  }
+
   function startVoice() {
     unlockTts();
     setVoiceError(null);
 
     if (!speechSupported) {
-      setVoiceError("Voice not supported on this browser.");
+      setVoiceErrorAutoDismiss("Voice not supported on this browser.");
       return;
     }
     if (!isHttps && window.location.hostname !== "localhost") {
-      setVoiceError("Voice requires HTTPS. Type your message instead.");
+      setVoiceErrorAutoDismiss("Voice requires HTTPS. Type your message instead.");
       return;
     }
 
@@ -444,11 +532,11 @@ const AssistantPage = () => {
       setIsListening(false);
       recognitionRef.current = null;
       if (e.error === "not-allowed") {
-        setVoiceError("Microphone access denied. Check your browser permissions.");
+        setVoiceErrorAutoDismiss("Microphone access denied. Check your browser permissions.");
       } else if (e.error === "network") {
-        setVoiceError("Network error — voice needs an internet connection.");
+        setVoiceErrorAutoDismiss("Voice requires HTTPS — type your message instead.");
       } else if (e.error !== "aborted") {
-        setVoiceError("Voice unavailable — type your message instead.");
+        setVoiceErrorAutoDismiss("Voice unavailable — type your message instead.");
       }
     };
     recognition.onend = () => {
@@ -462,7 +550,7 @@ const AssistantPage = () => {
       setIsListening(true);
     } catch {
       setIsListening(false);
-      setVoiceError("Could not start microphone. Try typing instead.");
+      setVoiceErrorAutoDismiss("Could not start microphone. Try typing instead.");
     }
   }
 
@@ -670,12 +758,15 @@ const AssistantPage = () => {
                 <>
                   {msg.content && (
                     <div className={cn(
-                      "rounded-2xl px-4 py-3 text-sm leading-relaxed",
+                      "rounded-2xl px-4 py-3",
                       msg.role === "user"
-                        ? "rounded-br-sm bg-primary text-primary-foreground"
+                        ? "rounded-br-sm bg-primary text-primary-foreground text-sm leading-relaxed"
                         : "rounded-bl-sm border border-border bg-surface"
                     )}>
-                      {msg.content}
+                      {msg.role === "user"
+                        ? msg.content
+                        : renderMarkdown(msg.content)
+                      }
                     </div>
                   )}
 
