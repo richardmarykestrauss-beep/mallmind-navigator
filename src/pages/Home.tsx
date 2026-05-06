@@ -24,9 +24,9 @@ const quickActions = [
 
 const Home = () => {
   const navigate = useNavigate();
-  const { selectedMall, routeStops, setSelectedMall } = useShoppingSession();
+  const { selectedMall, routeStops, setSelectedMall, startOrUpdateSession } = useShoppingSession();
   const { user, profile, refreshProfile } = useAuth();
-  const { requesting, nearestMall, nearestMallDistance, error: geoError, requestLocation } = useGeoLocation();
+  const { position, requesting, nearestMall, nearestMallDistance, error: geoError, requestLocation } = useGeoLocation();
 
   // Award session-start XP once per browser session
   useEffect(() => {
@@ -45,6 +45,11 @@ const Home = () => {
   function handleShopHere() {
     if (nearestMall) {
       setSelectedMall(nearestMall);
+      // Start or resume a Supabase shopping session for this mall
+      startOrUpdateSession(user?.id ?? null, nearestMall.id, {
+        lat: position?.lat,
+        lng: position?.lng,
+      });
       navigate("/search");
     }
   }

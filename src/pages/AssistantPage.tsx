@@ -7,28 +7,19 @@ import {
 } from "lucide-react";
 import MobileShell from "@/components/MobileShell";
 import { Button } from "@/components/ui/button";
+import RecommendationCard, { type ProductResult } from "@/components/RecommendationCard";
 import { supabase } from "@/lib/supabaseClient";
 import { useShoppingSession } from "@/context/ShoppingSessionContext";
 import { useAuth } from "@/context/AuthContext";
+import { useGeoLocation } from "@/context/LocationContext";
 import { trackEvent } from "@/lib/analytics";
 import { cn } from "@/lib/utils";
 import type { Shop } from "@/lib/supabaseClient";
 
 const SUPABASE_URL = "https://qspsouemjtcdcfnivpnt.supabase.co";
-const SUPABASE_ANON_KEY = "sb_publishable_46teArH5kq3ndUUBHwLsjw_NnFRGCsI";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFzcHNvdWVtanRjZGNmbml2cG50Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcxMTIzNTAsImV4cCI6MjA5MjY4ODM1MH0.f94Lbzo-EgmcMsklgYiWW6tNhM4hvGm2Z8_37Xp8nkg";
 
-interface ProductResult {
-  product_id: string;
-  shop_id: string;
-  name: string;
-  brand: string | null;
-  price: number;
-  original_price: number | null;
-  is_on_special: boolean;
-  shop_name: string;
-  floor: string | null;
-  unit_number: string | null;
-}
+// ProductResult imported from RecommendationCard component
 
 interface WebResult {
   answer: string;
@@ -193,8 +184,9 @@ function pickVoice(): SpeechSynthesisVoice | null {
 const AssistantPage = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { selectedMall, setRouteStops } = useShoppingSession();
+  const { selectedMall, setRouteStops, dbSessionId, shoppingIntent, updateSessionRoute } = useShoppingSession();
   const { user } = useAuth();
+  const { position } = useGeoLocation();
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
@@ -328,10 +320,15 @@ const AssistantPage = () => {
           "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
         },
         body: JSON.stringify({
-          messages: history,
-          mall_id: selectedMall?.id ? String(selectedMall.id) : null,
-          mall_name: selectedMall?.name ?? null,
-          budget: budget ?? undefined,
+          messages:        history,
+          mall_id:         selectedMall?.id ? String(selectedMall.id) : null,
+          mall_name:       selectedMall?.name ?? null,
+          budget:          budget ?? undefined,
+          user_id:         user?.id ?? null,
+          session_id:      dbSessionId ?? null,
+          current_lat:     position?.lat ?? null,
+          current_lng:     position?.lng ?? null,
+          shopping_intent: shoppingIntent ?? null,
         }),
       });
 
@@ -489,8 +486,35 @@ const AssistantPage = () => {
       return (a.unit_number ?? "").localeCompare(b.unit_number ?? "");
     });
 
+    const stopIds = sorted.map((s) => s.id);
     setRouteStops(sorted as Shop[]);
+    updateSessionRoute(stopIds);
     navigate("/navigate");
+  }
+
+  // Navigate to a single shop directly from a recommendation card
+  async function handleNavigateToShop(product: ProductResult) {
+    const { data } = await supabase
+      .from("shops")
+      .select("id, mall_id, name, floor, unit_number, category, opening_hours")
+      .eq("id", product.shop_id)
+      .single();
+    if (data) {
+      setRouteStops([data as Shop]);
+      updateSessionRoute([data.id]);
+      trackEvent("navigate_there_clicked", { userId: user?.id, mallId: selectedMall?.id, mallName: selectedMall?.name });
+      navigate("/navigate");
+    }
+  }
+
+  // Add a product to the shopping list
+  async function handleAddToList(product: ProductResult) {
+    if (!user) return;
+    // Get or create default list
+    const { data: lists } = await supabase.from("shopping_lists").select("id").eq("user_id", user.id).limit(1).maybeSingle();
+    const listId = lists?.id;
+    if (!listId) return;
+    await supabase.from("shopping_list_items").insert({ list_id: listId, item_name: product.name, checked: false });
   }
 
   const isEmpty = messages.length === 0;
@@ -507,7 +531,11 @@ const AssistantPage = () => {
             <div>
               <p className="font-display font-bold text-sm">MallMind AI</p>
               <p className="text-[10px] text-muted-foreground">
-                {selectedMall ? selectedMall.name : "Select a mall to start"}
+                {selectedMall
+                  ? dbSessionId
+                    ? `Active session · ${selectedMall.name}`
+                    : selectedMall.name
+                  : "Select a mall to start"}
               </p>
             </div>
           </div>
@@ -652,12 +680,17 @@ const AssistantPage = () => {
                   )}
 
                   {msg.products && msg.products.length > 0 && (
-                    <div className="space-y-2 w-full max-w-[300px]">
+                    <div className="space-y-2 w-full max-w-[310px]">
                       <p className="text-[9px] uppercase tracking-wider text-primary/70 px-1 flex items-center gap-1">
                         <Store className="h-3 w-3" /> Live mall prices
                       </p>
                       {msg.products.map((p, i) => (
-                        <ProductCard key={`${p.product_id}-${i}`} p={p} />
+                        <RecommendationCard
+                          key={`${p.product_id}-${i}`}
+                          product={p}
+                          onNavigate={handleNavigateToShop}
+                          onAddToList={user ? handleAddToList : undefined}
+                        />
                       ))}
                     </div>
                   )}

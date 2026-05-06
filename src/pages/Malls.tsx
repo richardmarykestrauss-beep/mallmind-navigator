@@ -6,6 +6,7 @@ import ScreenHeader from "@/components/ScreenHeader";
 import { Button } from "@/components/ui/button";
 import { supabase, type Mall } from "@/lib/supabaseClient";
 import { useShoppingSession } from "@/context/ShoppingSessionContext";
+import { useAuth } from "@/context/AuthContext";
 
 const hues = [
   "from-primary/30 to-primary/5",
@@ -29,7 +30,8 @@ function haversine(lat1: number, lng1: number, lat2: number, lng2: number): numb
 
 const Malls = () => {
   const navigate = useNavigate();
-  const { setSelectedMall } = useShoppingSession();
+  const { setSelectedMall, startOrUpdateSession } = useShoppingSession();
+  const { user } = useAuth();
   const [malls, setMalls] = useState<Mall[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -151,7 +153,7 @@ const Malls = () => {
           {filtered.map((m, i) => (
             <button
               key={m.id}
-              onClick={() => { setSelectedMall(m); navigate("/search"); }}
+              onClick={() => { setSelectedMall(m); startOrUpdateSession(user?.id ?? null, m.id); navigate("/search"); }}
               className="group w-full text-left rounded-2xl border border-border bg-surface/70 backdrop-blur overflow-hidden hover:border-primary/50 transition-all animate-slide-up"
               style={{ animationDelay: `${i * 50}ms` }}
             >
