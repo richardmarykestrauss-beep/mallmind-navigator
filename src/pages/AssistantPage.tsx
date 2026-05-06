@@ -26,6 +26,8 @@ interface WebResult {
   sources: string[];
 }
 
+import type { RouteStep } from "@/context/ShoppingSessionContext";
+
 interface ChatMessage {
   id: string;
   role: "user" | "assistant";
@@ -34,6 +36,8 @@ interface ChatMessage {
   webResults?: WebResult[];
   routeShopIds?: string[];
   routeSummary?: string;
+  routeSteps?: RouteStep[];
+  routeId?: string | null;
   loading?: boolean;
 }
 
@@ -258,7 +262,7 @@ function pickVoice(): SpeechSynthesisVoice | null {
 const AssistantPage = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { selectedMall, setRouteStops, dbSessionId, shoppingIntent, updateSessionRoute } = useShoppingSession();
+  const { selectedMall, setRouteStops, dbSessionId, shoppingIntent, updateSessionRoute, setActiveRoute } = useShoppingSession();
   const { user } = useAuth();
   const { position } = useGeoLocation();
 
@@ -425,6 +429,8 @@ const AssistantPage = () => {
           : undefined,
         routeShopIds: data.build_route ? data.route_shop_ids : undefined,
         routeSummary: data.route_summary,
+        routeSteps: data.route_steps?.length ? data.route_steps : undefined,
+        routeId: data.route_id ?? null,
       };
 
       setMessages((prev) => prev.filter((m) => !m.loading).concat(assistantMsg));
@@ -559,7 +565,16 @@ const AssistantPage = () => {
     setIsListening(false);
   }
 
-  async function handleBuildRoute(shopIds: string[]) {
+  // Handle "Start Navigation" from route card — uses real steps if available
+  async function handleBuildRoute(shopIds: string[], steps?: RouteStep[], routeId?: string | null) {
+    // If AI already built the real route, use it directly
+    if (steps?.length && routeId) {
+      setActiveRoute(routeId, steps);
+      navigate("/navigate");
+      return;
+    }
+
+    // Fallback: load shops and sort by floor for stop-list mode
     const { data } = await supabase
       .from("shops")
       .select("id, mall_id, name, floor, unit_number, category, opening_hours")
@@ -574,13 +589,12 @@ const AssistantPage = () => {
       return (a.unit_number ?? "").localeCompare(b.unit_number ?? "");
     });
 
-    const stopIds = sorted.map((s) => s.id);
     setRouteStops(sorted as Shop[]);
-    updateSessionRoute(stopIds);
+    updateSessionRoute(sorted.map((s) => s.id));
     navigate("/navigate");
   }
 
-  // Navigate to a single shop directly from a recommendation card
+  // Navigate to a single shop from a recommendation card
   async function handleNavigateToShop(product: ProductResult) {
     const { data } = await supabase
       .from("shops")
@@ -795,21 +809,34 @@ const AssistantPage = () => {
                   )}
 
                   {msg.routeShopIds && msg.routeShopIds.length > 0 && (
-                    <div className="rounded-2xl border border-primary/30 bg-primary/10 p-3 space-y-2 w-full max-w-[300px]">
+                    <div className={cn(
+                      "rounded-2xl border p-3 space-y-2 w-full max-w-[300px]",
+                      msg.routeSteps?.length
+                        ? "border-primary/50 bg-primary/10"
+                        : "border-primary/30 bg-primary/8"
+                    )}>
                       <div className="flex items-center gap-2">
                         <RouteIcon className="h-4 w-4 text-primary" />
                         <p className="text-xs font-semibold text-primary">
-                          Route ready · {msg.routeShopIds.length} stops
+                          {msg.routeSteps?.length
+                            ? `Route ready · ${msg.routeSteps.length} steps`
+                            : `Route ready · ${msg.routeShopIds.length} stops`}
                         </p>
                       </div>
                       {msg.routeSummary && (
                         <p className="text-[11px] text-muted-foreground">{msg.routeSummary}</p>
                       )}
+                      {msg.routeSteps?.length && (
+                        <p className="text-[10px] text-primary/70 flex items-center gap-1">
+                          <RouteIcon className="h-3 w-3" />
+                          AI-optimised step-by-step directions
+                        </p>
+                      )}
                       <Button
                         variant="neon"
                         size="sm"
                         className="w-full"
-                        onClick={() => handleBuildRoute(msg.routeShopIds!)}
+                        onClick={() => handleBuildRoute(msg.routeShopIds!, msg.routeSteps, msg.routeId)}
                       >
                         <RouteIcon className="h-4 w-4" />
                         Start Navigation

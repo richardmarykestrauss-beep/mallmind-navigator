@@ -313,6 +313,10 @@ Deno.serve(async (req: Request) => {
     const webResults: WebResult[] = [];
     let routeShopIds: string[] = [];
     let routeSummary = "";
+    // Real route data from build-route Edge Function
+    // deno-lint-ignore no-explicit-any
+    let routeSteps: any[] = [];
+    let routeId: string | null = null;
 
     for (let turn = 0; turn < 8; turn++) {
       const res = await fetch("https://api.anthropic.com/v1/messages", {
@@ -338,7 +342,17 @@ Deno.serve(async (req: Request) => {
       if (data.stop_reason === "end_turn") {
         const text = data.content?.find((c: { type: string; text?: string }) => c.type === "text")?.text ?? "";
         return new Response(
-          JSON.stringify({ message: text, products: allProducts, web_results: webResults, route_shop_ids: routeShopIds, route_summary: routeSummary, build_route: routeShopIds.length > 0 }),
+          JSON.stringify({
+            message: text,
+            products: allProducts,
+            web_results: webResults,
+            route_shop_ids: routeShopIds,
+            route_summary: routeSummary,
+            build_route: routeShopIds.length > 0,
+            // Real step-by-step route (from build-route Edge Function)
+            route_steps: routeSteps,
+            route_id: routeId,
+          }),
           { headers: { "Content-Type": "application/json", ...CORS } }
         );
       }
@@ -378,12 +392,45 @@ Deno.serve(async (req: Request) => {
           } else if (block.name === "build_route") {
             routeShopIds = block.input.shop_ids.map(String);
             routeSummary = block.input.summary ?? "";
-            if (session_id) {
+
+            if (session_id && routeShopIds.length) {
+              try {
+                // Call build-route Edge Function for real step-by-step routing
+                const buildRes = await fetch(
+                  `${Deno.env.get("SUPABASE_URL")}/functions/v1/build-route`,
+                  {
+                    method: "POST",
+                    headers: {
+                      "Content-Type": "application/json",
+                      "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+                    },
+                    body: JSON.stringify({
+                      session_id,
+                      destination_shop_ids: routeShopIds,
+                      user_id: user_id ?? undefined,
+                    }),
+                  }
+                );
+                if (buildRes.ok) {
+                  const routeData = await buildRes.json();
+                  routeSteps = routeData.steps ?? [];
+                  routeId    = routeData.route_id ?? null;
+                  routeSummary = routeSummary || `${routeData.stop_count ?? routeShopIds.length} stops · ~${routeData.estimated_minutes ?? "?"} min walk`;
+                  result = `Route built: ${routeData.steps?.length ?? 0} steps, ${routeData.estimated_minutes ?? "?"} min walk.`;
+                } else {
+                  result = `Route queued for ${routeShopIds.length} shops (navigation graph response error).`;
+                }
+              } catch {
+                result = `Route queued for ${routeShopIds.length} shops.`;
+              }
+
+              // Also persist shop IDs to session
               await supabase.from("shopping_sessions")
                 .update({ route_stop_ids: JSON.stringify(routeShopIds), last_seen_at: new Date().toISOString() })
                 .eq("id", session_id);
+            } else {
+              result = `Route noted for ${routeShopIds.length} shops. Please ensure you're in an active mall session.`;
             }
-            result = `Route set for ${routeShopIds.length} shops.`;
 
           } else {
             result = "Unknown tool.";
@@ -399,7 +446,7 @@ Deno.serve(async (req: Request) => {
     }
 
     return new Response(
-      JSON.stringify({ message: "Something went wrong — please try again.", products: [], web_results: [], build_route: false }),
+      JSON.stringify({ message: "Something went wrong — please try again.", products: [], web_results: [], build_route: false, route_steps: [], route_id: null }),
       { headers: { "Content-Type": "application/json", ...CORS } }
     );
   } catch (err) {
