@@ -200,10 +200,13 @@ const AssistantPage = () => {
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isListening, setIsListening] = useState(false);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
   const [speechSupported] = useState(() => {
     return typeof window !== "undefined" &&
       ("SpeechRecognition" in window || "webkitSpeechRecognition" in window);
   });
+  // Voice requires HTTPS — detect HTTP and warn
+  const isHttps = typeof window !== "undefined" && window.location.protocol === "https:";
 
   // Budget state
   const [budget, setBudget] = useState<number | null>(null);
@@ -409,7 +412,17 @@ const AssistantPage = () => {
 
   function startVoice() {
     unlockTts();
-    if (!speechSupported) return;
+    setVoiceError(null);
+
+    if (!speechSupported) {
+      setVoiceError("Voice not supported on this browser.");
+      return;
+    }
+    if (!isHttps && window.location.hostname !== "localhost") {
+      setVoiceError("Voice requires HTTPS. Type your message instead.");
+      return;
+    }
+
     const SR = (window as typeof window & { webkitSpeechRecognition?: typeof SpeechRecognition })
       .SpeechRecognition ?? (window as typeof window & { webkitSpeechRecognition?: typeof SpeechRecognition }).webkitSpeechRecognition;
     if (!SR) return;
@@ -424,13 +437,36 @@ const AssistantPage = () => {
       setInput(transcript);
       setIsListening(false);
       recognitionRef.current = null;
+      // Auto-send after voice input
+      setTimeout(() => {
+        unlockTts();
+        sendMessage(transcript);
+      }, 100);
     };
-    recognition.onerror = () => setIsListening(false);
-    recognition.onend = () => setIsListening(false);
+    recognition.onerror = (e: SpeechRecognitionErrorEvent) => {
+      setIsListening(false);
+      recognitionRef.current = null;
+      if (e.error === "not-allowed") {
+        setVoiceError("Microphone access denied. Check your browser permissions.");
+      } else if (e.error === "network") {
+        setVoiceError("Network error — voice needs an internet connection.");
+      } else if (e.error !== "aborted") {
+        setVoiceError("Voice unavailable — type your message instead.");
+      }
+    };
+    recognition.onend = () => {
+      setIsListening(false);
+      recognitionRef.current = null;
+    };
 
-    recognitionRef.current = recognition;
-    recognition.start();
-    setIsListening(true);
+    try {
+      recognitionRef.current = recognition;
+      recognition.start();
+      setIsListening(true);
+    } catch {
+      setIsListening(false);
+      setVoiceError("Could not start microphone. Try typing instead.");
+    }
   }
 
   function stopVoice() {
@@ -733,14 +769,26 @@ const AssistantPage = () => {
           </div>
         )}
 
+        {/* Voice error message */}
+        {voiceError && (
+          <div className="flex items-center gap-2 px-1 pb-1">
+            <MicOff className="h-3.5 w-3.5 text-destructive shrink-0" />
+            <p className="text-[11px] text-destructive">{voiceError}</p>
+            <button onClick={() => setVoiceError(null)} className="ml-auto text-[10px] text-muted-foreground">✕</button>
+          </div>
+        )}
+
         <div className="flex items-center gap-2">
           {speechSupported && (
             <button
               onClick={isListening ? stopVoice : startVoice}
+              title={!isHttps && window.location.hostname !== "localhost" ? "Voice requires HTTPS" : undefined}
               className={cn(
                 "flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border transition-all",
                 isListening
                   ? "border-secondary/50 bg-secondary/15 text-secondary glow-secondary animate-pulse"
+                  : voiceError
+                  ? "border-destructive/40 bg-destructive/10 text-destructive"
                   : "border-border bg-surface/60 text-muted-foreground hover:text-foreground"
               )}
             >
