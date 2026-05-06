@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { useShoppingSession } from "@/context/ShoppingSessionContext";
 import { useAuth } from "@/context/AuthContext";
 import { awardXP, XP_REWARDS } from "@/lib/xp";
+import { trackEvent } from "@/lib/analytics";
 import { cn } from "@/lib/utils";
 
 const floors = ["G", "L1", "L2", "L3"];
@@ -49,6 +50,12 @@ const NavigateScreen = () => {
         refreshProfile();
         setXpToast({ xp: result.xpGained, leveledUp: result.leveledUp, badges: result.newAchievements });
         setTimeout(() => setXpToast(null), 5000);
+      });
+      trackEvent("route_completed", {
+        userId: user.id,
+        mallId: selectedMall?.id,
+        mallName: selectedMall?.name,
+        metadata: { stops: routeStops.length },
       });
     }
   }, [allDone, user, profile, refreshProfile]);

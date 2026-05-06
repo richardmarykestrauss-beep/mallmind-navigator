@@ -11,6 +11,8 @@ import { supabase, type Product, type Shop } from "@/lib/supabaseClient";
 import { useShoppingSession } from "@/context/ShoppingSessionContext";
 import PriceSubmitModal from "@/components/PriceSubmitModal";
 import PriceAlertButton from "@/components/PriceAlertButton";
+import { trackSearch } from "@/lib/analytics";
+import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
 
 const FLOOR_ORDER: Record<string, number> = { B1: 0, G: 1, L1: 2, L2: 3, L3: 4, L4: 5 };
@@ -41,6 +43,7 @@ const SUGGESTIONS = [
 const SearchPage = () => {
   const navigate = useNavigate();
   const { selectedMall, routeStops, setRouteStops } = useShoppingSession();
+  const { user } = useAuth();
 
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
@@ -110,10 +113,12 @@ const SearchPage = () => {
         result.push({ name: matches[0].product.name, matches });
       }
       setGroups(result);
+      // Track search event (fire-and-forget)
+      trackSearch(q, result.length, selectedMall?.id, selectedMall?.name, user?.id);
     } finally {
       setLoading(false);
     }
-  }, [selectedMall]);
+  }, [selectedMall, user?.id]);
 
   useEffect(() => {
     fetchProducts(debouncedQuery);

@@ -9,6 +9,8 @@ import MobileShell from "@/components/MobileShell";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/lib/supabaseClient";
 import { useShoppingSession } from "@/context/ShoppingSessionContext";
+import { useAuth } from "@/context/AuthContext";
+import { trackEvent } from "@/lib/analytics";
 import { cn } from "@/lib/utils";
 import type { Shop } from "@/lib/supabaseClient";
 
@@ -192,6 +194,7 @@ const AssistantPage = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { selectedMall, setRouteStops } = useShoppingSession();
+  const { user } = useAuth();
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
@@ -344,6 +347,30 @@ const AssistantPage = () => {
 
       setMessages((prev) => prev.filter((m) => !m.loading).concat(assistantMsg));
       speak(replyText);
+
+      // Track AI conversation + route trigger
+      trackEvent("ai_conversation", {
+        userId: user?.id,
+        mallId: selectedMall?.id,
+        mallName: selectedMall?.name,
+        metadata: { has_products: (data.products?.length ?? 0) > 0, budget_set: budget !== null },
+      });
+      if (data.build_route) {
+        trackEvent("ai_route_triggered", {
+          userId: user?.id,
+          mallId: selectedMall?.id,
+          mallName: selectedMall?.name,
+          metadata: { stops: data.route_shop_ids?.length ?? 0 },
+        });
+      }
+      if (budget !== null) {
+        trackEvent("budget_mode_used", {
+          userId: user?.id,
+          mallId: selectedMall?.id,
+          mallName: selectedMall?.name,
+          metadata: { budget },
+        });
+      }
     } catch {
       setMessages((prev) =>
         prev.filter((m) => !m.loading).concat({
