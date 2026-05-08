@@ -84,8 +84,8 @@ images:
   - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/mallmind-backend:latest
 
 options:
-  # Send logs to Cloud Logging instead of a GCS bucket (no bucket setup needed)
-  logging: CLOUD_LOGGING_ONLY
+  # LEGACY logging writes to GCS + Cloud Logging — lets gcloud builds log work
+  logging: LEGACY
   # Run the build itself in africa-south1 so Docker layer cache is co-located
   # with the Artifact Registry repository
   pool: {}
