@@ -1,0 +1,93 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# MallMind — Cloud Build pipeline
+# Builds the google-cloud-backend Docker image and deploys it to Cloud Run.
+#
+# Region  : africa-south1 (Johannesburg) — lowest latency for SA users
+# Service : mallmind-backend-dev
+# Image   : africa-south1-docker.pkg.dev/$PROJECT_ID/mallmind/mallmind-backend
+#
+# Trigger this pipeline with:
+#   gcloud builds submit --config cloudbuild.yaml \
+#     --region africa-south1 .
+#
+# Or connect this repo to a Cloud Build GitHub trigger and it runs automatically.
+# ─────────────────────────────────────────────────────────────────────────────
+
+substitutions:
+  # Override any of these on the command line with --substitutions=_KEY=value
+  _REGION: africa-south1
+  _AR_REPO: mallmind
+  _SERVICE_NAME: mallmind-backend-dev
+  _MIN_INSTANCES: "0"
+  _MAX_INSTANCES: "10"
+  _MEMORY: 512Mi
+  _CPU: "1"
+
+# Derived image URI — built from substitutions above
+# africa-south1-docker.pkg.dev/PROJECT_ID/mallmind/mallmind-backend:COMMIT_SHA
+# $PROJECT_ID and $COMMIT_SHA are injected automatically by Cloud Build.
+
+steps:
+  # ── Step 1: Build the Docker image ─────────────────────────────────────────
+  # Build context is google-cloud-backend/ so the Dockerfile finds src/ and
+  # package.json relative to it. The multi-stage build compiles TypeScript in
+  # the builder stage and produces a minimal production image.
+  - name: gcr.io/cloud-builders/docker
+    id: build
+    args:
+      - build
+      - --tag
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/mallmind-backend:$COMMIT_SHA
+      - --tag
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/mallmind-backend:latest
+      - --cache-from
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/mallmind-backend:latest
+      - google-cloud-backend/
+    # The build directory is the repo root; Dockerfile is inside google-cloud-backend/
+
+  # ── Step 2: Push the image to Artifact Registry ─────────────────────────────
+  - name: gcr.io/cloud-builders/docker
+    id: push
+    waitFor: [build]
+    args:
+      - push
+      - --all-tags
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/mallmind-backend
+
+  # ── Step 3: Deploy to Cloud Run ─────────────────────────────────────────────
+  # Secrets are injected from Secret Manager — never baked into the image.
+  # Cloud Run maps each secret to an environment variable at runtime.
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    id: deploy
+    waitFor: [push]
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ${_SERVICE_NAME}
+      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/mallmind-backend:$COMMIT_SHA
+      - --region=${_REGION}
+      - --platform=managed
+      - --allow-unauthenticated
+      - --min-instances=${_MIN_INSTANCES}
+      - --max-instances=${_MAX_INSTANCES}
+      - --memory=${_MEMORY}
+      - --cpu=${_CPU}
+      - --timeout=60s
+      - --concurrency=80
+      - --set-env-vars=NODE_ENV=production,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_LOCATION=${_REGION}
+      - --set-secrets=SUPABASE_URL=supabase-url:latest,SUPABASE_SERVICE_ROLE_KEY=supabase-service-role-key:latest,GEMINI_API_KEY=gemini-api-key:latest
+
+# Tell Cloud Build which image was produced (shows up in Build Artifacts tab)
+images:
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/mallmind-backend:$COMMIT_SHA
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/mallmind-backend:latest
+
+options:
+  # Send logs to Cloud Logging instead of a GCS bucket (no bucket setup needed)
+  logging: CLOUD_LOGGING_ONLY
+  # Run the build itself in africa-south1 so Docker layer cache is co-located
+  # with the Artifact Registry repository
+  pool: {}
+
+timeout: 1200s   # 20 minutes — enough for npm ci + tsc in Docker
