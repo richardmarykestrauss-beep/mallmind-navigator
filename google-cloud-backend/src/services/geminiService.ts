@@ -2,6 +2,7 @@ import { GoogleGenerativeAI, Tool, FunctionDeclaration, SchemaType } from "@goog
 import { recommendProducts } from "./productService.js";
 import { buildRoute } from "./routingService.js";
 import { getSupabaseClient } from "../lib/supabase.js";
+import type { ScoredProduct, RouteStep } from "../lib/types.js";
 
 // ── SA store hours check ──────────────────────────────────────────────────────
 
@@ -158,8 +159,8 @@ export interface AssistantContext {
 
 export interface AssistantResult {
   message: string;
-  products: object[];
-  route_steps: object[];
+  products: ScoredProduct[];
+  route_steps: RouteStep[];
   route_id: string | null;
   build_route: boolean;
   route_shop_ids: string[];
@@ -191,8 +192,8 @@ export async function runAssistant(
   const lastMessage = messages[messages.length - 1];
   const chat = model.startChat({ history });
 
-  const allProducts: object[] = [];
-  let routeSteps: object[] = [];
+  const allProducts: ScoredProduct[] = [];
+  let routeSteps: RouteStep[] = [];
   let routeId: string | null = null;
   let routeShopIds: string[] = [];
   let routeSummary = "";
@@ -280,7 +281,7 @@ export async function runAssistant(
         toolResult = JSON.stringify({ error: String(err) });
       }
 
-      toolResponseParts.push({
+        toolResponseParts.push({
         functionResponse: { name: fn.name, response: { result: toolResult } },
       });
     }

@@ -107,23 +107,30 @@ export async function buildRoute(
   const supabase = getSupabaseClient();
 
   // 1. Load session
-  const { data: session } = await supabase
+  const { data: session, error: sessionError } = await supabase
     .from("shopping_sessions")
     .select("mall_id, current_anchor_node_id")
     .eq("id", session_id)
     .single();
 
+  if (sessionError) throw new Error(`Failed to load session: ${sessionError.message}`);
   if (!session?.mall_id) {
-    throw new Error("Session not found or missing mall_id.");
+    throw new Error(`Session ${session_id} not found or missing mall_id.`);
   }
 
   const mallId = session.mall_id as string;
 
   // 2. Load graph
-  const [{ data: allNodes }, { data: allEdges }] = await Promise.all([
+  const [
+    { data: allNodes, error: nodesError },
+    { data: allEdges, error: edgesError },
+  ] = await Promise.all([
     supabase.from("mall_nodes").select("*").eq("mall_id", mallId),
     supabase.from("mall_edges").select("*").eq("mall_id", mallId),
   ]);
+
+  if (nodesError) throw new Error(`Failed to load mall nodes: ${nodesError.message}`);
+  if (edgesError) throw new Error(`Failed to load mall edges: ${edgesError.message}`);
 
   const nodes = (allNodes ?? []) as MallNode[];
   const edges = (allEdges ?? []) as MallEdge[];
