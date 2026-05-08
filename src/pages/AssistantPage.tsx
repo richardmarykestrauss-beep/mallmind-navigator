@@ -15,16 +15,18 @@ import { useGeoLocation } from "@/context/LocationContext";
 import { trackEvent } from "@/lib/analytics";
 import { cn } from "@/lib/utils";
 import type { Shop } from "@/lib/supabaseClient";
+import {
+  isGoogleBackendConfigured,
+  sendAssistantMessage as googleSendAssistantMessage,
+  type WebResult,
+  type AssistantResponse,
+} from "@/lib/googleBackendClient";
 
 const SUPABASE_URL = "https://qspsouemjtcdcfnivpnt.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFzcHNvdWVtanRjZGNmbml2cG50Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcxMTIzNTAsImV4cCI6MjA5MjY4ODM1MH0.f94Lbzo-EgmcMsklgYiWW6tNhM4hvGm2Z8_37Xp8nkg";
 
 // ProductResult imported from RecommendationCard component
-
-interface WebResult {
-  answer: string;
-  sources: string[];
-}
+// WebResult and AssistantResponse imported from googleBackendClient
 
 import type { RouteStep } from "@/context/ShoppingSessionContext";
 
@@ -392,13 +394,13 @@ const AssistantPage = () => {
     try {
       const history = buildHistory([...messages, userMsg]);
 
-      const res = await fetch(`${SUPABASE_URL}/functions/v1/ai-assistant`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
-        },
-        body: JSON.stringify({
+      let data: AssistantResponse;
+
+      if (isGoogleBackendConfigured()) {
+        // ── Google Cloud Run backend ─────────────────────────────────────────
+        // /assistant calls recommend_products, build_route, and check_store_hours
+        // server-side via Gemini function calling — no extra client requests needed.
+        data = await googleSendAssistantMessage({
           messages:        history,
           mall_id:         selectedMall?.id ? String(selectedMall.id) : null,
           mall_name:       selectedMall?.name ?? null,
@@ -408,10 +410,29 @@ const AssistantPage = () => {
           current_lat:     position?.lat ?? null,
           current_lng:     position?.lng ?? null,
           shopping_intent: shoppingIntent ?? null,
-        }),
-      });
-
-      const data = await res.json();
+        });
+      } else {
+        // ── Supabase Edge Function (existing path) ───────────────────────────
+        const res = await fetch(`${SUPABASE_URL}/functions/v1/ai-assistant`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
+          },
+          body: JSON.stringify({
+            messages:        history,
+            mall_id:         selectedMall?.id ? String(selectedMall.id) : null,
+            mall_name:       selectedMall?.name ?? null,
+            budget:          budget ?? undefined,
+            user_id:         user?.id ?? null,
+            session_id:      dbSessionId ?? null,
+            current_lat:     position?.lat ?? null,
+            current_lng:     position?.lng ?? null,
+            shopping_intent: shoppingIntent ?? null,
+          }),
+        });
+        data = (await res.json()) as AssistantResponse;
+      }
 
       const replyText = data.message ?? "Sorry, I couldn't get a response.";
       const assistantMsg: ChatMessage = {

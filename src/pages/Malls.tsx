@@ -8,6 +8,11 @@ import { supabase, type Mall } from "@/lib/supabaseClient";
 import { useShoppingSession } from "@/context/ShoppingSessionContext";
 import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
+import {
+  isGoogleBackendConfigured,
+  detectActiveMall as googleDetectActiveMall,
+  type DetectActiveMallResponse,
+} from "@/lib/googleBackendClient";
 
 const SUPABASE_URL     = "https://qspsouemjtcdcfnivpnt.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFzcHNvdWVtanRjZGNmbml2cG50Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcxMTIzNTAsImV4cCI6MjA5MjY4ODM1MH0.f94Lbzo-EgmcMsklgYiWW6tNhM4hvGm2Z8_37Xp8nkg";
@@ -81,26 +86,31 @@ const Malls = () => {
         setUserPos({ lat, lng });
 
         try {
-          // Call detect-active-mall Edge Function — source of truth for nearest mall + session
-          const res = await fetch(`${SUPABASE_URL}/functions/v1/detect-active-mall`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
-            },
-            body: JSON.stringify({ lat, lng, user_id: user?.id ?? null }),
-          });
+          let data: DetectActiveMallResponse | null = null;
 
-          if (res.ok) {
-            const data = await res.json();
-            if (data.mall) {
-              setDetected({
-                mall: data.mall as Mall,
-                session_id: data.session_id,
-                distance_km: data.distance_km,
-                within_radius: data.within_radius,
-              });
-            }
+          if (isGoogleBackendConfigured()) {
+            // ── Google Cloud Run backend ───────────────────────────────────────
+            data = await googleDetectActiveMall({ lat, lng, user_id: user?.id ?? null });
+          } else {
+            // ── Supabase Edge Function (existing path) ─────────────────────────
+            const res = await fetch(`${SUPABASE_URL}/functions/v1/detect-active-mall`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
+              },
+              body: JSON.stringify({ lat, lng, user_id: user?.id ?? null }),
+            });
+            if (res.ok) data = (await res.json()) as DetectActiveMallResponse;
+          }
+
+          if (data?.mall) {
+            setDetected({
+              mall: data.mall,
+              session_id: data.session_id,
+              distance_km: data.distance_km,
+              within_radius: data.within_radius,
+            });
           }
         } catch {
           // Non-blocking — fallback to client-side sorting
