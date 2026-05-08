@@ -1,0 +1,83 @@
+import "dotenv/config";
+import express from "express";
+import cors from "cors";
+import helmet from "helmet";
+
+import healthRouter          from "./routes/health.js";
+import detectActiveMallRouter from "./routes/detectActiveMall.js";
+import recommendProductsRouter from "./routes/recommendProducts.js";
+import buildRouteRouter      from "./routes/buildRoute.js";
+import assistantRouter       from "./routes/assistant.js";
+import adminStatsRouter      from "./routes/adminStats.js";
+
+// ── Validate required environment variables at startup ────────────────────────
+const REQUIRED_ENV = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"];
+const missing = REQUIRED_ENV.filter((k) => !process.env[k]);
+if (missing.length) {
+  console.error(`[startup] Missing required environment variables: ${missing.join(", ")}`);
+  console.error("[startup] Copy .env.example to .env and fill in the values.");
+  process.exit(1);
+}
+
+if (!process.env.GEMINI_API_KEY) {
+  console.warn("[startup] GEMINI_API_KEY not set — POST /assistant will return 503.");
+}
+
+// ── App ───────────────────────────────────────────────────────────────────────
+const app = express();
+
+// Security headers
+app.use(helmet());
+
+// CORS — in production, restrict this to your frontend domain
+app.use(
+  cors({
+    origin: process.env.NODE_ENV === "production"
+      ? (process.env.ALLOWED_ORIGIN ?? false)
+      : "*",
+    methods: ["GET", "POST", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  })
+);
+
+// Body parsing
+app.use(express.json({ limit: "1mb" }));
+
+// Request logging
+app.use((req, _res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
+  next();
+});
+
+// ── Routes ────────────────────────────────────────────────────────────────────
+app.use("/health",              healthRouter);
+app.use("/detect-active-mall",  detectActiveMallRouter);
+app.use("/recommend-products",  recommendProductsRouter);
+app.use("/build-route",         buildRouteRouter);
+app.use("/assistant",           assistantRouter);
+app.use("/admin-stats",         adminStatsRouter);
+
+// 404 catch-all
+app.use((_req, res) => {
+  res.status(404).json({ error: "Route not found" });
+});
+
+// Global error handler
+app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  console.error("[unhandled error]", err);
+  res.status(500).json({ error: "Internal server error" });
+});
+
+// ── Start ─────────────────────────────────────────────────────────────────────
+// Cloud Run injects PORT=8080. Default to 8080 for local dev too.
+const PORT = parseInt(process.env.PORT ?? "8080", 10);
+
+app.listen(PORT, () => {
+  console.log(`[startup] MallMind Cloud Backend running on port ${PORT}`);
+  console.log(`[startup] Environment: ${process.env.NODE_ENV ?? "development"}`);
+  console.log(`[startup] Supabase URL: ${process.env.SUPABASE_URL}`);
+  console.log(`[startup] Gemini AI: ${process.env.GEMINI_API_KEY ? "configured" : "NOT configured"}`);
+  console.log(`[startup] Routes: GET /health | POST /detect-active-mall | POST /recommend-products | POST /build-route | POST /assistant | GET /admin-stats`);
+});
+
+export default app;
