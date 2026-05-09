@@ -10,7 +10,7 @@ async function checkStoreHours(mallId: string, shopName: string) {
   const supabase = getSupabaseClient();
   const { data: shops } = await supabase
     .from("shops")
-    .select("id, name, floor, unit_number, opening_hours")
+    .select("id, name, floor, unit_number, opening_time, closing_time")
     .eq("mall_id", mallId)
     .ilike("name", `%${shopName}%`)
     .limit(3);
@@ -20,20 +20,25 @@ async function checkStoreHours(mallId: string, shopName: string) {
   const now = new Date();
   const saHour = (now.getUTCHours() + 2) % 24;
   const saMin = now.getUTCMinutes();
+  const saMinutes = saHour * 60 + saMin;
 
   return {
     found: true,
     stores: shops.map((s) => {
       let isOpen: boolean | null = null;
-      if (s.opening_hours) {
-        const m = s.opening_hours.match(/(\d{1,2}):(\d{2})\s*[-–]\s*(\d{1,2}):(\d{2})/);
-        if (m) isOpen = saHour >= parseInt(m[1]) && saHour < parseInt(m[3]);
+      if (s.opening_time && s.closing_time) {
+        const [oh, om] = s.opening_time.split(":").map(Number);
+        const [ch, cm] = s.closing_time.split(":").map(Number);
+        isOpen = saMinutes >= oh * 60 + om && saMinutes < ch * 60 + cm;
       }
+      const hoursDisplay = s.opening_time && s.closing_time
+        ? `${s.opening_time.slice(0, 5)} – ${s.closing_time.slice(0, 5)}`
+        : "Hours not available";
       return {
         name: s.name,
         floor: s.floor,
         unit_number: s.unit_number,
-        opening_hours: s.opening_hours ?? "Hours not available",
+        opening_hours: hoursDisplay,
         current_time_sa: `${String(saHour).padStart(2, "0")}:${String(saMin).padStart(2, "0")}`,
         is_open: isOpen,
       };

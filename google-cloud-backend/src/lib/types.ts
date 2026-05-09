@@ -18,7 +18,8 @@ export interface Shop {
   floor: string | null;
   unit_number: string | null;
   category: string | null;
-  opening_hours: string | null;
+  opening_time: string | null;   // "09:00:00"
+  closing_time: string | null;   // "19:00:00"
 }
 
 export interface Product {

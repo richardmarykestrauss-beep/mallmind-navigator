@@ -1,15 +1,15 @@
 import { getSupabaseClient } from "../lib/supabase.js";
 import type { Shop, Product, ScoredProduct } from "../lib/types.js";
 
-// SA timezone UTC+2
-function isOpenNow(openingHours: string | null): boolean | null {
-  if (!openingHours) return null;
+// SA timezone UTC+2 — works with "HH:MM:SS" time columns
+function isOpenNow(openingTime: string | null, closingTime: string | null): boolean | null {
+  if (!openingTime || !closingTime) return null;
   try {
     const now = new Date();
-    const saHour = (now.getUTCHours() + 2) % 24;
-    const match = openingHours.match(/(\d{1,2}):(\d{2})\s*[-–]\s*(\d{1,2}):(\d{2})/);
-    if (!match) return null;
-    return saHour >= parseInt(match[1]) && saHour < parseInt(match[3]);
+    const saMinutes = ((now.getUTCHours() + 2) % 24) * 60 + now.getUTCMinutes();
+    const [oh, om] = openingTime.split(":").map(Number);
+    const [ch, cm] = closingTime.split(":").map(Number);
+    return saMinutes >= oh * 60 + om && saMinutes < ch * 60 + cm;
   } catch {
     return null;
   }
@@ -51,7 +51,7 @@ function scoreProduct(
   }
 
   // Store hours
-  const open = isOpenNow(shop.opening_hours);
+  const open = isOpenNow(shop.opening_time, shop.closing_time);
   if (open === true) { score += 5; reasons.push("Open now"); }
   if (open === false) { score -= 20; reasons.push("Currently closed"); }
 
@@ -82,7 +82,7 @@ export async function recommendProducts(opts: RecommendOptions): Promise<ScoredP
   // 1. Get shops for this mall
   const { data: shops, error: shopErr } = await supabase
     .from("shops")
-    .select("id, mall_id, name, floor, unit_number, category, opening_hours")
+    .select("id, mall_id, name, floor, unit_number, category, opening_time, closing_time")
     .eq("mall_id", mall_id);
 
   if (shopErr) throw new Error(`Failed to fetch shops: ${shopErr.message}`);
@@ -143,7 +143,7 @@ export async function recommendProducts(opts: RecommendOptions): Promise<ScoredP
       shop_name: shop.name,
       floor: shop.floor,
       unit_number: shop.unit_number,
-      is_open_now: isOpenNow(shop.opening_hours),
+      is_open_now: isOpenNow(shop.opening_time, shop.closing_time),
       is_cheapest: cheapestByName[nameKey] === p.price,
       score,
       reason,
