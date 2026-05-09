@@ -247,7 +247,7 @@ export async function buildRoute(
   const estimated_minutes = Math.max(1, Math.round(totalDistance / 72));
 
   // 6. Persist route
-  const { data: savedRoute } = await supabase
+  const { data: savedRoute, error: routeInsertError } = await supabase
     .from("shopping_routes")
     .insert({
       session_id,
@@ -261,6 +261,10 @@ export async function buildRoute(
     })
     .select("id")
     .single();
+
+  if (routeInsertError) {
+    console.error("[buildRoute] Failed to save shopping_routes row:", routeInsertError.message);
+  }
 
   const route_id = savedRoute?.id ?? null;
 
