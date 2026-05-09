@@ -45,14 +45,14 @@ function formatDuration(startedAt: string, completedAt: string): string {
 // ── Status legend ─────────────────────────────────────────────────────────────
 
 const STATUS_LEGEND = `
-| Status | Meaning |
-|--------|---------|
-| ✅ REAL | Endpoint works correctly with live Supabase and Gemini data |
-| 🟢 VERIFIED_DATA | Seeded IDs but prices manually confirmed against real store prices |
-| 🟡 DEMO_DATA | Endpoint works but operating on unverified manually seeded data |
-| ⚠️ PARTIAL | Endpoint responds but returns incomplete or empty results |
-| ❌ BROKEN | HTTP error, timeout, or unexpected response format |
-| ⛔ BLOCKED | Not tested — missing credentials or blocked by safety rules |
+| Status | Meaning | Safe for |
+|--------|---------|----------|
+| ✅ REAL | \`data_quality_status = live_feed\` — prices from retailer API or scraper | Production |
+| 🟢 VERIFIED_DATA | \`data_quality_status = manually_verified\` + \`price_verified_at\` set — price confirmed by phone, website, flyer, receipt, store visit, or retailer | Demo / Pilot |
+| 🟡 DEMO_DATA | \`data_quality_status = demo\` — seeded test data, price not independently confirmed | Tech testing only |
+| ⚠️ PARTIAL | Mixed \`data_quality_status\` values, or endpoint responds with empty/incomplete results | Not safe |
+| ❌ BROKEN | HTTP error, timeout, or unexpected response format | — |
+| ⛔ BLOCKED | Not tested — missing credentials or blocked by safety rules | — |
 `.trim();
 
 // ── Results table ─────────────────────────────────────────────────────────────
@@ -134,11 +134,11 @@ ${JSON.stringify(suite.results.map((r) => ({
 Overall status: ${suite.overallStatus}
 REAL: ${suite.passCount}, VERIFIED_DATA: ${suite.verifiedDataCount}, DEMO_DATA: ${suite.demoDataCount}, PARTIAL: ${suite.partialCount}, BROKEN: ${suite.brokenCount}, BLOCKED: ${suite.blockedCount}
 
-Status meanings:
-- REAL: working with live retailer data
-- VERIFIED_DATA: seeded IDs but prices manually confirmed against real store prices
-- DEMO_DATA: working but prices are unverified seed data
-- PARTIAL: endpoint responds but results are incomplete
+Status meanings (driven by data_quality_status field on products):
+- REAL: data_quality_status=live_feed — prices from retailer API or automated scraper. Safe for production.
+- VERIFIED_DATA: data_quality_status=manually_verified AND price_verified_at set — price confirmed by a human against a real source (phone, website, flyer, receipt, store visit). Safe for demo/pilot.
+- DEMO_DATA: data_quality_status=demo — seeded test data, price never independently confirmed. Safe for tech testing only.
+- PARTIAL: mixed data_quality_status values across products, or endpoint returns empty results. Needs attention.
 - BROKEN: HTTP error or crash
 
 Write a concise technical analysis (200-350 words) covering:

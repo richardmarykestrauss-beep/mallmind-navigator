@@ -94,7 +94,10 @@ export async function recommendProducts(opts: RecommendOptions): Promise<ScoredP
   // 2. Search products
   let q = supabase
     .from("products")
-    .select("id, shop_id, name, brand, category, price, original_price, is_on_special, price_verified_at")
+    .select(
+      "id, shop_id, name, brand, category, price, original_price, is_on_special, " +
+      "price_verified_at, data_quality_status, price_verification_method, data_source, verified_by"
+    )
     .in("shop_id", shopIds)
     .ilike("name", `%${query.trim()}%`)
     .order("price", { ascending: true })
@@ -109,7 +112,7 @@ export async function recommendProducts(opts: RecommendOptions): Promise<ScoredP
 
   // 3. Build cheapest-per-name map
   const cheapestByName: Record<string, number> = {};
-  for (const p of products as Product[]) {
+  for (const p of products as unknown as Product[]) {
     const key = p.name.toLowerCase().trim();
     if (cheapestByName[key] === undefined || p.price < cheapestByName[key]) {
       cheapestByName[key] = p.price;
@@ -118,7 +121,7 @@ export async function recommendProducts(opts: RecommendOptions): Promise<ScoredP
 
   // 4. Score each product
   const scored: ScoredProduct[] = [];
-  for (const p of products as Product[]) {
+  for (const p of products as unknown as Product[]) {
     const shop = shopMap[String(p.shop_id)] as Shop | undefined;
     if (!shop) continue;
 
@@ -148,6 +151,10 @@ export async function recommendProducts(opts: RecommendOptions): Promise<ScoredP
       score,
       reason,
       price_verified_at: p.price_verified_at ?? null,
+      data_quality_status: p.data_quality_status ?? "demo",
+      price_verification_method: p.price_verification_method ?? null,
+      data_source: p.data_source ?? null,
+      verified_by: p.verified_by ?? null,
     });
   }
 

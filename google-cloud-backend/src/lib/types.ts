@@ -22,6 +22,27 @@ export interface Shop {
   closing_time: string | null;   // "19:00:00"
 }
 
+/** Allowed values for products.data_quality_status */
+export type DataQualityStatus =
+  | "demo"
+  | "manually_verified"
+  | "live_feed"
+  | "stale"
+  | "user_submitted"
+  | "needs_review";
+
+/** Allowed values for products.price_verification_method */
+export type PriceVerificationMethod =
+  | "phone"
+  | "website"
+  | "flyer"
+  | "receipt"
+  | "store_visit"
+  | "retailer_confirmation"
+  | "scraper"
+  | "retailer_api"
+  | "user_submission";
+
 export interface Product {
   id: string;
   shop_id: string;
@@ -31,7 +52,16 @@ export interface Product {
   price: number;
   original_price: number | null;
   is_on_special: boolean;
+  /** ISO timestamp of last manual price verification. */
   price_verified_at: string | null;
+  /** Trustworthiness classification for this price. Defaults to "demo". */
+  data_quality_status: DataQualityStatus;
+  /** How the price was confirmed (only meaningful for manually_verified / live_feed). */
+  price_verification_method: PriceVerificationMethod | null;
+  /** Free-text origin label, e.g. "manual_seed" or "takealot_scraper". */
+  data_source: string | null;
+  /** Optional identifier of who last verified this price. */
+  verified_by: string | null;
 }
 
 export interface ShoppingSession {
@@ -98,8 +128,16 @@ export interface ScoredProduct {
   is_cheapest: boolean;
   score: number;
   reason: string;
-  /** ISO timestamp of last manual price verification. Null = unverified seed data. */
+  /** ISO timestamp of last manual price verification. */
   price_verified_at: string | null;
+  /** Trustworthiness classification for this price. */
+  data_quality_status: DataQualityStatus;
+  /** How the price was confirmed. */
+  price_verification_method: PriceVerificationMethod | null;
+  /** Free-text origin label. */
+  data_source: string | null;
+  /** Who last verified this price. */
+  verified_by: string | null;
 }
 
 export interface ApiError {

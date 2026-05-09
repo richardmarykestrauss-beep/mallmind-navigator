@@ -55,16 +55,13 @@ export interface SmokeTestSuite {
   blockedCount: number;
 }
 
-// ── Known seeded ID patterns ──────────────────────────────────────────────────
-// These UUIDs were manually seeded for development. Detecting them in responses
-// means the endpoint is operating on demo/seeded data.
-//
-// Promotion to VERIFIED_DATA requires price_verified_at to be non-null on the
-// returned products — see migration 007_price_verified_at.sql.
+// ── Data quality constants ────────────────────────────────────────────────────
 
 // Must match MALL_RADIUS_KM in google-cloud-backend/src/services/mallService.ts
 const MALL_DETECTION_RADIUS_KM = 1.0;
 
+// Known seeded ID prefixes — fallback detection for responses that pre-date
+// migration 008 (no data_quality_status field yet).
 const SEEDED_ID_PREFIXES = [
   "f4a2c1b3", // Mall@Reds mall ID
   "a1b2c3d4", // seeded shop IDs
@@ -77,36 +74,98 @@ function containsSeededData(obj: unknown): boolean {
   return SEEDED_ID_PREFIXES.some((prefix) => str.includes(prefix));
 }
 
-/**
- * Returns true if at least one product in the response has price_verified_at set.
- * Works for both { recommendations: [...] } and flat array shapes.
- */
-function hasVerifiedPrices(obj: unknown): boolean {
-  let items: unknown[] = [];
+// ── Product quality classification ───────────────────────────────────────────
+//
+// Reads data_quality_status from each product in the response and maps the
+// aggregate to an EndpointStatus.
+//
+// Classification rules (in priority order):
+//
+//   1. No products                          → PARTIAL  (nothing to evaluate)
+//   2. All "live_feed"                      → REAL     (production-grade)
+//   3. All "manually_verified" + verified_at→ VERIFIED_DATA (demo-safe)
+//   4. Mixed statuses                       → PARTIAL  (needs attention)
+//   5. All "demo" / "stale" / etc.          → DEMO_DATA
+//   6. No data_quality_status field at all  → seeded-ID fallback (DEMO_DATA)
+//
+// VERIFIED_DATA requires BOTH:
+//   a) data_quality_status = "manually_verified"
+//   b) price_verified_at is not null
+// If either is missing the price has not been properly confirmed — stay DEMO_DATA.
 
-  if (Array.isArray(obj)) {
-    items = obj;
-  } else if (obj && typeof obj === "object") {
+type DataQualityStatus =
+  | "demo"
+  | "manually_verified"
+  | "live_feed"
+  | "stale"
+  | "user_submitted"
+  | "needs_review";
+
+function extractProducts(obj: unknown): unknown[] {
+  if (Array.isArray(obj)) return obj;
+  if (obj && typeof obj === "object") {
     const rec = obj as Record<string, unknown>;
     const inner = rec.recommendations ?? rec.products ?? rec.items;
-    if (Array.isArray(inner)) items = inner;
+    if (Array.isArray(inner)) return inner;
+  }
+  return [];
+}
+
+function classifyProductList(products: unknown[]): EndpointStatus {
+  if (products.length === 0) return "PARTIAL";
+
+  // If products lack data_quality_status (migration 008 not yet applied),
+  // fall back to seeded-ID heuristic.
+  const firstItem = products[0] as Record<string, unknown>;
+  const hasDQS = "data_quality_status" in firstItem;
+  if (!hasDQS) {
+    // Pre-migration fallback: any seeded ID → DEMO_DATA, otherwise REAL
+    const isSeeded = containsSeededData(products);
+    return isSeeded ? "DEMO_DATA" : "REAL";
   }
 
-  return items.some(
-    (item) =>
-      item &&
-      typeof item === "object" &&
-      (item as Record<string, unknown>).price_verified_at != null
+  const statuses = products.map(
+    (p) => ((p as Record<string, unknown>).data_quality_status as DataQualityStatus) ?? "demo"
   );
+  const unique = new Set(statuses);
+
+  // All live_feed → REAL
+  if (unique.size === 1 && unique.has("live_feed")) return "REAL";
+
+  // All manually_verified AND all have price_verified_at → VERIFIED_DATA
+  if (unique.size === 1 && unique.has("manually_verified")) {
+    const allTimestamped = products.every(
+      (p) => (p as Record<string, unknown>).price_verified_at != null
+    );
+    // If manually_verified but no timestamp something went wrong — stay DEMO_DATA
+    return allTimestamped ? "VERIFIED_DATA" : "DEMO_DATA";
+  }
+
+  // Mixed statuses → PARTIAL (inconsistent data quality, needs attention)
+  if (unique.size > 1) return "PARTIAL";
+
+  // Everything else (demo, stale, user_submitted, needs_review) → DEMO_DATA
+  return "DEMO_DATA";
 }
 
 /**
- * Classify a response that contains seeded IDs:
- *  - If products have price_verified_at set → VERIFIED_DATA
- *  - Otherwise → DEMO_DATA
+ * Build a human-readable quality note for use in summary strings.
  */
-function classifySeededResponse(obj: unknown): "VERIFIED_DATA" | "DEMO_DATA" {
-  return hasVerifiedPrices(obj) ? "VERIFIED_DATA" : "DEMO_DATA";
+function qualityNote(status: EndpointStatus, firstProduct?: Record<string, unknown>): string {
+  switch (status) {
+    case "REAL":          return "";
+    case "VERIFIED_DATA": {
+      const method = firstProduct?.price_verification_method ?? "unknown method";
+      const who    = firstProduct?.verified_by ? ` by ${firstProduct.verified_by}` : "";
+      return ` [prices verified via ${method}${who}]`;
+    }
+    case "PARTIAL":       return " [mixed data quality — see details]";
+    case "DEMO_DATA":     {
+      const src = firstProduct?.data_source ? ` (source: ${firstProduct.data_source})` : "";
+      return ` [unverified seed data${src}]`;
+    }
+    default:              return "";
+  }
 }
 
 function truncate(str: string, maxLen = 400): string {
@@ -307,8 +366,8 @@ async function testDetectActiveMall(baseUrl: string): Promise<SmokeTestResult> {
     return {
       testName: "Detect Active Mall",
       endpoint, method,
-      // Mall detection doesn't return product prices so VERIFIED_DATA doesn't apply —
-      // REAL when working, DEMO_DATA only when the mall itself is a seed-only construct.
+      // Mall detection returns no products, so data_quality_status doesn't apply.
+      // Use seeded-ID detection: DEMO_DATA for known seeded mall IDs, REAL otherwise.
       status: isSeeded ? "DEMO_DATA" : "REAL",
       httpStatus: response.status,
       responseTimeMs,
@@ -381,12 +440,8 @@ async function testRecommendProducts(baseUrl: string): Promise<SmokeTestResult> 
       };
     }
 
-    const isSeeded = containsSeededData(body);
-    const dataStatus = isSeeded ? classifySeededResponse(body) : "REAL";
+    const dataStatus = classifyProductList(products);
     const cheapest = products[0] as Record<string, unknown>;
-    const verifiedNote = dataStatus === "VERIFIED_DATA"
-      ? " [prices verified]"
-      : isSeeded ? " [seeded data]" : "";
 
     return {
       testName: "Recommend Products",
@@ -396,7 +451,7 @@ async function testRecommendProducts(baseUrl: string): Promise<SmokeTestResult> 
       responseTimeMs,
       summary: `${products.length} product(s) returned — cheapest: "${cheapest?.name}" ` +
         `at R${cheapest?.price} from ${cheapest?.shop_name} (Floor ${cheapest?.floor})` +
-        verifiedNote,
+        qualityNote(dataStatus, cheapest),
       responsePreview: preview,
       rawResponse: body,
     };
@@ -577,13 +632,9 @@ async function testAssistant(baseUrl: string): Promise<SmokeTestResult> {
       };
     }
 
-    const isSeeded = containsSeededData(body);
-    // The assistant response embeds products — check those for price_verified_at
-    const productsBody = { recommendations: products };
-    const dataStatus = isSeeded ? classifySeededResponse(productsBody) : "REAL";
-    const verifiedNote = dataStatus === "VERIFIED_DATA"
-      ? " [verified product data]"
-      : isSeeded ? " [seeded product data]" : "";
+    // Classify based on data quality of returned products
+    const dataStatus = classifyProductList(products);
+    const firstProduct = products[0] as Record<string, unknown> | undefined;
 
     return {
       testName: "AI Assistant",
@@ -594,7 +645,7 @@ async function testAssistant(baseUrl: string): Promise<SmokeTestResult> {
       summary: `Gemini responded in ${responseTimeMs}ms. ` +
         `${products.length} product(s) returned. ` +
         `Message preview: "${message.slice(0, 120)}"` +
-        verifiedNote,
+        qualityNote(dataStatus, firstProduct),
       responsePreview: preview,
       rawResponse: body,
     };
@@ -695,10 +746,8 @@ async function testFullJourney(baseUrl: string): Promise<SmokeTestResult> {
   const sessionId = await createTestSession(detectedMallId);
 
   if (!sessionId) {
-    // Supabase creds missing — journey is partially verified
-    const isSeeded = containsSeededData(step1Body) || containsSeededData(step2Body);
-    const productsBody = { recommendations: recArr };
-    const dataStatus = isSeeded ? classifySeededResponse(productsBody) : "REAL";
+    // Supabase creds missing — journey is partially verified (steps 1–2 only)
+    const dataStatus = classifyProductList(recArr);
     return {
       testName, endpoint, method,
       status: dataStatus,
@@ -707,7 +756,7 @@ async function testFullJourney(baseUrl: string): Promise<SmokeTestResult> {
       summary: `Journey steps 1–2 passed ✓: detected "${detectedMallName}" → ` +
         `${recArr.length} product(s) for "TV" (first: "${firstProduct?.name}" at R${firstProduct?.price}). ` +
         `Step 3 (/build-route) skipped — set SUPABASE_SERVICE_ROLE_KEY to test routing.` +
-        (dataStatus === "VERIFIED_DATA" ? " [prices verified]" : isSeeded ? " [seeded data]" : ""),
+        qualityNote(dataStatus, firstProduct as Record<string, unknown>),
       responsePreview: truncate(JSON.stringify({ step1: step1Body, step2_count: recArr.length })),
     };
   }
@@ -745,10 +794,10 @@ async function testFullJourney(baseUrl: string): Promise<SmokeTestResult> {
   }
 
   // ── All 3 steps passed ────────────────────────────────────────────────────
-  const combinedBody = { step1: step1Body, step2: step2Body, step3: step3Body };
-  const isSeeded = containsSeededData(combinedBody);
-  const productsBody = { recommendations: recArr };
-  const dataStatus = isSeeded ? classifySeededResponse(productsBody) : "REAL";
+  // Product quality drives the overall journey classification.
+  // Route graph data doesn't carry data_quality_status (it's a topology, not a price),
+  // so only product quality determines whether this journey is demo/verified/live.
+  const dataStatus = classifyProductList(recArr);
   const firstStep = routeSteps[0] as Record<string, unknown>;
 
   return {
@@ -760,14 +809,14 @@ async function testFullJourney(baseUrl: string): Promise<SmokeTestResult> {
       `${recArr.length} product(s) for "TV" → ` +
       `${routeSteps.length} route step(s) to "${firstProduct?.shop_name}". ` +
       `First step: "${String(firstStep?.instruction ?? "").slice(0, 60)}"` +
-      (dataStatus === "VERIFIED_DATA" ? " [prices verified]" : isSeeded ? " [seeded data]" : ""),
+      qualityNote(dataStatus, firstProduct as Record<string, unknown>),
     responsePreview: truncate(JSON.stringify({
       mall: detectedMallName,
       products_found: recArr.length,
       route_steps: routeSteps.length,
       first_route_step: firstStep?.instruction,
     })),
-    rawResponse: combinedBody,
+    rawResponse: { step1: step1Body, step2: step2Body, step3: step3Body },
   };
 }
 
