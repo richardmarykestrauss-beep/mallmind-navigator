@@ -1,4 +1,4 @@
-import { VertexAI, Tool, FunctionDeclaration, SchemaType } from "@google-cloud/vertexai";
+import { GoogleGenAI, Type, Tool, FunctionDeclaration } from "@google/genai";
 import { recommendProducts } from "./productService.js";
 import { buildRoute } from "./routingService.js";
 import { getSupabaseClient } from "../lib/supabase.js";
@@ -63,11 +63,11 @@ const toolDeclarations: FunctionDeclaration[] = [
     description:
       "Search live mall stock for products. Returns ranked results with prices, store locations and discounts. ALWAYS call this first for product queries when inside a mall.",
     parameters: {
-      type: SchemaType.OBJECT,
+      type: Type.OBJECT,
       properties: {
-        query: { type: SchemaType.STRING, description: "Product name or description" },
-        budget: { type: SchemaType.NUMBER, description: "Max price in ZAR (only if user stated a budget)" },
-        category: { type: SchemaType.STRING, description: "Optional: Electronics, Clothing, Appliances, etc." },
+        query: { type: Type.STRING, description: "Product name or description" },
+        budget: { type: Type.NUMBER, description: "Max price in ZAR (only if user stated a budget)" },
+        category: { type: Type.STRING, description: "Optional: Electronics, Clothing, Appliances, etc." },
       },
       required: ["query"],
     },
@@ -76,9 +76,9 @@ const toolDeclarations: FunctionDeclaration[] = [
     name: "check_store_hours",
     description: "Check if a specific store is open now and get its trading hours.",
     parameters: {
-      type: SchemaType.OBJECT,
+      type: Type.OBJECT,
       properties: {
-        shop_name: { type: SchemaType.STRING, description: "Store name e.g. Game, Woolworths, Clicks" },
+        shop_name: { type: Type.STRING, description: "Store name e.g. Game, Woolworths, Clicks" },
       },
       required: ["shop_name"],
     },
@@ -87,9 +87,9 @@ const toolDeclarations: FunctionDeclaration[] = [
     name: "save_shopping_intent",
     description: "Save the user's shopping goal to their active session. Call once you understand what they're looking for.",
     parameters: {
-      type: SchemaType.OBJECT,
+      type: Type.OBJECT,
       properties: {
-        intent: { type: SchemaType.STRING, description: "e.g. Looking for a TV under R5000 and Nike sneakers" },
+        intent: { type: Type.STRING, description: "e.g. Looking for a TV under R5000 and Nike sneakers" },
       },
       required: ["intent"],
     },
@@ -98,14 +98,14 @@ const toolDeclarations: FunctionDeclaration[] = [
     name: "build_route",
     description: "Build a step-by-step navigation route to selected stores. Call when the user wants to be guided to a store.",
     parameters: {
-      type: SchemaType.OBJECT,
+      type: Type.OBJECT,
       properties: {
         shop_ids: {
-          type: SchemaType.ARRAY,
-          items: { type: SchemaType.STRING },
+          type: Type.ARRAY,
+          items: { type: Type.STRING },
           description: "Shop IDs from recommend_products results — ground floor first",
         },
-        summary: { type: SchemaType.STRING, description: "e.g. 2 stops · ~15 min walk" },
+        summary: { type: Type.STRING, description: "e.g. 2 stops · ~15 min walk" },
       },
       required: ["shop_ids"],
     },
@@ -178,18 +178,18 @@ export async function runAssistant(
 ): Promise<AssistantResult> {
   // Uses Application Default Credentials — no API key needed.
   // On Cloud Run the Compute Engine service account provides identity automatically.
-  const vertexAI = new VertexAI({
+  const ai = new GoogleGenAI({
+    vertexai: true,
     project: process.env.GOOGLE_CLOUD_PROJECT ?? "mallmind",
     // Gemini models live in us-central1 regardless of where Cloud Run is deployed.
-    // VERTEX_AI_LOCATION can override this; GOOGLE_CLOUD_LOCATION is the Cloud Run region.
     location: process.env.VERTEX_AI_LOCATION ?? "us-central1",
   });
 
-  const model = vertexAI.getGenerativeModel({
-    model: "gemini-2.5-flash",
-    systemInstruction: buildSystemPrompt(ctx),
-    tools,
-  });
+  const allProducts: ScoredProduct[] = [];
+  let routeSteps: RouteStep[] = [];
+  let routeId: string | null = null;
+  let routeShopIds: string[] = [];
+  let routeSummary = "";
 
   // Convert message history to Gemini Content format
   const history = messages.slice(0, -1).map((m) => ({
@@ -198,32 +198,26 @@ export async function runAssistant(
   }));
 
   const lastMessage = messages[messages.length - 1];
-  const chat = model.startChat({ history });
 
-  const allProducts: ScoredProduct[] = [];
-  let routeSteps: RouteStep[] = [];
-  let routeId: string | null = null;
-  let routeShopIds: string[] = [];
-  let routeSummary = "";
+  const chat = ai.chats.create({
+    model: "gemini-2.5-flash",
+    history,
+    config: {
+      systemInstruction: buildSystemPrompt(ctx),
+      tools,
+    },
+  });
 
   // Agentic loop — up to 8 turns to resolve tool calls
-  let result = await chat.sendMessage(lastMessage.content);
+  let response = await chat.sendMessage({ message: lastMessage.content });
 
   for (let turn = 0; turn < 8; turn++) {
-    const response = result.response;
-    const candidate = response.candidates?.[0];
-    if (!candidate) break;
+    const fnCalls = response.functionCalls();
 
-    // Collect text parts
-    const textParts = candidate.content.parts.filter((p) => p.text).map((p) => p.text ?? "");
-
-    // Handle function calls
-    const fnCalls = candidate.content.parts.filter((p) => p.functionCall);
-
-    if (!fnCalls.length) {
+    if (!fnCalls || fnCalls.length === 0) {
       // No more tool calls — return final text
       return {
-        message: textParts.join("").trim() || "Sorry, I couldn't generate a response.",
+        message: response.text?.trim() || "Sorry, I couldn't generate a response.",
         products: allProducts,
         route_steps: routeSteps,
         route_id: routeId,
@@ -234,10 +228,9 @@ export async function runAssistant(
     }
 
     // Execute each tool call and collect results
-    const toolResponseParts: object[] = [];
+    const functionResponses = [];
 
-    for (const part of fnCalls) {
-      const fn = part.functionCall!;
+    for (const fn of fnCalls) {
       let toolResult: string;
 
       try {
@@ -289,14 +282,16 @@ export async function runAssistant(
         toolResult = JSON.stringify({ error: String(err) });
       }
 
-        toolResponseParts.push({
-        functionResponse: { name: fn.name, response: { result: toolResult } },
+      functionResponses.push({
+        name: fn.name,
+        response: { result: toolResult },
       });
     }
 
     // Send tool results back and continue the loop
-    // @ts-ignore — sendMessage accepts Content parts
-    result = await chat.sendMessage(toolResponseParts);
+    response = await chat.sendMessage({ message: functionResponses.map(fr => ({
+      functionResponse: { name: fr.name, response: fr.response },
+    })) });
   }
 
   // Fallback if loop exhausted
