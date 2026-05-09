@@ -184,7 +184,7 @@ export async function runAssistant(
   });
 
   const model = vertexAI.getGenerativeModel({
-    model: "gemini-1.5-flash-001",
+    model: "gemini-2.0-flash-001",
     systemInstruction: buildSystemPrompt(ctx),
     tools,
   });

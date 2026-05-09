@@ -25,7 +25,7 @@ const schema = z.object({
  * Body: { messages, mall_id?, mall_name?, session_id?, user_id?,
  *         current_floor?, shopping_intent?, budget? }
  *
- * Runs Gemini 2.0 Flash with function calling.
+ * Runs Gemini 2.0 Flash (gemini-2.0-flash-001) with function calling.
  * Tools available: recommend_products, check_store_hours,
  *                  save_shopping_intent, build_route
  *
