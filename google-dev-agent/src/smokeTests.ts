@@ -48,6 +48,9 @@ export interface SmokeTestSuite {
 // These UUIDs were manually seeded for development. Detecting them in responses
 // means the endpoint works but is operating on demo/test data, not real retailer data.
 
+// Must match MALL_RADIUS_KM in google-cloud-backend/src/services/mallService.ts
+const MALL_DETECTION_RADIUS_KM = 1.0;
+
 const SEEDED_ID_PREFIXES = [
   "f4a2c1b3", // Mall@Reds mall ID
   "a1b2c3d4", // seeded shop IDs
@@ -183,8 +186,10 @@ async function testHealth(baseUrl: string): Promise<SmokeTestResult> {
 async function testDetectActiveMall(baseUrl: string): Promise<SmokeTestResult> {
   const endpoint = "/detect-active-mall";
   const method = "POST" as const;
-  const lat = parseFloat(process.env.TEST_MALL_LAT ?? "-25.8586");
-  const lng = parseFloat(process.env.TEST_MALL_LNG ?? "27.9891");
+  // Default coordinates match Mall@Reds in the malls table (lat: -25.8537, lng: 28.1878).
+  // Override via TEST_MALL_LAT / TEST_MALL_LNG in .env if your test mall differs.
+  const lat = parseFloat(process.env.TEST_MALL_LAT ?? "-25.8537");
+  const lng = parseFloat(process.env.TEST_MALL_LNG ?? "28.1878");
   const expectedMallName = process.env.TEST_MALL_NAME ?? "Mall@Reds";
 
   try {
@@ -210,26 +215,50 @@ async function testDetectActiveMall(baseUrl: string): Promise<SmokeTestResult> {
     }
 
     const obj = body as Record<string, unknown> | null;
-    const detected = obj?.mall_id || obj?.id;
 
-    if (!detected) {
+    // Response shape: { mall: { id, name, city, lat, lng }, distance_km, within_radius, session_id }
+    // The mall object is nested — check obj.mall.id, not obj.mall_id
+    const mallObj = obj?.mall as Record<string, unknown> | null;
+    const detectedId = mallObj?.id ?? obj?.mall_id ?? obj?.id ?? null;
+
+    if (!detectedId) {
       return {
         testName: "Detect Active Mall",
         endpoint, method,
         status: "PARTIAL",
         httpStatus: response.status,
         responseTimeMs,
-        summary: `Endpoint responded but no mall detected for coords (${lat}, ${lng}). ` +
-          `Likely cause: malls table missing lat/lng values. ` +
-          `Fix: run UPDATE malls SET latitude=..., longitude=... for each mall.`,
+        summary: `Endpoint responded but returned no mall for coords (${lat}, ${lng}). ` +
+          `distance_km=${obj?.distance_km ?? "?"}, within_radius=${obj?.within_radius ?? "?"}. ` +
+          `Check that malls table has lat/lng and there is a mall within ${MALL_DETECTION_RADIUS_KM}km.`,
         responsePreview: preview,
         rawResponse: body,
       };
     }
 
-    const mallName = String(obj?.name ?? "");
+    const mallName = String(mallObj?.name ?? obj?.name ?? "");
+    const distanceKm = typeof obj?.distance_km === "number" ? obj.distance_km : null;
+    const withinRadius = obj?.within_radius === true;
     const isExpectedMall = mallName.toLowerCase().includes(expectedMallName.toLowerCase());
     const isSeeded = containsSeededData(body);
+
+    // Mark PARTIAL if the right mall was found but outside the detection radius
+    if (!withinRadius) {
+      return {
+        testName: "Detect Active Mall",
+        endpoint, method,
+        status: "PARTIAL",
+        httpStatus: response.status,
+        responseTimeMs,
+        summary: `Nearest mall is "${mallName}" at ${distanceKm}km from test coords (${lat}, ${lng}). ` +
+          `Outside ${MALL_DETECTION_RADIUS_KM}km radius. ` +
+          (isExpectedMall
+            ? `Correct mall found but test coordinates are too far — update TEST_MALL_LAT/LNG to match DB values.`
+            : `Wrong mall detected — update TEST_MALL_LAT/LNG to be inside ${expectedMallName}.`),
+        responsePreview: preview,
+        rawResponse: body,
+      };
+    }
 
     return {
       testName: "Detect Active Mall",
@@ -238,8 +267,9 @@ async function testDetectActiveMall(baseUrl: string): Promise<SmokeTestResult> {
       httpStatus: response.status,
       responseTimeMs,
       summary: isExpectedMall
-        ? `Detected "${mallName}" as expected from coords (${lat}, ${lng})`
-        : `Detected a mall ("${mallName}") but not the expected "${expectedMallName}" — check coordinates`,
+        ? `Detected "${mallName}" ✓ — ${distanceKm}km from test coords, within_radius=true`
+        : `Detected "${mallName}" (${distanceKm}km) — expected "${expectedMallName}". ` +
+          `Update TEST_MALL_LAT/LNG or TEST_MALL_NAME in .env.`,
       responsePreview: preview,
       rawResponse: body,
     };
