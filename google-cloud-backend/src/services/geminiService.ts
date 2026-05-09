@@ -212,9 +212,9 @@ export async function runAssistant(
   let response = await chat.sendMessage({ message: lastMessage.content });
 
   for (let turn = 0; turn < 8; turn++) {
-    const fnCalls = response.functionCalls();
+    const fnCalls = response.functionCalls ?? [];
 
-    if (!fnCalls || fnCalls.length === 0) {
+    if (fnCalls.length === 0) {
       // No more tool calls — return final text
       return {
         message: response.text?.trim() || "Sorry, I couldn't generate a response.",
