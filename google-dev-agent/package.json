@@ -1,0 +1,27 @@
+{
+  "name": "mallmind-dev-agent",
+  "version": "0.1.0",
+  "description": "MallMind Dev Agent — read/test/report only. No code editing, no deployments.",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "ts-node-dev --respawn --transpile-only --esm src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "verify": "node dist/index.js --task VERIFY_BACKEND_DEV",
+    "verify:dev": "npx ts-node-dev --transpile-only --esm src/index.ts -- --task VERIFY_BACKEND_DEV",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@google/genai": "^1.0.0",
+    "dotenv": "^16.4.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.3",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.8.3"
+  }
+}
