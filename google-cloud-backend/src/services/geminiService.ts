@@ -180,7 +180,9 @@ export async function runAssistant(
   // On Cloud Run the Compute Engine service account provides identity automatically.
   const vertexAI = new VertexAI({
     project: process.env.GOOGLE_CLOUD_PROJECT ?? "mallmind",
-    location: process.env.GOOGLE_CLOUD_LOCATION ?? "us-central1",
+    // Gemini models live in us-central1 regardless of where Cloud Run is deployed.
+    // VERTEX_AI_LOCATION can override this; GOOGLE_CLOUD_LOCATION is the Cloud Run region.
+    location: process.env.VERTEX_AI_LOCATION ?? "us-central1",
   });
 
   const model = vertexAI.getGenerativeModel({
