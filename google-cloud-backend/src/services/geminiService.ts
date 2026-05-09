@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI, Tool, FunctionDeclaration, SchemaType } from "@google/generative-ai";
+import { VertexAI, Tool, FunctionDeclaration, SchemaType } from "@google-cloud/vertexai";
 import { recommendProducts } from "./productService.js";
 import { buildRoute } from "./routingService.js";
 import { getSupabaseClient } from "../lib/supabase.js";
@@ -176,14 +176,15 @@ export async function runAssistant(
   messages: Message[],
   ctx: AssistantContext
 ): Promise<AssistantResult> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    throw new Error("GEMINI_API_KEY is not set. Cannot run AI assistant.");
-  }
+  // Uses Application Default Credentials — no API key needed.
+  // On Cloud Run the Compute Engine service account provides identity automatically.
+  const vertexAI = new VertexAI({
+    project: process.env.GOOGLE_CLOUD_PROJECT ?? "mallmind",
+    location: process.env.GOOGLE_CLOUD_LOCATION ?? "us-central1",
+  });
 
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({
-    model: "gemini-2.0-flash",
+  const model = vertexAI.getGenerativeModel({
+    model: "gemini-2.0-flash-001",
     systemInstruction: buildSystemPrompt(ctx),
     tools,
   });

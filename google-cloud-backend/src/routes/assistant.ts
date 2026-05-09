@@ -42,14 +42,6 @@ router.post("/", async (req: Request, res: Response): Promise<void> => {
     return;
   }
 
-  if (!process.env.GEMINI_API_KEY) {
-    res.status(503).json({
-      error: "AI assistant is not configured. GEMINI_API_KEY is missing.",
-      code: "GEMINI_API_KEY_MISSING",
-    });
-    return;
-  }
-
   const { messages, ...ctx } = parsed.data;
 
   try {

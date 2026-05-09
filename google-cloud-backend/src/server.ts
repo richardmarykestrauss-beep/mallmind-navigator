@@ -19,9 +19,7 @@ if (missing.length) {
   process.exit(1);
 }
 
-if (!process.env.GEMINI_API_KEY) {
-  console.warn("[startup] GEMINI_API_KEY not set — POST /assistant will return 503.");
-}
+// AI assistant uses Vertex AI via Application Default Credentials — no API key needed.
 
 // ── App ───────────────────────────────────────────────────────────────────────
 const app = express();
