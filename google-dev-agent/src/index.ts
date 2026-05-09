@@ -114,11 +114,12 @@ async function main(): Promise<void> {
   // ── Step 4: Exit summary ──────────────────────────────────────────────────
   console.log(`\n${"─".repeat(60)}`);
   console.log(`  OVERALL: ${suite.overallStatus}`);
-  console.log(`  ✅ REAL:      ${suite.passCount}`);
-  console.log(`  🟡 DEMO_DATA: ${suite.demoDataCount}`);
-  console.log(`  ⚠️  PARTIAL:   ${suite.partialCount}`);
-  console.log(`  ❌ BROKEN:    ${suite.brokenCount}`);
-  console.log(`  ⛔ BLOCKED:   ${suite.blockedCount}`);
+  console.log(`  ✅ REAL:           ${suite.passCount}`);
+  console.log(`  🟢 VERIFIED_DATA:  ${suite.verifiedDataCount}`);
+  console.log(`  🟡 DEMO_DATA:      ${suite.demoDataCount}`);
+  console.log(`  ⚠️  PARTIAL:        ${suite.partialCount}`);
+  console.log(`  ❌ BROKEN:         ${suite.brokenCount}`);
+  console.log(`  ⛔ BLOCKED:        ${suite.blockedCount}`);
   console.log(`${"─".repeat(60)}`);
   console.log(`  Report: ${reportPath}`);
   console.log(`${"─".repeat(60)}\n`);

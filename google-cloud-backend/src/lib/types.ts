@@ -31,6 +31,7 @@ export interface Product {
   price: number;
   original_price: number | null;
   is_on_special: boolean;
+  price_verified_at: string | null;
 }
 
 export interface ShoppingSession {
@@ -97,6 +98,8 @@ export interface ScoredProduct {
   is_cheapest: boolean;
   score: number;
   reason: string;
+  /** ISO timestamp of last manual price verification. Null = unverified seed data. */
+  price_verified_at: string | null;
 }
 
 export interface ApiError {

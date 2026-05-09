@@ -94,7 +94,7 @@ export async function recommendProducts(opts: RecommendOptions): Promise<ScoredP
   // 2. Search products
   let q = supabase
     .from("products")
-    .select("id, shop_id, name, brand, category, price, original_price, is_on_special")
+    .select("id, shop_id, name, brand, category, price, original_price, is_on_special, price_verified_at")
     .in("shop_id", shopIds)
     .ilike("name", `%${query.trim()}%`)
     .order("price", { ascending: true })
@@ -147,6 +147,7 @@ export async function recommendProducts(opts: RecommendOptions): Promise<ScoredP
       is_cheapest: cheapestByName[nameKey] === p.price,
       score,
       reason,
+      price_verified_at: p.price_verified_at ?? null,
     });
   }
 

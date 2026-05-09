@@ -20,11 +20,12 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 function statusIcon(status: EndpointStatus): string {
   switch (status) {
-    case "REAL":      return "✅ REAL";
-    case "DEMO_DATA": return "🟡 DEMO_DATA";
-    case "PARTIAL":   return "⚠️  PARTIAL";
-    case "BROKEN":    return "❌ BROKEN";
-    case "BLOCKED":   return "⛔ BLOCKED";
+    case "REAL":           return "✅ REAL";
+    case "VERIFIED_DATA":  return "🟢 VERIFIED_DATA";
+    case "DEMO_DATA":      return "🟡 DEMO_DATA";
+    case "PARTIAL":        return "⚠️  PARTIAL";
+    case "BROKEN":         return "❌ BROKEN";
+    case "BLOCKED":        return "⛔ BLOCKED";
   }
 }
 
@@ -47,7 +48,8 @@ const STATUS_LEGEND = `
 | Status | Meaning |
 |--------|---------|
 | ✅ REAL | Endpoint works correctly with live Supabase and Gemini data |
-| 🟡 DEMO_DATA | Endpoint works but operating on manually seeded development data |
+| 🟢 VERIFIED_DATA | Seeded IDs but prices manually confirmed against real store prices |
+| 🟡 DEMO_DATA | Endpoint works but operating on unverified manually seeded data |
 | ⚠️ PARTIAL | Endpoint responds but returns incomplete or empty results |
 | ❌ BROKEN | HTTP error, timeout, or unexpected response format |
 | ⛔ BLOCKED | Not tested — missing credentials or blocked by safety rules |
@@ -64,6 +66,18 @@ function buildResultsTable(results: SmokeTestResult[]): string {
     "|------|----------|--------|------|------|",
     ...rows,
   ].join("\n");
+}
+
+function buildCountsLine(suite: SmokeTestSuite): string {
+  const parts = [
+    suite.passCount         > 0 ? `✅ REAL: **${suite.passCount}**`                 : null,
+    suite.verifiedDataCount > 0 ? `🟢 VERIFIED_DATA: **${suite.verifiedDataCount}**` : null,
+    suite.demoDataCount     > 0 ? `🟡 DEMO_DATA: **${suite.demoDataCount}**`         : null,
+    suite.partialCount      > 0 ? `⚠️ PARTIAL: **${suite.partialCount}**`            : null,
+    suite.brokenCount       > 0 ? `❌ BROKEN: **${suite.brokenCount}**`              : null,
+    suite.blockedCount      > 0 ? `⛔ BLOCKED: **${suite.blockedCount}**`            : null,
+  ].filter(Boolean);
+  return parts.join(" · ");
 }
 
 // ── Per-endpoint detail ───────────────────────────────────────────────────────
@@ -118,7 +132,14 @@ ${JSON.stringify(suite.results.map((r) => ({
 })), null, 2)}
 
 Overall status: ${suite.overallStatus}
-REAL: ${suite.passCount}, DEMO_DATA: ${suite.demoDataCount}, PARTIAL: ${suite.partialCount}, BROKEN: ${suite.brokenCount}, BLOCKED: ${suite.blockedCount}
+REAL: ${suite.passCount}, VERIFIED_DATA: ${suite.verifiedDataCount}, DEMO_DATA: ${suite.demoDataCount}, PARTIAL: ${suite.partialCount}, BROKEN: ${suite.brokenCount}, BLOCKED: ${suite.blockedCount}
+
+Status meanings:
+- REAL: working with live retailer data
+- VERIFIED_DATA: seeded IDs but prices manually confirmed against real store prices
+- DEMO_DATA: working but prices are unverified seed data
+- PARTIAL: endpoint responds but results are incomplete
+- BROKEN: HTTP error or crash
 
 Write a concise technical analysis (200-350 words) covering:
 1. What is working and production-ready
@@ -149,20 +170,36 @@ Do not mention AI, Gemini, or that you generated this text.
 // ── Template fallback (no Gemini) ─────────────────────────────────────────────
 
 function generateTemplateAnalysis(suite: SmokeTestSuite): string {
-  const broken = suite.results.filter((r) => r.status === "BROKEN");
-  const partial = suite.results.filter((r) => r.status === "PARTIAL");
-  const blocked = suite.results.filter((r) => r.status === "BLOCKED");
-  const working = suite.results.filter(
-    (r) => r.status === "REAL" || r.status === "DEMO_DATA"
-  );
+  const broken       = suite.results.filter((r) => r.status === "BROKEN");
+  const partial      = suite.results.filter((r) => r.status === "PARTIAL");
+  const blocked      = suite.results.filter((r) => r.status === "BLOCKED");
+  const verified     = suite.results.filter((r) => r.status === "VERIFIED_DATA");
+  const demoOnly     = suite.results.filter((r) => r.status === "DEMO_DATA");
+  const real         = suite.results.filter((r) => r.status === "REAL");
 
   const lines: string[] = [];
 
-  if (working.length > 0) {
+  if (real.length > 0) {
     lines.push(
-      `**Working endpoints (${working.length}):** ${working.map((r) => r.testName).join(", ")}. ` +
-      `These are responding correctly. DEMO_DATA status means the tech is sound but ` +
-      `the data is from the development seed — not yet from real retailer feeds.`
+      `**Production-ready (${real.length}):** ${real.map((r) => r.testName).join(", ")}. ` +
+      `These endpoints are operating on live data with no known issues.`
+    );
+  }
+
+  if (verified.length > 0) {
+    lines.push(
+      `**Verified data (${verified.length}):** ${verified.map((r) => r.testName).join(", ")}. ` +
+      `These endpoints use seeded IDs but prices have been manually confirmed against real ` +
+      `store prices at Mall@Reds. Demo-ready. To promote to REAL, replace seeded UUIDs with ` +
+      `live retailer feed data.`
+    );
+  }
+
+  if (demoOnly.length > 0) {
+    lines.push(
+      `**Unverified seed data (${demoOnly.length}):** ${demoOnly.map((r) => r.testName).join(", ")}. ` +
+      `The tech is working but prices have not been confirmed against real store prices. ` +
+      `Run migration 007_price_verified_at.sql to promote to VERIFIED_DATA.`
     );
   }
 
@@ -211,6 +248,7 @@ async function buildReport(suite: SmokeTestSuite): Promise<string> {
     `> **Started:** ${suite.startedAt}`,
     `> **Duration:** ${duration}`,
     `> **Overall:** ${overallIcon(suite.overallStatus)}`,
+    `> **Counts:** ${buildCountsLine(suite)}`,
     ``,
     `---`,
     ``,

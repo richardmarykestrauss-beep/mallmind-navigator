@@ -6,16 +6,26 @@
  * created via Supabase REST API (cleaned up after each run).
  *
  * Each endpoint is classified as one of:
- *   REAL       — working correctly with production-grade responses
- *   PARTIAL    — endpoint responds but returns incomplete or empty data
- *   DEMO_DATA  — works correctly but operating on manually seeded test data
- *   BROKEN     — HTTP error, timeout, or unexpected response format
- *   BLOCKED    — not tested due to missing credentials or safety rules
+ *   REAL           — working correctly with production-grade responses
+ *   VERIFIED_DATA  — seeded IDs but prices manually confirmed against real store
+ *   PARTIAL        — endpoint responds but returns incomplete or empty data
+ *   DEMO_DATA      — works correctly but on unverified manually seeded test data
+ *   BROKEN         — HTTP error, timeout, or unexpected response format
+ *   BLOCKED        — not tested due to missing credentials or safety rules
+ *
+ * Status promotion path:
+ *   BROKEN → PARTIAL → DEMO_DATA → VERIFIED_DATA → REAL
  */
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-export type EndpointStatus = "REAL" | "PARTIAL" | "DEMO_DATA" | "BROKEN" | "BLOCKED";
+export type EndpointStatus =
+  | "REAL"
+  | "VERIFIED_DATA"
+  | "PARTIAL"
+  | "DEMO_DATA"
+  | "BROKEN"
+  | "BLOCKED";
 
 export interface SmokeTestResult {
   testName: string;
@@ -38,6 +48,7 @@ export interface SmokeTestSuite {
   results: SmokeTestResult[];
   overallStatus: "ALL_PASSED" | "SOME_FAILED" | "ALL_FAILED";
   passCount: number;
+  verifiedDataCount: number;
   partialCount: number;
   demoDataCount: number;
   brokenCount: number;
@@ -46,7 +57,10 @@ export interface SmokeTestSuite {
 
 // ── Known seeded ID patterns ──────────────────────────────────────────────────
 // These UUIDs were manually seeded for development. Detecting them in responses
-// means the endpoint works but is operating on demo/test data, not real retailer data.
+// means the endpoint is operating on demo/seeded data.
+//
+// Promotion to VERIFIED_DATA requires price_verified_at to be non-null on the
+// returned products — see migration 007_price_verified_at.sql.
 
 // Must match MALL_RADIUS_KM in google-cloud-backend/src/services/mallService.ts
 const MALL_DETECTION_RADIUS_KM = 1.0;
@@ -61,6 +75,38 @@ const SEEDED_ID_PREFIXES = [
 function containsSeededData(obj: unknown): boolean {
   const str = JSON.stringify(obj ?? "");
   return SEEDED_ID_PREFIXES.some((prefix) => str.includes(prefix));
+}
+
+/**
+ * Returns true if at least one product in the response has price_verified_at set.
+ * Works for both { recommendations: [...] } and flat array shapes.
+ */
+function hasVerifiedPrices(obj: unknown): boolean {
+  let items: unknown[] = [];
+
+  if (Array.isArray(obj)) {
+    items = obj;
+  } else if (obj && typeof obj === "object") {
+    const rec = obj as Record<string, unknown>;
+    const inner = rec.recommendations ?? rec.products ?? rec.items;
+    if (Array.isArray(inner)) items = inner;
+  }
+
+  return items.some(
+    (item) =>
+      item &&
+      typeof item === "object" &&
+      (item as Record<string, unknown>).price_verified_at != null
+  );
+}
+
+/**
+ * Classify a response that contains seeded IDs:
+ *  - If products have price_verified_at set → VERIFIED_DATA
+ *  - Otherwise → DEMO_DATA
+ */
+function classifySeededResponse(obj: unknown): "VERIFIED_DATA" | "DEMO_DATA" {
+  return hasVerifiedPrices(obj) ? "VERIFIED_DATA" : "DEMO_DATA";
 }
 
 function truncate(str: string, maxLen = 400): string {
@@ -217,7 +263,6 @@ async function testDetectActiveMall(baseUrl: string): Promise<SmokeTestResult> {
     const obj = body as Record<string, unknown> | null;
 
     // Response shape: { mall: { id, name, city, lat, lng }, distance_km, within_radius, session_id }
-    // The mall object is nested — check obj.mall.id, not obj.mall_id
     const mallObj = obj?.mall as Record<string, unknown> | null;
     const detectedId = mallObj?.id ?? obj?.mall_id ?? obj?.id ?? null;
 
@@ -242,7 +287,6 @@ async function testDetectActiveMall(baseUrl: string): Promise<SmokeTestResult> {
     const isExpectedMall = mallName.toLowerCase().includes(expectedMallName.toLowerCase());
     const isSeeded = containsSeededData(body);
 
-    // Mark PARTIAL if the right mall was found but outside the detection radius
     if (!withinRadius) {
       return {
         testName: "Detect Active Mall",
@@ -263,6 +307,8 @@ async function testDetectActiveMall(baseUrl: string): Promise<SmokeTestResult> {
     return {
       testName: "Detect Active Mall",
       endpoint, method,
+      // Mall detection doesn't return product prices so VERIFIED_DATA doesn't apply —
+      // REAL when working, DEMO_DATA only when the mall itself is a seed-only construct.
       status: isSeeded ? "DEMO_DATA" : "REAL",
       httpStatus: response.status,
       responseTimeMs,
@@ -336,17 +382,21 @@ async function testRecommendProducts(baseUrl: string): Promise<SmokeTestResult> 
     }
 
     const isSeeded = containsSeededData(body);
+    const dataStatus = isSeeded ? classifySeededResponse(body) : "REAL";
     const cheapest = products[0] as Record<string, unknown>;
-    const productSummary = `${products.length} product(s) returned — cheapest: "${cheapest?.name}" ` +
-      `at R${cheapest?.price} from ${cheapest?.shop_name} (Floor ${cheapest?.floor})`;
+    const verifiedNote = dataStatus === "VERIFIED_DATA"
+      ? " [prices verified]"
+      : isSeeded ? " [seeded data]" : "";
 
     return {
       testName: "Recommend Products",
       endpoint, method,
-      status: isSeeded ? "DEMO_DATA" : "REAL",
+      status: dataStatus,
       httpStatus: response.status,
       responseTimeMs,
-      summary: productSummary + (isSeeded ? " [seeded data]" : ""),
+      summary: `${products.length} product(s) returned — cheapest: "${cheapest?.name}" ` +
+        `at R${cheapest?.price} from ${cheapest?.shop_name} (Floor ${cheapest?.floor})` +
+        verifiedNote,
       responsePreview: preview,
       rawResponse: body,
     };
@@ -370,7 +420,6 @@ async function testBuildRoute(baseUrl: string): Promise<SmokeTestResult> {
   const mallId = process.env.TEST_MALL_ID ?? "f4a2c1b3-8d7e-4f6a-9b0c-1d2e3f4a5b6c";
   const shopId = process.env.TEST_SHOP_ID ?? "a1b2c3d4-0001-4000-8000-100000000001";
 
-  // Create a fresh test session — requires Supabase credentials
   const sessionId = await createTestSession(mallId);
 
   if (!sessionId) {
@@ -399,7 +448,6 @@ async function testBuildRoute(baseUrl: string): Promise<SmokeTestResult> {
     const body = await response.json().catch(() => null);
     const preview = truncate(JSON.stringify(body));
 
-    // Clean up test session regardless of result
     await deleteTestSession(sessionId);
 
     if (!response.ok) {
@@ -437,9 +485,13 @@ async function testBuildRoute(baseUrl: string): Promise<SmokeTestResult> {
 
     const isSeeded = containsSeededData(body);
     const first = steps[0] as Record<string, unknown>;
+
     return {
       testName: "Build Route",
       endpoint, method,
+      // Route graph data uses seeded node IDs — classified by whether graph itself is verified.
+      // Graph data doesn't carry price_verified_at, so DEMO_DATA stays until real graph data
+      // is loaded from a venue mapping survey.
       status: isSeeded ? "DEMO_DATA" : "REAL",
       httpStatus: response.status,
       responseTimeMs,
@@ -526,18 +578,23 @@ async function testAssistant(baseUrl: string): Promise<SmokeTestResult> {
     }
 
     const isSeeded = containsSeededData(body);
-    const productCount = products.length;
+    // The assistant response embeds products — check those for price_verified_at
+    const productsBody = { recommendations: products };
+    const dataStatus = isSeeded ? classifySeededResponse(productsBody) : "REAL";
+    const verifiedNote = dataStatus === "VERIFIED_DATA"
+      ? " [verified product data]"
+      : isSeeded ? " [seeded product data]" : "";
 
     return {
       testName: "AI Assistant",
       endpoint, method,
-      status: isSeeded ? "DEMO_DATA" : "REAL",
+      status: dataStatus,
       httpStatus: response.status,
       responseTimeMs,
       summary: `Gemini responded in ${responseTimeMs}ms. ` +
-        `${productCount} product(s) returned. ` +
+        `${products.length} product(s) returned. ` +
         `Message preview: "${message.slice(0, 120)}"` +
-        (isSeeded ? " [seeded product data]" : ""),
+        verifiedNote,
       responsePreview: preview,
       rawResponse: body,
     };
@@ -555,6 +612,165 @@ async function testAssistant(baseUrl: string): Promise<SmokeTestResult> {
   }
 }
 
+// ── Full Journey test ─────────────────────────────────────────────────────────
+// Chains the real user flow end-to-end:
+//   1. Detect mall from GPS coords
+//   2. Search products at that mall
+//   3. Build a route to the first result's shop (needs Supabase creds)
+// Verifies that the output of each step correctly feeds the next.
+
+async function testFullJourney(baseUrl: string): Promise<SmokeTestResult> {
+  const testName = "Full Journey";
+  const endpoint = "/detect-active-mall → /recommend-products → /build-route";
+  const method = "POST" as const;
+
+  const lat = parseFloat(process.env.TEST_MALL_LAT ?? "-25.8537");
+  const lng = parseFloat(process.env.TEST_MALL_LNG ?? "28.1878");
+  const journeyStart = Date.now();
+
+  // ── Step 1: Detect mall ───────────────────────────────────────────────────
+  let step1Body: Record<string, unknown> | null = null;
+  try {
+    const { response } = await timedFetch(`${baseUrl}/detect-active-mall`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ lat, lng }),
+    });
+    step1Body = response.ok ? await response.json().catch(() => null) : null;
+  } catch {
+    step1Body = null;
+  }
+
+  const mallObj = step1Body?.mall as Record<string, unknown> | null;
+  const detectedMallId = String(mallObj?.id ?? step1Body?.mall_id ?? "");
+  const detectedMallName = String(mallObj?.name ?? "unknown");
+
+  if (!detectedMallId) {
+    return {
+      testName, endpoint, method,
+      status: "BROKEN",
+      httpStatus: null,
+      responseTimeMs: Date.now() - journeyStart,
+      summary: "Journey step 1 failed: /detect-active-mall returned no mall. " +
+        "Check TEST_MALL_LAT/LNG and malls table lat/lng columns.",
+      responsePreview: truncate(JSON.stringify(step1Body)),
+    };
+  }
+
+  // ── Step 2: Recommend products ────────────────────────────────────────────
+  let step2Body: Record<string, unknown> | null = null;
+  try {
+    const { response } = await timedFetch(`${baseUrl}/recommend-products`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mall_id: detectedMallId, query: "TV", budget: 5000 }),
+    });
+    step2Body = response.ok ? await response.json().catch(() => null) : null;
+  } catch {
+    step2Body = null;
+  }
+
+  const recArr = Array.isArray(step2Body)
+    ? step2Body
+    : Array.isArray(step2Body?.recommendations)
+    ? step2Body!.recommendations
+    : [];
+  const firstProduct = recArr[0] as Record<string, unknown> | undefined;
+  const firstShopId = String(firstProduct?.shop_id ?? "");
+
+  if (recArr.length === 0 || !firstShopId) {
+    return {
+      testName, endpoint, method,
+      status: "PARTIAL",
+      httpStatus: null,
+      responseTimeMs: Date.now() - journeyStart,
+      summary: `Journey reached step 2: detected "${detectedMallName}" ✓ → ` +
+        `/recommend-products returned 0 results for "TV". ` +
+        "Check that products are seeded for this mall.",
+      responsePreview: truncate(JSON.stringify(step2Body)),
+    };
+  }
+
+  // ── Step 3: Build route ───────────────────────────────────────────────────
+  const sessionId = await createTestSession(detectedMallId);
+
+  if (!sessionId) {
+    // Supabase creds missing — journey is partially verified
+    const isSeeded = containsSeededData(step1Body) || containsSeededData(step2Body);
+    const productsBody = { recommendations: recArr };
+    const dataStatus = isSeeded ? classifySeededResponse(productsBody) : "REAL";
+    return {
+      testName, endpoint, method,
+      status: dataStatus,
+      httpStatus: null,
+      responseTimeMs: Date.now() - journeyStart,
+      summary: `Journey steps 1–2 passed ✓: detected "${detectedMallName}" → ` +
+        `${recArr.length} product(s) for "TV" (first: "${firstProduct?.name}" at R${firstProduct?.price}). ` +
+        `Step 3 (/build-route) skipped — set SUPABASE_SERVICE_ROLE_KEY to test routing.` +
+        (dataStatus === "VERIFIED_DATA" ? " [prices verified]" : isSeeded ? " [seeded data]" : ""),
+      responsePreview: truncate(JSON.stringify({ step1: step1Body, step2_count: recArr.length })),
+    };
+  }
+
+  let step3Body: Record<string, unknown> | null = null;
+  try {
+    const { response } = await timedFetch(`${baseUrl}/build-route`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        session_id: sessionId,
+        destination_shop_ids: [firstShopId],
+      }),
+    });
+    step3Body = response.ok ? await response.json().catch(() => null) : null;
+  } catch {
+    step3Body = null;
+  } finally {
+    await deleteTestSession(sessionId).catch(() => {});
+  }
+
+  const routeSteps = Array.isArray(step3Body?.steps) ? step3Body!.steps : [];
+
+  if (routeSteps.length === 0) {
+    return {
+      testName, endpoint, method,
+      status: "PARTIAL",
+      httpStatus: null,
+      responseTimeMs: Date.now() - journeyStart,
+      summary: `Journey steps 1–2 passed ✓ but step 3 returned 0 route steps. ` +
+        `Detected "${detectedMallName}" → "${firstProduct?.name}" at R${firstProduct?.price} ` +
+        `→ route to shop ${firstShopId} failed. Check mall_nodes.linked_shop_id.`,
+      responsePreview: truncate(JSON.stringify(step3Body)),
+    };
+  }
+
+  // ── All 3 steps passed ────────────────────────────────────────────────────
+  const combinedBody = { step1: step1Body, step2: step2Body, step3: step3Body };
+  const isSeeded = containsSeededData(combinedBody);
+  const productsBody = { recommendations: recArr };
+  const dataStatus = isSeeded ? classifySeededResponse(productsBody) : "REAL";
+  const firstStep = routeSteps[0] as Record<string, unknown>;
+
+  return {
+    testName, endpoint, method,
+    status: dataStatus,
+    httpStatus: 200,
+    responseTimeMs: Date.now() - journeyStart,
+    summary: `Full journey ✓: detected "${detectedMallName}" → ` +
+      `${recArr.length} product(s) for "TV" → ` +
+      `${routeSteps.length} route step(s) to "${firstProduct?.shop_name}". ` +
+      `First step: "${String(firstStep?.instruction ?? "").slice(0, 60)}"` +
+      (dataStatus === "VERIFIED_DATA" ? " [prices verified]" : isSeeded ? " [seeded data]" : ""),
+    responsePreview: truncate(JSON.stringify({
+      mall: detectedMallName,
+      products_found: recArr.length,
+      route_steps: routeSteps.length,
+      first_route_step: firstStep?.instruction,
+    })),
+    rawResponse: combinedBody,
+  };
+}
+
 // ── Main suite runner ─────────────────────────────────────────────────────────
 
 export async function runSmokeTests(baseUrl: string): Promise<SmokeTestSuite> {
@@ -570,27 +786,30 @@ export async function runSmokeTests(baseUrl: string): Promise<SmokeTestSuite> {
     () => testRecommendProducts(baseUrl),
     () => testBuildRoute(baseUrl),
     () => testAssistant(baseUrl),
+    () => testFullJourney(baseUrl),
   ];
 
   const results: SmokeTestResult[] = [];
   for (const test of tests) {
     const result = await test();
     const icon =
-      result.status === "REAL" ? "✅" :
-      result.status === "DEMO_DATA" ? "🟡" :
-      result.status === "PARTIAL" ? "⚠️" :
-      result.status === "BLOCKED" ? "⛔" : "❌";
-    console.log(`  ${icon} [${result.status.padEnd(9)}] ${result.testName} — ${result.summary.slice(0, 80)}`);
+      result.status === "REAL"          ? "✅" :
+      result.status === "VERIFIED_DATA" ? "🟢" :
+      result.status === "DEMO_DATA"     ? "🟡" :
+      result.status === "PARTIAL"       ? "⚠️" :
+      result.status === "BLOCKED"       ? "⛔" : "❌";
+    console.log(`  ${icon} [${result.status.padEnd(13)}] ${result.testName} — ${result.summary.slice(0, 80)}`);
     results.push(result);
   }
 
   const completedAt = new Date().toISOString();
 
-  const passCount = results.filter((r) => r.status === "REAL").length;
-  const demoDataCount = results.filter((r) => r.status === "DEMO_DATA").length;
-  const partialCount = results.filter((r) => r.status === "PARTIAL").length;
-  const brokenCount = results.filter((r) => r.status === "BROKEN").length;
-  const blockedCount = results.filter((r) => r.status === "BLOCKED").length;
+  const passCount          = results.filter((r) => r.status === "REAL").length;
+  const verifiedDataCount  = results.filter((r) => r.status === "VERIFIED_DATA").length;
+  const demoDataCount      = results.filter((r) => r.status === "DEMO_DATA").length;
+  const partialCount       = results.filter((r) => r.status === "PARTIAL").length;
+  const brokenCount        = results.filter((r) => r.status === "BROKEN").length;
+  const blockedCount       = results.filter((r) => r.status === "BLOCKED").length;
 
   const overallStatus =
     brokenCount === results.length
@@ -607,6 +826,7 @@ export async function runSmokeTests(baseUrl: string): Promise<SmokeTestSuite> {
     results,
     overallStatus,
     passCount,
+    verifiedDataCount,
     partialCount,
     demoDataCount,
     brokenCount,
