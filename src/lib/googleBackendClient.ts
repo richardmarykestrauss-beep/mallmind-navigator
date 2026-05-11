@@ -65,6 +65,12 @@ export interface WebResult {
 // The Supabase Edge Functions return the same field names, so callers can
 // use either backend with identical downstream logic.
 
+export interface DetectActiveMallRequest {
+  lat: number;
+  lng: number;
+  user_id?: string | null;
+}
+
 export interface DetectActiveMallResponse {
   mall: Mall;
   session_id: string | null;
@@ -90,6 +96,18 @@ export interface BuildRouteResponse {
   fallback: boolean;
 }
 
+export interface AssistantRequest {
+  messages: Array<{ role: "user" | "assistant"; content: string }>;
+  mall_id?: string | null;
+  mall_name?: string | null;
+  session_id?: string | null;
+  user_id?: string | null;
+  current_lat?: number | null;
+  current_lng?: number | null;
+  shopping_intent?: string | null;
+  budget?: number | null;
+}
+
 export interface AssistantResponse {
   message: string;
   products?: ProductResult[];
@@ -101,7 +119,29 @@ export interface AssistantResponse {
   route_summary?: string;
 }
 
-// ── Internal HTTP helper ──────────────────────────────────────────────────────
+// ── Admin types ───────────────────────────────────────────────────────────────
+
+export type PriceVerificationMethod =
+  | "phone"
+  | "website"
+  | "flyer"
+  | "receipt"
+  | "store_visit"
+  | "retailer_confirmation"
+  | "scraper"
+  | "retailer_api"
+  | "user_submission";
+
+export interface VerifyProductPriceRequest {
+  product_id: string;
+  price_verification_method: PriceVerificationMethod;
+  /** Free-text origin e.g. "Game website", "in-store shelf", "phone call" */
+  data_source: string;
+  /** Name / email of the person confirming the price */
+  verified_by: string;
+}
+
+// ── Internal HTTP helpers ─────────────────────────────────────────────────────
 
 async function post<T>(path: string, body: unknown): Promise<T> {
   const url = `${BASE_URL}${path}`;
@@ -126,6 +166,34 @@ async function post<T>(path: string, body: unknown): Promise<T> {
   }
 
   return res.json() as Promise<T>;
+}
+
+async function postAuthenticated(
+  path: string,
+  body: unknown,
+  accessToken: string
+): Promise<void> {
+  const url = `${BASE_URL}${path}`;
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    let message = `Google backend error ${res.status} on ${path}`;
+    try {
+      const err = (await res.json()) as { error?: string };
+      if (err.error) message = err.error;
+    } catch {
+      // ignore JSON parse failure — use the default message above
+    }
+    throw new Error(message);
+  }
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -195,18 +263,25 @@ export async function buildRoute(params: {
  *
  * Call site: src/pages/AssistantPage.tsx → sendMessage()
  */
-export async function sendAssistantMessage(params: {
-  messages: Array<{ role: "user" | "assistant"; content: string }>;
-  mall_id?: string | null;
-  mall_name?: string | null;
-  session_id?: string | null;
-  user_id?: string | null;
-  /** Passed for forward-compatibility; current Cloud Run schema ignores lat/lng */
-  current_lat?: number | null;
-  /** Passed for forward-compatibility; current Cloud Run schema ignores lat/lng */
-  current_lng?: number | null;
-  shopping_intent?: string | null;
-  budget?: number | null;
-}): Promise<AssistantResponse> {
+export async function sendAssistantMessage(
+  params: AssistantRequest
+): Promise<AssistantResponse> {
   return post<AssistantResponse>("/assistant", params);
+}
+
+/**
+ * POST /admin/verify-product-price
+ *
+ * Marks a product's price as manually verified and updates
+ * data_quality_status → "manually_verified" on the backend.
+ *
+ * Requires the Supabase session accessToken for the signed-in admin.
+ * Uses a separate authenticated helper — never sends a Bearer token on
+ * public endpoints.
+ */
+export async function verifyProductPrice(
+  payload: VerifyProductPriceRequest,
+  accessToken: string
+): Promise<void> {
+  return postAuthenticated("/admin/verify-product-price", payload, accessToken);
 }
