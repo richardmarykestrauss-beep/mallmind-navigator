@@ -10,7 +10,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "verify:backend": "cd google-dev-agent && npm install && npm run build && node dist/index.js --task VERIFY_BACKEND_DEV"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
