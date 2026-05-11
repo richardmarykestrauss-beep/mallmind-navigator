@@ -1,4 +1,4 @@
-import { GoogleGenAI, Type, Tool, FunctionDeclaration } from "@google/genai";
+import { GoogleGenAI, Type, Tool, FunctionDeclaration, FunctionCallingConfigMode } from "@google/genai";
 import { recommendProducts } from "./productService.js";
 import { buildRoute } from "./routingService.js";
 import { getSupabaseClient } from "../lib/supabase.js";
@@ -199,17 +199,38 @@ export async function runAssistant(
 
   const lastMessage = messages[messages.length - 1];
 
+  // Base config shared by all turns (system prompt + tools, mode=AUTO by default).
+  // Tool-result turns use this directly so Gemini can choose to call another tool
+  // or give a final text answer.
+  const baseConfig = {
+    systemInstruction: buildSystemPrompt(ctx),
+    tools,
+  };
+
   const chat = ai.chats.create({
     model: "gemini-2.5-flash",
     history,
-    config: {
-      systemInstruction: buildSystemPrompt(ctx),
-      tools,
-    },
+    config: baseConfig,
   });
 
-  // Agentic loop — up to 8 turns to resolve tool calls
-  let response = await chat.sendMessage({ message: lastMessage.content });
+  // Agentic loop — up to 8 turns to resolve tool calls.
+  //
+  // FIRST TURN: force mode=ANY so Gemini must call at least one tool.
+  // Without this, Gemini 2.5 Flash intermittently skips recommend_products
+  // and responds from its own reasoning ("Sorry, no TVs at this mall")
+  // even when products exist in the database.
+  //
+  // SUBSEQUENT TURNS: no config override → falls back to chat-level baseConfig
+  // (mode=AUTO) so Gemini can freely give a final text answer after tools return.
+  let response = await chat.sendMessage({
+    message: lastMessage.content,
+    config: {
+      ...baseConfig,
+      toolConfig: {
+        functionCallingConfig: { mode: FunctionCallingConfigMode.ANY },
+      },
+    },
+  });
 
   for (let turn = 0; turn < 8; turn++) {
     const fnCalls = response.functionCalls ?? [];
