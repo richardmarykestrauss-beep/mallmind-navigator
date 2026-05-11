@@ -27,6 +27,10 @@ interface RecentProduct {
   category: string | null;
   price: number;
   data_quality_status: string | null;
+  price_verified_at: string | null;
+  price_verification_method: string | null;
+  data_source: string | null;
+  verified_by: string | null;
   shops: {
     name: string;
   } | null;
@@ -64,7 +68,7 @@ async function fetchCounts(): Promise<Counts> {
 async function fetchRecentProducts(): Promise<RecentProduct[]> {
   const { data, error } = await supabase
     .from("products")
-    .select("id, name, category, price, data_quality_status, shops(name)")
+    .select("id, name, category, price, data_quality_status, price_verified_at, price_verification_method, data_source, verified_by, shops(name)")
     .limit(10);
 
   if (error) {
@@ -145,6 +149,15 @@ function AdminDashboardContent() {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     }).format(amount);
+
+  const formatVerifiedDate = (value: string | null) => {
+    if (!value) return "Not verified yet";
+    return new Intl.DateTimeFormat("en-ZA", {
+      year: "numeric",
+      month: "short",
+      day: "2-digit",
+    }).format(new Date(value));
+  };
 
   return (
     <MobileShell hideNav>
@@ -299,6 +312,19 @@ function AdminDashboardContent() {
                             <p className="text-xs text-muted-foreground">
                               {product.data_quality_status ?? "demo"}
                             </p>
+                            <p className="text-xs text-muted-foreground">
+                              Checked: {formatVerifiedDate(product.price_verified_at)}
+                            </p>
+                            {product.price_verification_method && (
+                              <p className="text-xs text-muted-foreground">
+                                Method: {product.price_verification_method}
+                              </p>
+                            )}
+                            {product.data_source && (
+                              <p className="text-xs text-muted-foreground">
+                                Source: {product.data_source}
+                              </p>
+                            )}
                           </div>
                         </div>
                       ))
