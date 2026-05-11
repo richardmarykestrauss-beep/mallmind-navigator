@@ -21,6 +21,8 @@ export type Shop = {
   floor: string | null;
   unit_number: string | null;
   category: string | null;
+  opening_time: string | null;
+  closing_time: string | null;
   opening_hours: string | null;
 };
 
