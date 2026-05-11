@@ -12,6 +12,7 @@ export type Mall = {
   province: string | null;
   lat: number | null;
   lng: number | null;
+  deleted_at: string | null;
 };
 
 export type Shop = {
@@ -24,6 +25,7 @@ export type Shop = {
   opening_time: string | null;
   closing_time: string | null;
   opening_hours: string | null;
+  deleted_at: string | null;
 };
 
 export type Product = {
@@ -41,6 +43,12 @@ export type Product = {
   image_url: string | null;
   in_stock: boolean;
   verified: boolean;
+  data_quality_status?: string | null;
+  price_verified_at?: string | null;
+  price_verification_method?: string | null;
+  data_source?: string | null;
+  verified_by?: string | null;
+  deleted_at: string | null;
   shops?: Shop;
 };
 
@@ -86,4 +94,31 @@ export type BestDeal = {
   floor: string | null;
   unit_number: string | null;
   price_rank: number | null;
+};
+
+
+export type ImportJob = {
+  id: string;
+  created_at: string;
+  started_by: string | null;
+  mall_id: string | number | null;
+  shop_id: string | number | null;
+  status: "pending" | "processing" | "done" | "failed";
+  total_rows: number | null;
+  imported_rows: number | null;
+  skipped_rows: number | null;
+  error_summary: string | null;
+  source_file: string | null;
+  data_source: string | null;
+};
+
+export type AdminAuditLog = {
+  id: string;
+  created_at: string;
+  admin_id: string | null;
+  action: string;
+  table_name: string | null;
+  row_id: string | null;
+  old_values: Record<string, unknown> | null;
+  new_values: Record<string, unknown> | null;
 };
