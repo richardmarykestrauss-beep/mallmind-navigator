@@ -15,6 +15,32 @@ function isOpenNow(openingTime: string | null, closingTime: string | null): bool
   }
 }
 
+function buildProductSearchTerms(query: string): string[] {
+  const raw = query.trim();
+  const cleaned = raw
+    .toLowerCase()
+    .replace(/r\s?\d+([.,]\d+)?/g, " ")
+    .replace(/\b(under|below|less|than|find|me|best|cheap|cheapest|looking|need|want|please|for|a|an|the|at|in|mall)\b/g, " ")
+    .replace(/[^a-z0-9\s-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const terms = [raw, cleaned];
+
+  for (const token of cleaned.split(" ")) {
+    if (token.length < 2) continue;
+    if (["tvs", "televisions", "television"].includes(token)) {
+      terms.push("tv");
+    } else if (token.endsWith("s") && token.length > 3) {
+      terms.push(token.slice(0, -1));
+    } else {
+      terms.push(token);
+    }
+  }
+
+  return [...new Set(terms.filter(Boolean))];
+}
+
 function scoreProduct(
   product: Product,
   shop: Shop,
@@ -91,24 +117,36 @@ export async function recommendProducts(opts: RecommendOptions): Promise<ScoredP
   const shopMap = Object.fromEntries((shops as Shop[]).map((s) => [String(s.id), s]));
   const shopIds = (shops as Shop[]).map((s) => s.id);
 
-  // 2. Search products
-  let q = supabase
-    .from("products")
-    .select(
-      "id, shop_id, name, brand, category, price, original_price, is_on_special, " +
-      "price_verified_at, data_quality_status, price_verification_method, data_source, verified_by"
-    )
-    .in("shop_id", shopIds)
-    .ilike("name", `%${query.trim()}%`)
-    .order("price", { ascending: true })
-    .limit(30);
+  // 2. Search products.
+  // Gemini may pass natural phrases like "TVs under R5000".
+  // Try the raw query first, then cleaner fallback terms such as "tv".
+  let products: Product[] = [];
 
-  if (budget != null) q = q.lte("price", budget);
-  if (category) q = q.ilike("category", `%${category}%`);
+  for (const term of buildProductSearchTerms(query)) {
+    let q = supabase
+      .from("products")
+      .select(
+        "id, shop_id, name, brand, category, price, original_price, is_on_special, " +
+        "price_verified_at, data_quality_status, price_verification_method, data_source, verified_by"
+      )
+      .in("shop_id", shopIds)
+      .ilike("name", `%${term}%`)
+      .order("price", { ascending: true })
+      .limit(30);
 
-  const { data: products, error: prodErr } = await q;
-  if (prodErr) throw new Error(`Failed to fetch products: ${prodErr.message}`);
-  if (!products?.length) return [];
+    if (budget != null) q = q.lte("price", budget);
+    if (category) q = q.ilike("category", `%${category}%`);
+
+    const { data, error } = await q;
+    if (error) throw new Error(`Failed to fetch products: ${error.message}`);
+
+    if (data?.length) {
+      products = data as unknown as Product[];
+      break;
+    }
+  }
+
+  if (!products.length) return [];
 
   // 3. Build cheapest-per-name map
   const cheapestByName: Record<string, number> = {};

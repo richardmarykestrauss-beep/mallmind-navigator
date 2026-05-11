@@ -227,7 +227,10 @@ export async function runAssistant(
     config: {
       ...baseConfig,
       toolConfig: {
-        functionCallingConfig: { mode: FunctionCallingConfigMode.ANY },
+        functionCallingConfig: {
+          mode: FunctionCallingConfigMode.ANY,
+          allowedFunctionNames: ["recommend_products"],
+        },
       },
     },
   });
