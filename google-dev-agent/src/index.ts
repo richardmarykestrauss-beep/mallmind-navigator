@@ -1,65 +1,79 @@
 /**
- * MallMind Dev Agent — MVP Entry Point
+ * MallMind Dev Agent — Entry Point
  *
- * Version: 0.1.0
- * Scope: VERIFY_BACKEND_DEV only
+ * Version: 0.2.0
  *
- * This agent can:
- *   ✅ Receive a task via CLI argument or environment variable
- *   ✅ Run safety checks (hardcoded, not AI-decided)
- *   ✅ Run smoke tests against the live Cloud Run dev backend
- *   ✅ Write a structured Markdown report with Gemini-powered analysis
+ * Phase 1 (v0.1.0): VERIFY_BACKEND_DEV — smoke tests + Gemini report
+ * Phase 2 (v0.2.0): IMPLEMENT_TASK — controlled builder (plan → approve → apply)
  *
- * This agent cannot (by design):
- *   ❌ Edit code automatically
- *   ❌ Push branches or open PRs
- *   ❌ Deploy to Cloud Run
- *   ❌ Change IAM or secrets
- *   ❌ Run database migrations
- *   ❌ Touch wallet/payment/P2P files
- *   ❌ Access production services
- *
- * Usage:
+ * ─────────────────────────────────────────────────────────────────────────────
+ * VERIFY_BACKEND_DEV (unchanged from v0.1.0):
  *   node dist/index.js --task VERIFY_BACKEND_DEV
- *   TASK=VERIFY_BACKEND_DEV node dist/index.js
+ *   npm run verify
+ *
+ * IMPLEMENT_TASK — Stage 1 (generate plan, stop for human review):
+ *   node dist/index.js --task-file tasks/my-task.json
+ *   npm run plan -- --task-file tasks/my-task.json
+ *
+ * IMPLEMENT_TASK — Stage 2 (apply approved plan):
+ *   node dist/index.js --approve --plan-id plan-20260511-143022
+ *   npm run apply -- --plan-id plan-20260511-143022
+ *
+ * Rollback (restore files from backup):
+ *   node dist/index.js --abort --plan-id plan-20260511-143022
+ *   npm run abort -- --plan-id plan-20260511-143022
+ * ─────────────────────────────────────────────────────────────────────────────
+ *
+ * This agent will NEVER automatically:
+ *   ❌ Run git commit or git push
+ *   ❌ Deploy to Cloud Run
+ *   ❌ Execute Supabase SQL
+ *   ❌ Change IAM or secrets
+ *   ❌ Run npm install
+ *   ❌ Touch wallet/payment/P2P/financial files
  */
 
 import "dotenv/config";
 import { checkSafety, summariseSafetyResult } from "./safetyGuard.js";
-import { runSmokeTests } from "./smokeTests.js";
-import { writeReport } from "./reportWriter.js";
+import { runSmokeTests }                       from "./smokeTests.js";
+import { writeReport }                         from "./reportWriter.js";
+import { runPlanMode, runApplyMode, runAbortMode } from "./taskRunner.js";
 
-// ── Config ────────────────────────────────────────────────────────────────────
+// ── Banner ────────────────────────────────────────────────────────────────────
 
 const BANNER = `
 ╔══════════════════════════════════════════════════════╗
-║         MallMind Dev Agent  v0.1.0 (MVP)             ║
-║         Read / Test / Report only                    ║
-║         No code edits. No deployments.               ║
+║         MallMind Dev Agent  v0.2.0                   ║
+║         Plan / Apply / Verify — never auto-deploy    ║
+║         No git. No SQL. No gcloud. You approve.      ║
 ╚══════════════════════════════════════════════════════╝
 `.trim();
 
 // ── Argument parsing ──────────────────────────────────────────────────────────
 
+function getArg(flag: string): string | undefined {
+  const idx = process.argv.indexOf(flag);
+  if (idx !== -1 && process.argv[idx + 1] && !process.argv[idx + 1].startsWith("--")) {
+    return process.argv[idx + 1];
+  }
+  return undefined;
+}
+
+function hasFlag(flag: string): boolean {
+  return process.argv.includes(flag);
+}
+
 function getTaskType(): string {
-  // 1. Check --task flag in argv
   const argIndex = process.argv.indexOf("--task");
   if (argIndex !== -1 && process.argv[argIndex + 1]) {
     return process.argv[argIndex + 1];
   }
-  // 2. Check TASK environment variable
   if (process.env.TASK) return process.env.TASK;
-
-  // 3. Default for MVP
   return "VERIFY_BACKEND_DEV";
 }
 
 function getInstruction(): string | undefined {
-  const argIndex = process.argv.indexOf("--instruction");
-  if (argIndex !== -1 && process.argv[argIndex + 1]) {
-    return process.argv[argIndex + 1];
-  }
-  return process.env.AGENT_INSTRUCTION;
+  return getArg("--instruction") ?? process.env.AGENT_INSTRUCTION;
 }
 
 function getBaseUrl(): string {
@@ -69,15 +83,14 @@ function getBaseUrl(): string {
   );
 }
 
-// ── Blocked report writer (no Gemini needed) ──────────────────────────────────
+// ── Blocked report (no Gemini needed) ────────────────────────────────────────
 
 function writeBlockedReport(taskType: string, reason: string): void {
-  const timestamp = new Date().toISOString();
   console.error(`\n🚫 Agent blocked at safety check.`);
   console.error(`   Task: ${taskType}`);
   console.error(`   Reason: ${reason}`);
   console.error(`\n   No report written. No action taken.`);
-  console.error(`   Timestamp: ${timestamp}`);
+  console.error(`   Timestamp: ${new Date().toISOString()}`);
   process.exit(1);
 }
 
@@ -86,16 +99,47 @@ function writeBlockedReport(taskType: string, reason: string): void {
 async function main(): Promise<void> {
   console.log(`\n${BANNER}\n`);
 
-  const taskType = getTaskType();
+  // ── Route: --abort --plan-id <id> ─────────────────────────────────────────
+  if (hasFlag("--abort")) {
+    const planId = getArg("--plan-id");
+    if (!planId) {
+      console.error(`❌ --abort requires --plan-id <plan-id>`);
+      console.error(`   Example: npm run abort -- --plan-id plan-20260511-143022`);
+      process.exit(1);
+    }
+    await runAbortMode(planId);
+    return;
+  }
+
+  // ── Route: --approve --plan-id <id> ──────────────────────────────────────
+  if (hasFlag("--approve")) {
+    const planId = getArg("--plan-id");
+    if (!planId) {
+      console.error(`❌ --approve requires --plan-id <plan-id>`);
+      console.error(`   Example: npm run apply -- --plan-id plan-20260511-143022`);
+      process.exit(1);
+    }
+    await runApplyMode(planId);
+    return;
+  }
+
+  // ── Route: --task-file <path> (plan mode) ─────────────────────────────────
+  const taskFile = getArg("--task-file");
+  if (taskFile) {
+    await runPlanMode(taskFile);
+    return;
+  }
+
+  // ── Route: VERIFY_BACKEND_DEV (v0.1.0 smoke tests — unchanged) ───────────
+  const taskType   = getTaskType();
   const instruction = getInstruction();
-  const baseUrl = getBaseUrl();
+  const baseUrl    = getBaseUrl();
 
   console.log(`📋 Task type : ${taskType}`);
   console.log(`🌐 Target URL: ${baseUrl}`);
   if (instruction) console.log(`📝 Instruction: ${instruction}`);
   console.log(``);
 
-  // ── Step 1: Safety check ──────────────────────────────────────────────────
   console.log(`🛡️  Running safety check...`);
   const safety = checkSafety(taskType, instruction);
   console.log(`   ${summariseSafetyResult(safety)}`);
@@ -105,13 +149,9 @@ async function main(): Promise<void> {
     return;
   }
 
-  // ── Step 2: Run smoke tests ───────────────────────────────────────────────
-  const suite = await runSmokeTests(baseUrl);
-
-  // ── Step 3: Write report ──────────────────────────────────────────────────
+  const suite      = await runSmokeTests(baseUrl);
   const reportPath = await writeReport(suite);
 
-  // ── Step 4: Exit summary ──────────────────────────────────────────────────
   console.log(`\n${"─".repeat(60)}`);
   console.log(`  OVERALL: ${suite.overallStatus}`);
   console.log(`  ✅ REAL:           ${suite.passCount}`);
@@ -124,10 +164,7 @@ async function main(): Promise<void> {
   console.log(`  Report: ${reportPath}`);
   console.log(`${"─".repeat(60)}\n`);
 
-  // Exit with non-zero if any endpoints are broken
-  if (suite.brokenCount > 0) {
-    process.exit(2); // 2 = smoke tests have failures (not a crash)
-  }
+  if (suite.brokenCount > 0) process.exit(2);
 }
 
 main().catch((err) => {

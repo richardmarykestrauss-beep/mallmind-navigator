@@ -49,6 +49,7 @@ export type Profile = {
   xp: number;
   level: number;
   subscription_status: string;
+  is_admin: boolean;
 };
 
 export type ParkingSpot = {

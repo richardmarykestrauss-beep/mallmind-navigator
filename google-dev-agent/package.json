@@ -1,19 +1,29 @@
 {
   "name": "mallmind-dev-agent",
-  "version": "0.1.0",
-  "description": "MallMind Dev Agent — read/test/report only. No code editing, no deployments.",
+  "version": "0.2.0",
+  "description": "MallMind Dev Agent — smoke tests (v0.1) + controlled builder (v0.2). Plan→Approve→Apply. No auto-commit, no deploy, no SQL.",
   "private": true,
   "type": "module",
   "engines": {
     "node": ">=22"
   },
   "scripts": {
-    "dev": "ts-node-dev --respawn --transpile-only --esm src/index.ts",
-    "build": "tsc",
-    "start": "node dist/index.js",
-    "verify": "node dist/index.js --task VERIFY_BACKEND_DEV",
-    "verify:dev": "npx ts-node-dev --transpile-only --esm src/index.ts -- --task VERIFY_BACKEND_DEV",
-    "lint": "tsc --noEmit"
+    "dev":         "ts-node-dev --respawn --transpile-only --esm src/index.ts",
+    "build":       "tsc",
+    "start":       "node dist/index.js",
+    "lint":        "tsc --noEmit",
+
+    "verify":      "node dist/index.js --task VERIFY_BACKEND_DEV",
+    "verify:dev":  "npx ts-node-dev --transpile-only --esm src/index.ts -- --task VERIFY_BACKEND_DEV",
+
+    "plan":        "node dist/index.js --task-file",
+    "plan:dev":    "npx ts-node-dev --transpile-only --esm src/index.ts -- --task-file",
+
+    "apply":       "node dist/index.js --approve",
+    "apply:dev":   "npx ts-node-dev --transpile-only --esm src/index.ts -- --approve",
+
+    "abort":       "node dist/index.js --abort",
+    "abort:dev":   "npx ts-node-dev --transpile-only --esm src/index.ts -- --abort"
   },
   "dependencies": {
     "@google/genai": "^1.0.0",

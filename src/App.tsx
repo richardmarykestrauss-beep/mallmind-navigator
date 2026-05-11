@@ -22,7 +22,7 @@ const Rewards       = lazy(() => import("./pages/Rewards.tsx"));
 const Profile       = lazy(() => import("./pages/Profile.tsx"));
 const AssistantPage = lazy(() => import("./pages/AssistantPage.tsx"));
 const AuthPage        = lazy(() => import("./pages/AuthPage.tsx"));
-const AdminDashboard  = lazy(() => import("./pages/AdminDashboard.tsx"));
+const AdminDashboard  = lazy(() => import("./pages/admin/AdminDashboard.tsx"));
 const NotFound        = lazy(() => import("./pages/NotFound.tsx"));
 
 const queryClient = new QueryClient();
