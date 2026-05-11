@@ -21,6 +21,17 @@ interface Counts {
   };
 }
 
+interface RecentProduct {
+  id: string;
+  name: string;
+  category: string | null;
+  price: number;
+  data_quality_status: string | null;
+  shops: {
+    name: string;
+  } | null;
+}
+
 // ── Fetch helpers ─────────────────────────────────────────────────────────────
 
 async function fetchCounts(): Promise<Counts> {
@@ -48,6 +59,19 @@ async function fetchCounts(): Promise<Counts> {
       needs_review: byStatus("needs_review"),
     },
   };
+}
+
+async function fetchRecentProducts(): Promise<RecentProduct[]> {
+  const { data, error } = await supabase
+    .from("products")
+    .select("id, name, category, price, data_quality_status, shops(name)")
+    .limit(10);
+
+  if (error) {
+    throw error;
+  }
+
+  return (data ?? []) as RecentProduct[];
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
@@ -100,15 +124,27 @@ function QualityRow({ label, count, total, color }: QualityRowProps) {
 
 function AdminDashboardContent() {
   const [counts, setCounts] = useState<Counts | null>(null);
+  const [recentProducts, setRecentProducts] = useState<RecentProduct[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchCounts()
-      .then(setCounts)
+    Promise.all([fetchCounts(), fetchRecentProducts()])
+      .then(([countsData, productsData]) => {
+        setCounts(countsData);
+        setRecentProducts(productsData);
+      })
       .catch((e) => setError(String(e)))
       .finally(() => setLoading(false));
   }, []);
+
+  const formatRand = (amount: number) =>
+    new Intl.NumberFormat("en-ZA", {
+      style: "currency",
+      currency: "ZAR",
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(amount);
 
   return (
     <MobileShell hideNav>
@@ -232,6 +268,41 @@ function AdminDashboardContent() {
                         <span>{counts.products.total}</span>
                       </div>
                     </div>
+                  </CardContent>
+                </Card>
+              </section>
+
+              {/* Recent products */}
+              <section>
+                <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                  Recent Products
+                </h2>
+                <Card>
+                  <CardContent className="space-y-3 pt-4">
+                    {recentProducts.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">No recent products found.</p>
+                    ) : (
+                      recentProducts.map((product) => (
+                        <div
+                          key={product.id}
+                          className="grid grid-cols-1 gap-2 border-b pb-3 last:border-b-0 last:pb-0 sm:grid-cols-[1fr_auto]"
+                        >
+                          <div>
+                            <p className="text-sm font-medium">{product.name}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {product.shops?.name ?? "Unknown shop"}
+                              {product.category ? ` · ${product.category}` : ""}
+                            </p>
+                          </div>
+                          <div className="sm:text-right">
+                            <p className="text-sm font-semibold">{formatRand(product.price)}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {product.data_quality_status ?? "demo"}
+                            </p>
+                          </div>
+                        </div>
+                      ))
+                    )}
                   </CardContent>
                 </Card>
               </section>
