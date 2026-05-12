@@ -151,7 +151,7 @@ function buildSystemPrompt(ctx: {
     "Your rules:",
     "1. Call recommend_products FIRST for every product query — it searches live mall stock.",
     "2. Only answer from real data returned by tools. Do NOT invent store names, prices, or floor numbers.",
-    "3. CRITICAL — explicit route intent: If the user says 'take me to', 'directions to', 'route to', 'navigate to', 'show me the way to', or 'how do I get to', you MUST call build_route immediately after recommend_products returns results. Do NOT ask for confirmation. Do NOT explain first. Call build_route right away with the shop IDs from the results. If the shop is closed, still build the route AND warn about closing hours in your final message.",
+    "3. CRITICAL — explicit route intent: If the user says 'take me to', 'directions to', 'route to', 'navigate to', 'show me the way to', or 'how do I get to', you MUST call build_route immediately after recommend_products returns results. Do NOT ask for confirmation. Do NOT explain first. Call build_route right away with the shop IDs from the results. If the shop is closed, still build the route AND warn about closing hours in your final message. NEVER mention sessions — routing works regardless of session state.",
     "4. Call save_shopping_intent once you understand what the user is looking for.",
     "5. Use check_store_hours when asked about trading hours.",
     "6. Be concise — users are on their phone inside a busy mall.",
@@ -195,6 +195,100 @@ export interface AssistantResult {
   route_summary: string;
 }
 
+
+// ── Route fallback step builder ───────────────────────────────────────────────
+// Used when mall_nodes/mall_edges are empty for a given mall.
+// Generates a minimal human-readable step list from the ScoredProduct data
+// that is already in scope — no extra DB query needed.
+
+function buildFallbackRouteSteps(
+  products: ScoredProduct[],
+  shopIds: string[]
+): RouteStep[] {
+  const steps: RouteStep[] = [];
+  let stepNum = 1;
+
+  steps.push({
+    step: stepNum++,
+    instruction: "Start at the main mall entrance.",
+    node_id: "",
+    node_name: "Main Entrance",
+    floor: "G",
+    distance_meters: 0,
+    floor_change: false,
+    cumulative_meters: 0,
+  });
+
+  let cumulative = 0;
+  for (const shopId of shopIds) {
+    const p = products.find((x) => x.shop_id === shopId);
+    if (!p) continue;
+    const unit = p.unit_number ? ` at unit ${p.unit_number}` : "";
+    const floor = p.floor ?? "G";
+    cumulative += 100;
+    steps.push({
+      step: stepNum++,
+      instruction: `Go to ${p.shop_name}${unit} on Floor ${floor}.`,
+      node_id: "",
+      node_name: p.shop_name,
+      floor,
+      distance_meters: 100,
+      floor_change: false,
+      cumulative_meters: cumulative,
+    });
+  }
+
+  return steps;
+}
+
+// ── Route apology detection + override ───────────────────────────────────────
+// Gemini sometimes generates "I can't build a route — session not active" before
+// our post-processing adds the route data.  We detect those phrases and replace
+// the message with a deterministic confirmation built from product facts.
+
+const ROUTE_APOLOGY_PATTERNS = [
+  /can'?t build.{0,50}route/i,
+  /cannot build.{0,50}route/i,
+  /unable to build.{0,50}route/i,
+  /session isn'?t active/i,
+  /session is not active/i,
+  /no active session/i,
+  /unfortunately.{0,80}(route|session|directions)/i,
+  /route.{0,50}unavailable/i,
+  /build.{0,50}route.{0,50}session/i,
+];
+
+function isRouteApologyMessage(text: string): boolean {
+  return ROUTE_APOLOGY_PATTERNS.some((p) => p.test(text));
+}
+
+function buildRouteConfirmationMessage(
+  products: ScoredProduct[],
+  _routeSummary: string
+): string {
+  const top = products[0];
+  if (!top) {
+    return "Your route is ready — follow the steps on screen to reach the store.";
+  }
+
+  const isVerified =
+    top.data_quality_status === "manually_verified" ||
+    top.data_quality_status === "live_feed";
+  const priceStr = isVerified
+    ? `confirmed at R${top.price}`
+    : `listed at around R${top.price}`;
+
+  const closedWarning =
+    top.is_open_now === false
+      ? ` Note: ${top.shop_name} may be closed right now — confirm trading hours before heading over.`
+      : "";
+
+  return (
+    `Your route to ${top.shop_name} is ready. ` +
+    `The ${top.name} is ${priceStr}.${closedWarning} ` +
+    `Follow the steps on screen.`
+  );
+}
 
 function buildProductFallbackMessage(products: ScoredProduct[]): string {
   if (!products.length) {
@@ -309,7 +403,7 @@ export async function runAssistant(
       // we forcibly build the route here.  This is deterministic — never
       // relies on LLM compliance with the prompt instruction.
       if (routeIntentDetected && allProducts.length > 0 && routeShopIds.length === 0) {
-        // Deduplicate: use top-scored product's shop first, then others
+        // Deduplicate: top-scored product's shop first, then others
         const seenShops = new Set<string>();
         for (const p of allProducts) {
           if (!seenShops.has(p.shop_id)) seenShops.add(p.shop_id);
@@ -318,30 +412,57 @@ export async function runAssistant(
 
         try {
           if (ctx.session_id) {
-            // Persist the route and get full steps
+            // Persist the route and get full Dijkstra steps
             const r = await buildRoute(ctx.session_id, routeShopIds, ctx.user_id ?? null);
-            routeSteps = r.steps;
+            routeSteps = r.steps.length > 0
+              ? r.steps
+              : buildFallbackRouteSteps(allProducts, routeShopIds);
             routeId = r.route_id;
             routeSummary = routeSummary ||
               `${r.stop_count} stop${r.stop_count !== 1 ? "s" : ""} · ~${r.estimated_minutes} min walk`;
           } else if (ctx.mall_id) {
-            // No session — build steps from mall graph directly (not persisted)
+            // No session — build from mall graph directly (not persisted)
             const r = await buildRouteNoSession(ctx.mall_id, routeShopIds);
-            routeSteps = r.steps;
-            routeId = null;
-            if (!r.fallback) {
-              routeSummary = `${r.stop_count} stop${r.stop_count !== 1 ? "s" : ""} · ~${r.estimated_minutes} min walk`;
+            if (!r.fallback && r.steps.length > 0) {
+              // Graph data exists — use Dijkstra steps
+              routeSteps = r.steps;
+              routeSummary = routeSummary ||
+                `${r.stop_count} stop${r.stop_count !== 1 ? "s" : ""} · ~${r.estimated_minutes} min walk`;
+            } else {
+              // No graph data for this mall — synthesise steps from product info
+              routeSteps = buildFallbackRouteSteps(allProducts, routeShopIds);
+              routeSummary = routeSummary ||
+                `${routeShopIds.length} stop${routeShopIds.length !== 1 ? "s" : ""}`;
             }
+            routeId = null;
           }
         } catch (err) {
-          // Route build failure is non-fatal — caller still gets build_route:true
-          // and the correct shop IDs; the frontend can show a fallback stop list.
+          // Route build failure is non-fatal — synthesise from product info
           console.error("[assistant] forced route build failed:", err);
+          if (routeSteps.length === 0) {
+            routeSteps = buildFallbackRouteSteps(allProducts, routeShopIds);
+            routeSummary = routeSummary ||
+              `${routeShopIds.length} stop${routeShopIds.length !== 1 ? "s" : ""}`;
+          }
         }
       }
 
+      // ── Message override ──────────────────────────────────────────────────
+      // Gemini sometimes writes "can't build route — session not active" before
+      // our post-processing adds the route data.  Replace apology messages with
+      // a correct confirmation when we successfully have route steps to show.
+      let message = finalText || buildProductFallbackMessage(allProducts);
+      if (
+        routeIntentDetected &&
+        routeShopIds.length > 0 &&
+        routeSteps.length > 0 &&
+        isRouteApologyMessage(message)
+      ) {
+        message = buildRouteConfirmationMessage(allProducts, routeSummary);
+      }
+
       return {
-        message: finalText || buildProductFallbackMessage(allProducts),
+        message,
         products: allProducts,
         route_steps: routeSteps,
         route_id: routeId,
