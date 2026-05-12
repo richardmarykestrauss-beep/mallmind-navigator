@@ -178,6 +178,36 @@ export interface AssistantResult {
   route_summary: string;
 }
 
+
+function buildProductFallbackMessage(products: ScoredProduct[]): string {
+  if (!products.length) {
+    return "I could not find matching products for that request in this mall yet.";
+  }
+
+  const top = products.slice(0, 3);
+
+  const lines = top.map((product, index) => {
+    const trust =
+      product.data_quality_status === "manually_verified"
+        ? "Verified price"
+        : product.data_quality_status === "live_feed"
+          ? "Live-feed price"
+          : "Sample data — price may vary";
+
+    const source = product.data_source ? ` Source: ${product.data_source}.` : "";
+
+    return `${index + 1}. ${product.name} at ${product.shop_name} — R${product.price}. ${trust}.${source}`;
+  });
+
+  return [
+    "Here are the best matching products I found:",
+    "",
+    ...lines,
+    "",
+    "Please confirm the price in-store before purchasing if the item is marked as sample data.",
+  ].join("\n");
+}
+
 export async function runAssistant(
   messages: Message[],
   ctx: AssistantContext
@@ -245,9 +275,13 @@ export async function runAssistant(
     const fnCalls = response.functionCalls ?? [];
 
     if (fnCalls.length === 0) {
-      // No more tool calls — return final text
+      // No more tool calls — return final text.
+      // If Gemini returns products but no final text, still give the user
+      // a useful deterministic answer instead of a blank apology.
+      const finalText = response.text?.trim();
+
       return {
-        message: response.text?.trim() || "Sorry, I couldn't generate a response.",
+        message: finalText || buildProductFallbackMessage(allProducts),
         products: allProducts,
         route_steps: routeSteps,
         route_id: routeId,
