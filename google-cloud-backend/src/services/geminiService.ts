@@ -140,30 +140,56 @@ function buildSystemPrompt(ctx: {
   budget?: number | null;
 }): string {
   const lines = [
-    "You are MallMind AI — a sharp, helpful shopping assistant for South African malls. You speak naturally in SA English.",
+    // ── Identity ──────────────────────────────────────────────────────────────
+    "You are MallMind — a premium retail concierge for South African shopping malls.",
+    "You are sharp, confident, and brief. Users are on their phone inside a busy mall.",
+    "Speak like a knowledgeable friend who knows this mall, not like a generic chatbot.",
+    "SA English only. No filler phrases. Get straight to the useful information.",
     "",
+    // ── Current context ───────────────────────────────────────────────────────
     ctx.mall_name
-      ? `You are physically inside **${ctx.mall_name}** with the user right now.`
-      : "No mall is selected yet. For product queries, ask the user to select a mall first.",
-    ctx.current_floor ? `User is currently on Floor **${ctx.current_floor}**.` : "",
-    ctx.shopping_intent ? `User's shopping goal: "${ctx.shopping_intent}"` : "",
+      ? `You are right now inside **${ctx.mall_name}** with the user.`
+      : "No mall selected yet — ask the user to choose a mall before answering product queries.",
+    ctx.current_floor ? `User is on Floor **${ctx.current_floor}**.` : "",
+    ctx.shopping_intent ? `User goal: "${ctx.shopping_intent}"` : "",
     "",
-    "Your rules:",
-    "1. Call recommend_products FIRST for every product query — it searches live mall stock.",
-    "2. Only answer from real data returned by tools. Do NOT invent store names, prices, or floor numbers.",
-    "3. CRITICAL — explicit route intent: If the user says 'take me to', 'directions to', 'route to', 'navigate to', 'show me the way to', or 'how do I get to', you MUST call build_route immediately after recommend_products returns results. Do NOT ask for confirmation. Do NOT explain first. Call build_route right away with the shop IDs from the results. If the shop is closed, still build the route AND warn about closing hours in your final message. NEVER mention sessions — routing works regardless of session state.",
-    "4. Call save_shopping_intent once you understand what the user is looking for.",
-    "5. Use check_store_hours when asked about trading hours.",
-    "6. Be concise — users are on their phone inside a busy mall.",
-    "7. If recommend_products returns no results, say so clearly. Do not make up alternatives.",
-    "8. Each product result includes a data_quality_status field. Use it to adjust your language:",
-    "   - 'manually_verified' or 'live_feed': state the price confidently. You may say 'verified at R...' or 'confirmed R...'.",
-    "   - 'demo' or missing: use hedged language like 'listed at around R...' or 'priced at approximately R...' to signal the price may not be current.",
-    "   - 'stale': warn the user explicitly, e.g. 'price was R... but may have changed — check in-store'.",
-    "9. Prefer recommending manually_verified products over demo products when both match the query.",
-    "10. Never make up a data_quality_status. Only use what the tool returns.",
+    // ── Tool rules ────────────────────────────────────────────────────────────
+    "TOOL RULES (non-negotiable):",
+    "1. Always call recommend_products FIRST for any product or price query.",
+    "2. CRITICAL — Route intent: If the user says 'take me to', 'directions to', 'route to',",
+    "   'navigate to', 'show me the way to', or 'how do I get to' — call build_route",
+    "   IMMEDIATELY after recommend_products. No confirmation. No preamble. Just call it.",
+    "   Build the route even if the shop is closed. Warn about closure in your message.",
+    "   NEVER mention sessions or system state. Routing always works.",
+    "3. Call save_shopping_intent once you know what the user wants.",
+    "4. Use check_store_hours only when the user explicitly asks about hours.",
+    "5. Never invent data. If a tool returns nothing, say so — do not make up products,",
+    "   prices, floors, unit numbers, or stock levels.",
     "",
-    ctx.budget ? `Budget mode: R${ctx.budget.toLocaleString()} — prefer cheapest options and flag anything over budget.` : "",
+    // ── Trust language ────────────────────────────────────────────────────────
+    "PRICE TRUST RULES — follow these exactly based on data_quality_status:",
+    "- manually_verified → say 'verified at R...' or 'confirmed R...'. Speak confidently.",
+    "  Note: data_source may show 'manual_seed' — this does NOT downgrade a verified price.",
+    "  Always use data_quality_status, not data_source, to decide trust language.",
+    "- live_feed → say 'currently listed at R...' or 'live-feed price of R...'.",
+    "- demo / missing → say 'listed at around R...' or 'sample price — confirm in-store'.",
+    "- stale → warn explicitly: 'price was R... but may have changed — check in-store'.",
+    "- Prefer manually_verified products over demo products when both match.",
+    "",
+    // ── Response quality ──────────────────────────────────────────────────────
+    "RESPONSE QUALITY:",
+    "- Lead with the best pick. Name it, price it, say why it's best (verified + discount + budget fit).",
+    "- Be specific about screen size, brand, key specs from the product name — do not invent specs.",
+    "- Mention floor/unit number so the user knows exactly where to go.",
+    "- If a shop is closed, warn clearly but still give directions and price info.",
+    "- Do not claim 'in stock' unless the data explicitly shows it.",
+    "- Do not write long paragraphs. Short, punchy, useful.",
+    "- Always end with a clear next action: directions, price confirmation, or asking what else.",
+    "",
+    // ── Budget mode ───────────────────────────────────────────────────────────
+    ctx.budget
+      ? `BUDGET: R${ctx.budget.toLocaleString()} — flag anything over budget clearly. Lead with under-budget options.`
+      : "",
   ];
   return lines.filter(Boolean).join("\n");
 }
@@ -195,6 +221,95 @@ export interface AssistantResult {
   route_summary: string;
 }
 
+
+// ── Intent classifier ─────────────────────────────────────────────────────────
+// Lightweight deterministic classification of the user message.
+// Used to log context and could gate future branching without touching Gemini.
+
+type AssistantIntent =
+  | "route_request"
+  | "price_compare"
+  | "deal_hunting"
+  | "budget_recommendation"
+  | "shop_lookup"
+  | "verification_question"
+  | "follow_up"
+  | "product_search";
+
+function classifyAssistantIntent(message: string): AssistantIntent {
+  const m = message.toLowerCase();
+  if (detectRouteIntent(message)) return "route_request";
+  if (/\b(cheap(est)?|deals?|discount|specials?|sale|off)\b/.test(m)) return "deal_hunting";
+  if (/\bcompare\b|\bwhich is better\b|\bvs\.?\s|\bversus\b/.test(m)) return "price_compare";
+  if (/\bunder\s*r?\d+|\bbudget\b|\bafford\b|\bspend\b/.test(m)) return "budget_recommendation";
+  if (/\b(is|are).{0,20}open\b|\bhours\b|\btrading\b|\bclosing\b/.test(m)) return "shop_lookup";
+  if (/\bverified\b|\bconfirm\b|\baccurate\b|\btrust\b|\breal price\b/.test(m)) return "verification_question";
+  if (/^(yes|no|ok(ay)?|sure|that one|the first|go ahead|sounds good)\b/i.test(m)) return "follow_up";
+  return "product_search";
+}
+
+// ── Product trust helpers ─────────────────────────────────────────────────────
+// NOTE: always use data_quality_status to determine trust — not data_source.
+// A product with data_source="manual_seed" but data_quality_status="manually_verified"
+// must be treated as verified.
+
+function hasVerifiedPrice(p: ScoredProduct): boolean {
+  return p.data_quality_status === "manually_verified" || p.data_quality_status === "live_feed";
+}
+
+/** Short trust label for embedding in natural-language messages. */
+function getTrustLabel(p: ScoredProduct): string {
+  switch (p.data_quality_status) {
+    case "manually_verified": return "verified";
+    case "live_feed":          return "live-feed price";
+    case "stale":              return "possibly outdated — confirm in-store";
+    case "user_submitted":     return "user-submitted price";
+    case "needs_review":       return "needs in-store confirmation";
+    default:                   return "sample data — price may vary";
+  }
+}
+
+/** "R3,499 (verified)" or "around R3,499 (sample data — price may vary)" */
+function formatPrice(p: ScoredProduct): string {
+  const label = getTrustLabel(p);
+  const amount = `R${p.price.toLocaleString("en-ZA")}`;
+  return hasVerifiedPrice(p) ? `${amount} (${label})` : `around ${amount} (${label})`;
+}
+
+/** One-liner: "Hisense 43\" FHD LED TV at Game for a verified R3,499" */
+function buildBestPickLine(p: ScoredProduct): string {
+  const trust = hasVerifiedPrice(p) ? "verified " : "";
+  return `${p.name} at ${p.shop_name} for a ${trust}R${p.price.toLocaleString("en-ZA")}`;
+}
+
+/**
+ * 1–3 short reason fragments explaining why this product is the best pick.
+ * Returns a full sentence ending with a period.
+ */
+function buildRecommendationWhy(p: ScoredProduct, budget: number | null | undefined): string {
+  const reasons: string[] = [];
+  if (p.data_quality_status === "manually_verified") reasons.push("verified price");
+  else if (p.data_quality_status === "live_feed") reasons.push("live-feed price");
+
+  if (p.is_on_special && p.discount_pct != null) reasons.push(`${p.discount_pct}% off`);
+
+  if (budget != null && p.price <= budget) {
+    const saving = budget - p.price;
+    if (saving > 0) reasons.push(`R${saving.toLocaleString("en-ZA")} under budget`);
+  } else if (budget != null && p.price > budget) {
+    reasons.push(`R${(p.price - budget).toLocaleString("en-ZA")} over budget`);
+  }
+
+  const location = p.unit_number
+    ? `Floor ${p.floor ?? "G"}, unit ${p.unit_number}`
+    : p.floor
+      ? `Floor ${p.floor}`
+      : null;
+  if (location) reasons.push(`find it at ${location}`);
+
+  if (!reasons.length) return `Available at ${p.shop_name}.`;
+  return reasons.join(" · ") + ".";
+}
 
 // ── Route fallback step builder ───────────────────────────────────────────────
 // Used when mall_nodes/mall_edges are empty for a given mall.
@@ -264,59 +379,75 @@ function isRouteApologyMessage(text: string): boolean {
 
 function buildRouteConfirmationMessage(
   products: ScoredProduct[],
-  _routeSummary: string
+  routeSummary: string
 ): string {
   const top = products[0];
   if (!top) {
-    return "Your route is ready — follow the steps on screen to reach the store.";
+    return "Your route is ready — follow the steps on screen.";
   }
 
-  const isVerified =
-    top.data_quality_status === "manually_verified" ||
-    top.data_quality_status === "live_feed";
-  const priceStr = isVerified
-    ? `confirmed at R${top.price}`
-    : `listed at around R${top.price}`;
+  const priceStr = hasVerifiedPrice(top)
+    ? `verified at R${top.price.toLocaleString("en-ZA")}`
+    : `around R${top.price.toLocaleString("en-ZA")} (sample data — confirm in-store)`;
 
   const closedWarning =
     top.is_open_now === false
-      ? ` Note: ${top.shop_name} may be closed right now — confirm trading hours before heading over.`
+      ? ` ⚠️ ${top.shop_name} appears to be closed right now — check trading hours before heading over.`
       : "";
 
+  const summaryStr = routeSummary ? ` (${routeSummary})` : "";
+
   return (
-    `Your route to ${top.shop_name} is ready. ` +
-    `The ${top.name} is ${priceStr}.${closedWarning} ` +
+    `Route to ${top.shop_name} is ready${summaryStr}. ` +
+    `${top.name} is ${priceStr}.${closedWarning} ` +
     `Follow the steps on screen.`
   );
 }
 
-function buildProductFallbackMessage(products: ScoredProduct[]): string {
+/**
+ * Premium "Best pick" fallback used when Gemini returns blank/weak final text
+ * but recommend_products returned results.  Deterministic — never hallucinates.
+ */
+function buildProductFallbackMessage(
+  products: ScoredProduct[],
+  budget?: number | null
+): string {
   if (!products.length) {
-    return "I could not find matching products for that request in this mall yet.";
+    return "I couldn't find matching products for that request at this mall right now.";
   }
 
-  const top = products.slice(0, 3);
+  const top = products[0];
+  const bestPick = buildBestPickLine(top);
+  const why = buildRecommendationWhy(top, budget);
 
-  const lines = top.map((product, index) => {
-    const trust =
-      product.data_quality_status === "manually_verified"
-        ? "Verified price"
-        : product.data_quality_status === "live_feed"
-          ? "Live-feed price"
-          : "Sample data — price may vary";
+  const parts: string[] = [`Best pick: ${bestPick}.`, why];
 
-    const source = product.data_source ? ` Source: ${product.data_source}.` : "";
+  // Discount callout
+  if (top.is_on_special && top.discount_pct != null) {
+    parts.push(`That's ${top.discount_pct}% off the original R${(top.original_price ?? top.price).toLocaleString("en-ZA")}.`);
+  }
 
-    return `${index + 1}. ${product.name} at ${product.shop_name} — R${product.price}. ${trust}.${source}`;
-  });
+  // Runner-up options (up to 2)
+  if (products.length > 1) {
+    const others = products
+      .slice(1, 3)
+      .map((p) => `${p.name} at ${p.shop_name} — ${formatPrice(p)}`);
+    parts.push(`Also available: ${others.join("; ")}.`);
+  }
 
-  return [
-    "Here are the best matching products I found:",
-    "",
-    ...lines,
-    "",
-    "Please confirm the price in-store before purchasing if the item is marked as sample data.",
-  ].join("\n");
+  // Closed shop warning
+  if (top.is_open_now === false) {
+    parts.push(`Note: ${top.shop_name} appears to be closed right now — check trading hours.`);
+  }
+
+  // Next action
+  if (hasVerifiedPrice(top)) {
+    parts.push(`Say "take me to ${top.shop_name}" for turn-by-turn directions.`);
+  } else {
+    parts.push("Confirm the price in-store — this is sample data.");
+  }
+
+  return parts.filter(Boolean).join(" ");
 }
 
 export async function runAssistant(
@@ -346,11 +477,16 @@ export async function runAssistant(
 
   const lastMessage = messages[messages.length - 1];
 
+  // Classify intent (deterministic, no LLM) for logging and safety-net guards.
+  const intent = lastMessage.role === "user"
+    ? classifyAssistantIntent(lastMessage.content)
+    : "follow_up";
+  console.log(`[assistant] intent=${intent} mall=${ctx.mall_name ?? "none"}`);
+
   // Detect explicit route intent on the current user turn.
   // This is our safety net: if Gemini skips build_route despite instruction,
   // we still return build_route=true with correct shop IDs.
-  const routeIntentDetected =
-    lastMessage.role === "user" && detectRouteIntent(lastMessage.content);
+  const routeIntentDetected = intent === "route_request";
 
   // Base config shared by all turns (system prompt + tools, mode=AUTO by default).
   // Tool-result turns use this directly so Gemini can choose to call another tool
@@ -451,7 +587,7 @@ export async function runAssistant(
       // Gemini sometimes writes "can't build route — session not active" before
       // our post-processing adds the route data.  Replace apology messages with
       // a correct confirmation when we successfully have route steps to show.
-      let message = finalText || buildProductFallbackMessage(allProducts);
+      let message = finalText || buildProductFallbackMessage(allProducts, ctx.budget);
       if (
         routeIntentDetected &&
         routeShopIds.length > 0 &&
@@ -580,9 +716,14 @@ export async function runAssistant(
     })) });
   }
 
-  // Fallback if loop exhausted
+  // Loop exhausted without a final text response — use deterministic best-pick
+  // message if we have products, otherwise a generic error.
+  const exhaustedMessage = allProducts.length > 0
+    ? buildProductFallbackMessage(allProducts, ctx.budget)
+    : "I ran into an issue processing your request. Please try again.";
+
   return {
-    message: "I ran into an issue processing your request. Please try again.",
+    message: exhaustedMessage,
     products: allProducts,
     route_steps: routeSteps,
     route_id: routeId,
