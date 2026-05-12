@@ -97,6 +97,142 @@ export interface BuildRouteResult {
 
 /**
  * Builds a step-by-step indoor route using Dijkstra over mall_nodes/mall_edges.
+ * Does NOT require a session — uses mall_id directly.
+ * Returns steps but does not persist the route (route_id is always null).
+ *
+ * Use this when the assistant has route intent but no active session_id.
+ */
+export async function buildRouteNoSession(
+  mall_id: string,
+  destination_shop_ids: string[]
+): Promise<BuildRouteResult> {
+  const supabase = getSupabaseClient();
+
+  const [
+    { data: allNodes, error: nodesError },
+    { data: allEdges, error: edgesError },
+  ] = await Promise.all([
+    supabase.from("mall_nodes").select("*").eq("mall_id", mall_id),
+    supabase.from("mall_edges").select("*").eq("mall_id", mall_id),
+  ]);
+
+  if (nodesError) throw new Error(`Failed to load mall nodes: ${nodesError.message}`);
+  if (edgesError) throw new Error(`Failed to load mall edges: ${edgesError.message}`);
+
+  const nodes = (allNodes ?? []) as MallNode[];
+  const edges = (allEdges ?? []) as MallEdge[];
+  const nodeMap = Object.fromEntries(nodes.map((n) => [n.id, n]));
+
+  if (!nodes.length) {
+    return {
+      route_id: null,
+      steps: [],
+      total_distance_meters: 0,
+      estimated_minutes: 0,
+      stop_count: destination_shop_ids.length,
+      fallback: true,
+    };
+  }
+
+  // Pick start: entrance > ground-floor shop > first node
+  const entrance = nodes.find((n) => n.type === "entrance");
+  const groundShop = nodes.find((n) => n.floor === "G" && n.type === "shop");
+  const startNodeId = entrance?.id ?? groundShop?.id ?? nodes[0].id;
+
+  const destNodeIds: string[] = [];
+  for (const shopId of destination_shop_ids) {
+    const node = nodes.find((n) => n.linked_shop_id === shopId);
+    if (node) destNodeIds.push(node.id);
+  }
+
+  if (!destNodeIds.length) {
+    return {
+      route_id: null,
+      steps: [],
+      total_distance_meters: 0,
+      estimated_minutes: 0,
+      stop_count: destination_shop_ids.length,
+      fallback: true,
+    };
+  }
+
+  const allSteps: RouteStep[] = [];
+  let totalDistance = 0;
+  let stepNum = 1;
+  let currentStart = startNodeId;
+
+  for (const destNodeId of destNodeIds) {
+    if (currentStart === destNodeId) continue;
+
+    const result = dijkstra(nodes, edges, currentStart, destNodeId);
+
+    if (!result || result.path.length < 2) {
+      const destNode = nodeMap[destNodeId];
+      allSteps.push({
+        step: stepNum++,
+        instruction: `Head to ${destNode?.name ?? "the store"} on Floor ${destNode?.floor ?? "?"}`,
+        node_id: destNodeId,
+        node_name: destNode?.name ?? "Store",
+        floor: destNode?.floor ?? null,
+        distance_meters: 100,
+        floor_change: false,
+        cumulative_meters: totalDistance + 100,
+      });
+      totalDistance += 100;
+      currentStart = destNodeId;
+      continue;
+    }
+
+    for (let i = 0; i < result.path.length - 1; i++) {
+      const fromId = result.path[i];
+      const toId = result.path[i + 1];
+      const fromNode = nodeMap[fromId];
+      const toNode = nodeMap[toId];
+      const edge = result.edges[i];
+      const instruction = buildInstruction(fromNode, toNode, edge, stepNum === 1);
+      totalDistance += edge.distance_meters;
+
+      allSteps.push({
+        step: stepNum++,
+        instruction,
+        node_id: toId,
+        node_name: toNode?.name ?? "—",
+        floor: toNode?.floor ?? null,
+        distance_meters: edge.distance_meters,
+        floor_change: edge.floor_change,
+        cumulative_meters: totalDistance,
+      });
+    }
+
+    currentStart = destNodeId;
+  }
+
+  const lastNode = nodeMap[destNodeIds[destNodeIds.length - 1]];
+  if (allSteps.length && allSteps[allSteps.length - 1].node_id !== destNodeIds[destNodeIds.length - 1]) {
+    allSteps.push({
+      step: stepNum,
+      instruction: `You've arrived at ${lastNode?.name ?? "your destination"}`,
+      node_id: destNodeIds[destNodeIds.length - 1],
+      node_name: lastNode?.name ?? "Destination",
+      floor: lastNode?.floor ?? null,
+      distance_meters: 0,
+      floor_change: false,
+      cumulative_meters: totalDistance,
+    });
+  }
+
+  return {
+    route_id: null,
+    steps: allSteps,
+    total_distance_meters: totalDistance,
+    estimated_minutes: Math.max(1, Math.round(totalDistance / 72)),
+    stop_count: destNodeIds.length,
+    fallback: false,
+  };
+}
+
+/**
+ * Builds a step-by-step indoor route using Dijkstra over mall_nodes/mall_edges.
  * Saves the result to shopping_routes and updates shopping_sessions.active_route_id.
  */
 export async function buildRoute(

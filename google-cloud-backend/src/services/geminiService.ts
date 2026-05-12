@@ -1,8 +1,25 @@
 import { GoogleGenAI, Type, Tool, FunctionDeclaration, FunctionCallingConfigMode } from "@google/genai";
 import { recommendProducts } from "./productService.js";
-import { buildRoute } from "./routingService.js";
+import { buildRoute, buildRouteNoSession } from "./routingService.js";
 import { getSupabaseClient } from "../lib/supabase.js";
 import type { ScoredProduct, RouteStep } from "../lib/types.js";
+
+// ── Route intent detection ────────────────────────────────────────────────────
+// Deterministic check on the raw user message — does NOT call Gemini.
+// When true, we guarantee build_route=true even if Gemini skips the tool call.
+
+const ROUTE_INTENT_PATTERNS = [
+  /\btake me to\b/i,
+  /\bdirections?\s+to\b/i,
+  /\broute\s+to\b/i,
+  /\bnavigate\s+to\b/i,
+  /\bshow me the way to\b/i,
+  /\bhow do i get to\b/i,
+];
+
+function detectRouteIntent(message: string): boolean {
+  return ROUTE_INTENT_PATTERNS.some((p) => p.test(message));
+}
 
 // ── SA store hours check ──────────────────────────────────────────────────────
 
@@ -134,7 +151,7 @@ function buildSystemPrompt(ctx: {
     "Your rules:",
     "1. Call recommend_products FIRST for every product query — it searches live mall stock.",
     "2. Only answer from real data returned by tools. Do NOT invent store names, prices, or floor numbers.",
-    "3. When the user wants directions, call build_route with the shop IDs from recommend_products.",
+    "3. CRITICAL — explicit route intent: If the user says 'take me to', 'directions to', 'route to', 'navigate to', 'show me the way to', or 'how do I get to', you MUST call build_route immediately after recommend_products returns results. Do NOT ask for confirmation. Do NOT explain first. Call build_route right away with the shop IDs from the results. If the shop is closed, still build the route AND warn about closing hours in your final message.",
     "4. Call save_shopping_intent once you understand what the user is looking for.",
     "5. Use check_store_hours when asked about trading hours.",
     "6. Be concise — users are on their phone inside a busy mall.",
@@ -235,6 +252,12 @@ export async function runAssistant(
 
   const lastMessage = messages[messages.length - 1];
 
+  // Detect explicit route intent on the current user turn.
+  // This is our safety net: if Gemini skips build_route despite instruction,
+  // we still return build_route=true with correct shop IDs.
+  const routeIntentDetected =
+    lastMessage.role === "user" && detectRouteIntent(lastMessage.content);
+
   // Base config shared by all turns (system prompt + tools, mode=AUTO by default).
   // Tool-result turns use this directly so Gemini can choose to call another tool
   // or give a final text answer.
@@ -279,6 +302,43 @@ export async function runAssistant(
       // If Gemini returns products but no final text, still give the user
       // a useful deterministic answer instead of a blank apology.
       const finalText = response.text?.trim();
+
+      // ── Route intent safety net ──────────────────────────────────────────
+      // If the user explicitly asked for directions and Gemini found products
+      // but never called build_route (e.g. asked for confirmation instead),
+      // we forcibly build the route here.  This is deterministic — never
+      // relies on LLM compliance with the prompt instruction.
+      if (routeIntentDetected && allProducts.length > 0 && routeShopIds.length === 0) {
+        // Deduplicate: use top-scored product's shop first, then others
+        const seenShops = new Set<string>();
+        for (const p of allProducts) {
+          if (!seenShops.has(p.shop_id)) seenShops.add(p.shop_id);
+        }
+        routeShopIds = [...seenShops];
+
+        try {
+          if (ctx.session_id) {
+            // Persist the route and get full steps
+            const r = await buildRoute(ctx.session_id, routeShopIds, ctx.user_id ?? null);
+            routeSteps = r.steps;
+            routeId = r.route_id;
+            routeSummary = routeSummary ||
+              `${r.stop_count} stop${r.stop_count !== 1 ? "s" : ""} · ~${r.estimated_minutes} min walk`;
+          } else if (ctx.mall_id) {
+            // No session — build steps from mall graph directly (not persisted)
+            const r = await buildRouteNoSession(ctx.mall_id, routeShopIds);
+            routeSteps = r.steps;
+            routeId = null;
+            if (!r.fallback) {
+              routeSummary = `${r.stop_count} stop${r.stop_count !== 1 ? "s" : ""} · ~${r.estimated_minutes} min walk`;
+            }
+          }
+        } catch (err) {
+          // Route build failure is non-fatal — caller still gets build_route:true
+          // and the correct shop IDs; the frontend can show a fallback stop list.
+          console.error("[assistant] forced route build failed:", err);
+        }
+      }
 
       return {
         message: finalText || buildProductFallbackMessage(allProducts),
