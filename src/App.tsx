@@ -10,6 +10,7 @@ import { AuthProvider } from "@/context/AuthContext";
 
 // Eagerly load the shell + first screen (no flash)
 import Index from "./pages/Index.tsx";
+import PageLoader from "@/components/PageLoader";
 
 // Lazy-load all other pages (code-split per route)
 const Malls         = lazy(() => import("./pages/Malls.tsx"));
@@ -36,7 +37,7 @@ const App = () => (
           <Toaster />
           <Sonner />
           <BrowserRouter>
-            <Suspense fallback={null}>
+            <Suspense fallback={<PageLoader />}>
               <Routes>
                 <Route path="/" element={<Index />} />
                 <Route path="/malls" element={<Malls />} />

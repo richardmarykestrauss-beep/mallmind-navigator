@@ -41,6 +41,18 @@ interface ChatMessage {
   routeSteps?: RouteStep[];
   routeId?: string | null;
   loading?: boolean;
+  /** Context-aware text shown below the thinking dots while loading */
+  loadingText?: string;
+}
+
+// ── Intent detection for loading copy ────────────────────────────────────────
+const ROUTE_INTENT_RE = /\b(take me to|directions?\s+to|route\s+to|navigate\s+to|show me the way|how do i get)\b/i;
+const PRICE_INTENT_RE = /\b(tv|screen|laptop|phone|sneaker|deal|cheap|cheapest|under\s*r?\d+|price|compare|specials?)\b/i;
+
+function getLoadingText(userMessage: string): string {
+  if (ROUTE_INTENT_RE.test(userMessage)) return "Building your route…";
+  if (PRICE_INTENT_RE.test(userMessage)) return "Checking verified prices…";
+  return "MallMind is thinking…";
 }
 
 const FLOOR_ORDER: Record<string, number> = { B1: 0, G: 1, L1: 2, L2: 3, L3: 4, L4: 5 };
@@ -105,14 +117,18 @@ function WebResultCard({ result }: { result: WebResult }) {
   );
 }
 
-// ── Typing indicator ──────────────────────────────────────────────────────────
-function TypingIndicator() {
+// ── Thinking state ────────────────────────────────────────────────────────────
+// Shows animated dots + optional context line ("Building your route…" etc.)
+function InlineThinkingState({ text }: { text?: string }) {
   return (
     <div className="flex items-end gap-2">
       <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-primary/15 border border-primary/20">
         <Bot className="h-3.5 w-3.5 text-primary" />
       </div>
-      <div className="rounded-2xl rounded-bl-sm border border-border bg-surface px-4 py-3">
+      <div className="rounded-2xl rounded-bl-sm border border-border bg-surface px-4 py-3 space-y-1.5">
+        {text && (
+          <p className="text-[11px] text-muted-foreground/80 italic">{text}</p>
+        )}
         <div className="flex gap-1 items-center h-4">
           {[0, 1, 2].map((i) => (
             <span
@@ -349,6 +365,7 @@ const AssistantPage = () => {
       role: "assistant",
       content: "",
       loading: true,
+      loadingText: getLoadingText(text.trim()),
     };
 
     stopSpeech();
@@ -753,7 +770,7 @@ const AssistantPage = () => {
               msg.role === "user" ? "items-end" : "items-start"
             )}>
               {msg.loading ? (
-                <TypingIndicator />
+                <InlineThinkingState text={msg.loadingText} />
               ) : (
                 <>
                   {msg.content && (
@@ -801,10 +818,17 @@ const AssistantPage = () => {
                             `Take me to ${msg.products![0].shop_name} for the ${msg.products![0].name}`
                           )}
                           disabled={isLoading}
-                          className="w-full flex items-center justify-center gap-2 h-9 rounded-xl border border-primary/40 bg-primary/10 text-primary text-xs font-semibold hover:bg-primary/15 transition-all disabled:opacity-50"
+                          className={cn(
+                            "w-full flex items-center justify-center gap-2 h-9 rounded-xl border text-xs font-semibold transition-all",
+                            isLoading
+                              ? "border-border bg-surface/60 text-muted-foreground cursor-not-allowed"
+                              : "border-primary/40 bg-primary/10 text-primary hover:bg-primary/15"
+                          )}
                         >
-                          <Navigation className="h-3.5 w-3.5" />
-                          Take me to {msg.products[0].shop_name}
+                          {isLoading
+                            ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Building route…</>
+                            : <><Navigation className="h-3.5 w-3.5" /> Take me to {msg.products![0].shop_name}</>
+                          }
                         </button>
                       )}
 
