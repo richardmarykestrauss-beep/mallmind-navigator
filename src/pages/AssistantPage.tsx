@@ -13,6 +13,7 @@ import { useShoppingSession } from "@/context/ShoppingSessionContext";
 import { useAuth } from "@/context/AuthContext";
 import { useGeoLocation } from "@/context/LocationContext";
 import { trackEvent } from "@/lib/analytics";
+import { trackBackendEvent } from "@/lib/analyticsClient";
 import { cn } from "@/lib/utils";
 import type { Shop } from "@/lib/supabaseClient";
 import {
@@ -373,6 +374,15 @@ const AssistantPage = () => {
     setInput("");
     setIsLoading(true);
 
+    // ── Event 1: assistant_query_submitted ────────────────────────────────────
+    trackBackendEvent({
+      event_type: "assistant_query_submitted",
+      query_text: text.trim(),
+      mall_id: selectedMall?.id ? String(selectedMall.id) : null,
+      session_id: dbSessionId ?? null,
+      metadata: { source: "assistant" },
+    });
+
     try {
       const history = buildHistory([...messages, userMsg]);
 
@@ -438,6 +448,55 @@ const AssistantPage = () => {
 
       setMessages((prev) => prev.filter((m) => !m.loading).concat(assistantMsg));
       speak(replyText);
+
+      // ── Event 2: assistant_response_received ──────────────────────────────
+      trackBackendEvent({
+        event_type: "assistant_response_received",
+        mall_id: selectedMall?.id ? String(selectedMall.id) : null,
+        session_id: dbSessionId ?? null,
+        metadata: {
+          product_count: data.products?.length ?? 0,
+          build_route: data.build_route ?? false,
+          route_step_count: data.route_steps?.length ?? 0,
+          top_product_id: data.products?.[0]?.product_id ?? null,
+          top_shop_id: data.products?.[0]?.shop_id ?? null,
+          top_data_quality_status: data.products?.[0]?.data_quality_status ?? null,
+        },
+      });
+
+      // ── Event 3: product_recommendation_viewed (best pick / top result) ───
+      if (data.products?.[0]) {
+        const top = data.products[0];
+        trackBackendEvent({
+          event_type: "product_recommendation_viewed",
+          product_id: top.product_id ?? null,
+          shop_id: top.shop_id ?? null,
+          mall_id: selectedMall?.id ? String(selectedMall.id) : null,
+          session_id: dbSessionId ?? null,
+          metadata: {
+            product_name: top.name,
+            shop_name: top.shop_name,
+            price: top.price,
+            data_quality_status: top.data_quality_status ?? null,
+            is_best_pick: true,
+          },
+        });
+      }
+
+      // ── Event 5: route_response_received ──────────────────────────────────
+      if (data.build_route) {
+        trackBackendEvent({
+          event_type: "route_response_received",
+          mall_id: selectedMall?.id ? String(selectedMall.id) : null,
+          session_id: dbSessionId ?? null,
+          route_id: data.route_id ?? null,
+          metadata: {
+            route_summary: data.route_summary ?? null,
+            route_step_count: data.route_steps?.length ?? 0,
+            route_shop_ids: data.route_shop_ids ?? [],
+          },
+        });
+      }
 
       // Track AI conversation + route trigger
       trackEvent("ai_conversation", {
@@ -595,6 +654,19 @@ const AssistantPage = () => {
     setRouteStops(sorted as Shop[]);
     updateSessionRoute(sorted.map((s) => s.id));
     navigate("/navigate");
+  }
+
+  // ── Event 4: route_requested — fired when user taps "Take me to [shop]" ────
+  function handleTakeMeTo(product: ProductResult, queryText: string) {
+    trackBackendEvent({
+      event_type: "route_requested",
+      shop_id: product.shop_id ?? null,
+      product_id: product.product_id ?? null,
+      mall_id: selectedMall?.id ? String(selectedMall.id) : null,
+      session_id: dbSessionId ?? null,
+      query_text: queryText,
+    });
+    sendMessage(queryText);
   }
 
   // Navigate to a single shop from a recommendation card
@@ -814,9 +886,10 @@ const AssistantPage = () => {
                       {/* Take me to button — only when route not yet built */}
                       {!msg.routeShopIds?.length && (
                         <button
-                          onClick={() => sendMessage(
-                            `Take me to ${msg.products![0].shop_name} for the ${msg.products![0].name}`
-                          )}
+                          onClick={() => {
+                            const queryText = `Take me to ${msg.products![0].shop_name} for the ${msg.products![0].name}`;
+                            handleTakeMeTo(msg.products![0], queryText);
+                          }}
                           disabled={isLoading}
                           className={cn(
                             "w-full flex items-center justify-center gap-2 h-9 rounded-xl border text-xs font-semibold transition-all",
