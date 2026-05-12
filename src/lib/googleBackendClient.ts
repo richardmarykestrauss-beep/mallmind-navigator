@@ -119,6 +119,51 @@ export interface AssistantResponse {
   route_summary?: string;
 }
 
+// ── Health check ─────────────────────────────────────────────────────────────
+
+export interface HealthCheckResult {
+  ok: boolean;
+  /** HTTP status code when the server responded but not with 2xx */
+  status?: number;
+  /** Human-readable outcome message */
+  message: string;
+}
+
+/**
+ * GET /health
+ *
+ * Lightweight connectivity probe — no auth required.
+ * Returns a structured result rather than throwing so callers can display
+ * a friendly status without try/catch boilerplate.
+ */
+export async function checkBackendHealth(): Promise<HealthCheckResult> {
+  if (!BASE_URL) {
+    return { ok: false, message: "VITE_GOOGLE_BACKEND_URL is not configured" };
+  }
+  try {
+    const res = await fetch(`${BASE_URL}/health`, { method: "GET" });
+    if (res.ok) {
+      return { ok: true, message: "Connected — backend is healthy" };
+    }
+    return {
+      ok: false,
+      status: res.status,
+      message: `HTTP ${res.status} — backend responded with an error`,
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    // Distinguish CORS/network errors from general fetch errors
+    const isCors = msg.toLowerCase().includes("failed to fetch") ||
+                   msg.toLowerCase().includes("networkerror");
+    return {
+      ok: false,
+      message: isCors
+        ? `Network error — possible CORS block or backend unreachable (${msg})`
+        : `Fetch failed — ${msg}`,
+    };
+  }
+}
+
 // ── Admin types ───────────────────────────────────────────────────────────────
 
 export type PriceVerificationMethod =

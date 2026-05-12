@@ -22,10 +22,17 @@ import {
   CheckCircle2,
   AlertCircle,
   RefreshCw,
+  Activity,
+  WifiOff,
+  KeyRound,
+  User,
+  Server,
 } from "lucide-react";
 import {
   verifyProductPrice,
+  checkBackendHealth,
   type PriceVerificationMethod,
+  type HealthCheckResult,
 } from "@/lib/googleBackendClient";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -391,6 +398,121 @@ function ProductVerifyCard({ product, defaultVerifiedBy, onVerified }: ProductVe
   );
 }
 
+// ── SystemDiagnostics ─────────────────────────────────────────────────────────
+
+function SystemDiagnostics() {
+  const { session } = useAuth();
+
+  const backendUrl = (import.meta.env.VITE_GOOGLE_BACKEND_URL as string | undefined) ?? "";
+  const hasSession = !!session;
+  const hasToken   = !!session?.access_token;
+  const userEmail  = session?.user?.email ?? null;
+
+  type HealthState = "idle" | "checking" | "ok" | "error";
+  const [healthState, setHealthState] = useState<HealthState>("idle");
+  const [healthResult, setHealthResult] = useState<HealthCheckResult | null>(null);
+
+  async function runHealthCheck() {
+    setHealthState("checking");
+    setHealthResult(null);
+    const result = await checkBackendHealth();
+    setHealthResult(result);
+    setHealthState(result.ok ? "ok" : "error");
+  }
+
+  return (
+    <Card className="border-dashed">
+      <CardHeader className="pb-2 pt-4">
+        <CardTitle className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">
+          <Activity className="h-4 w-4" />
+          System Diagnostics
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-2 pb-4">
+        {/* Backend URL */}
+        <div className="flex items-start gap-2 text-xs">
+          <Server className="h-3.5 w-3.5 mt-0.5 shrink-0 text-muted-foreground" />
+          <span className="text-muted-foreground w-24 shrink-0">Backend URL</span>
+          {backendUrl ? (
+            <span className="font-mono text-foreground break-all">{backendUrl}</span>
+          ) : (
+            <span className="text-destructive font-medium">Not set — VITE_GOOGLE_BACKEND_URL missing</span>
+          )}
+        </div>
+
+        {/* Supabase session */}
+        <div className="flex items-center gap-2 text-xs">
+          <User className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          <span className="text-muted-foreground w-24 shrink-0">Session</span>
+          {hasSession ? (
+            <span className="text-emerald-600 font-medium">
+              Active{userEmail ? ` · ${userEmail}` : ""}
+            </span>
+          ) : (
+            <span className="text-destructive font-medium">No session — sign in required</span>
+          )}
+        </div>
+
+        {/* Access token presence */}
+        <div className="flex items-center gap-2 text-xs">
+          <KeyRound className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          <span className="text-muted-foreground w-24 shrink-0">Access token</span>
+          {hasToken ? (
+            <span className="text-emerald-600 font-medium">Present</span>
+          ) : (
+            <span className="text-destructive font-medium">Missing</span>
+          )}
+        </div>
+
+        {/* Health check button + result */}
+        <div className="pt-1 space-y-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={runHealthCheck}
+            disabled={healthState === "checking"}
+            className="h-8 text-xs"
+          >
+            {healthState === "checking" ? (
+              <>
+                <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
+                Testing…
+              </>
+            ) : (
+              <>
+                <Activity className="mr-1.5 h-3 w-3" />
+                Test Backend Connection
+              </>
+            )}
+          </Button>
+
+          {healthState === "ok" && healthResult && (
+            <div className="flex items-center gap-2 rounded-md bg-emerald-50 border border-emerald-200 px-3 py-2 text-xs text-emerald-700">
+              <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+              <span>{healthResult.message}</span>
+            </div>
+          )}
+
+          {healthState === "error" && healthResult && (
+            <div className="flex items-start gap-2 rounded-md bg-destructive/10 border border-destructive/20 px-3 py-2 text-xs text-destructive">
+              <WifiOff className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-medium">
+                  {healthResult.status ? `HTTP ${healthResult.status}` : "Connection failed"}
+                </p>
+                <p className="mt-0.5 text-destructive/80">{healthResult.message}</p>
+                <p className="mt-1 text-destructive/60">
+                  Try: restart Vite, hard-refresh (Ctrl+Shift+R), check .env.local
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 function AdminDashboardContent() {
@@ -438,6 +560,9 @@ function AdminDashboardContent() {
         </header>
 
         <main className="flex-1 space-y-6 p-4">
+          {/* ── System diagnostics ── */}
+          <SystemDiagnostics />
+
           {/* ── Overview loading / error ── */}
           {countsLoading && (
             <div className="flex justify-center py-8">
