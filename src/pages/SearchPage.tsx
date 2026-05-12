@@ -25,7 +25,7 @@ function sortShopsByFloor(a: Shop, b: Shop): number {
 }
 
 interface ProductMatch {
-  product: Product;
+  product: Product & { data_quality_status?: string | null; price_verified_at?: string | null };
   shop: Shop;
   effectivePrice: number;
 }
@@ -83,7 +83,7 @@ const SearchPage = () => {
       // Get matching products from those shops
       const { data: productData, error: prodErr } = await supabase
         .from("products")
-        .select("id, shop_id, mall_id, name, category, brand, model, price, original_price, is_on_special, in_stock, verified")
+        .select("id, shop_id, mall_id, name, category, brand, model, price, original_price, is_on_special, in_stock, verified, data_quality_status, price_verified_at")
         .in("shop_id", shopIds)
         .ilike("name", `%${q}%`)
         .eq("in_stock", true)
@@ -304,6 +304,18 @@ const SearchPage = () => {
                         {isCheapest && (
                           <span className="text-[9px] uppercase tracking-wider text-secondary">
                             Cheapest
+                          </span>
+                        )}
+                        {(m.product.data_quality_status === "manually_verified" ||
+                          m.product.data_quality_status === "live_feed") && (
+                          <span className="text-[9px] text-emerald-500 font-medium">
+                            ✓ Verified
+                          </span>
+                        )}
+                        {(!m.product.data_quality_status ||
+                          m.product.data_quality_status === "demo") && (
+                          <span className="text-[9px] text-amber-500/70">
+                            Sample
                           </span>
                         )}
                       </div>

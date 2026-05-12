@@ -81,6 +81,18 @@ function scoreProduct(
   if (open === true) { score += 5; reasons.push("Open now"); }
   if (open === false) { score -= 20; reasons.push("Currently closed"); }
 
+  // Data quality boost — prefer verified prices over demo data
+  const quality = (product as Product & { data_quality_status?: string }).data_quality_status;
+  if (quality === "manually_verified") {
+    score += 20;
+    reasons.push("Verified price");
+  } else if (quality === "live_feed") {
+    score += 15;
+    reasons.push("Live feed");
+  } else if (!quality || quality === "demo") {
+    score -= 5; // slight penalty — prefer verified when available
+  }
+
   // Name match boost
   score += 10; // base relevance (already filtered by ilike)
 

@@ -1,4 +1,4 @@
-import { Store, Navigation, ShoppingBag, Tag, CheckCircle2, Clock } from "lucide-react";
+import { Store, Navigation, ShoppingBag, Tag, CheckCircle2, Clock, ShieldCheck, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export interface ProductResult {
@@ -16,6 +16,30 @@ export interface ProductResult {
   is_cheapest?: boolean;
   is_open_now?: boolean | null;
   reason?: string;
+  /** Price trust level — from products.data_quality_status */
+  data_quality_status?: string | null;
+  /** ISO timestamp of last manual verification */
+  price_verified_at?: string | null;
+  /** Free-text origin, e.g. "Game website", "in-store shelf" */
+  data_source?: string | null;
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function formatVerifiedDate(iso: string): string {
+  return new Date(iso).toLocaleDateString("en-ZA", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function isVerified(status: string | null | undefined): boolean {
+  return status === "manually_verified" || status === "live_feed";
+}
+
+function isDemo(status: string | null | undefined): boolean {
+  return !status || status === "demo";
 }
 
 interface RecommendationCardProps {
@@ -34,12 +58,17 @@ export default function RecommendationCard({
   const hasDiscount = p.is_on_special && p.original_price != null;
   const savings = hasDiscount ? Math.round(p.original_price! - p.price) : null;
 
+  const verified = isVerified(p.data_quality_status);
+  const demo     = isDemo(p.data_quality_status);
+
   return (
     <div className={cn(
       "rounded-2xl border bg-surface overflow-hidden transition-all",
       p.is_cheapest
         ? "border-secondary/50 shadow-[0_0_12px_hsl(142_70%_45%/0.15)]"
-        : "border-border"
+        : verified
+          ? "border-emerald-500/40"
+          : "border-border"
     )}>
       {/* Header strip for cheapest/special */}
       {(p.is_cheapest || hasDiscount) && (
@@ -54,6 +83,27 @@ export default function RecommendationCard({
               {p.discount_pct ? `${p.discount_pct}% off · ` : ""}Save R{savings}
             </span>
           )}
+        </div>
+      )}
+
+      {/* Verified price strip */}
+      {verified && (
+        <div className="flex items-center gap-1.5 px-3 py-1 bg-emerald-500/10 text-[10px] font-semibold text-emerald-600">
+          <ShieldCheck className="h-3 w-3 shrink-0" />
+          <span>Verified price</span>
+          {p.price_verified_at && (
+            <span className="ml-auto font-normal text-emerald-600/70">
+              {formatVerifiedDate(p.price_verified_at)}
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Demo data strip */}
+      {demo && (
+        <div className="flex items-center gap-1.5 px-3 py-1 bg-amber-500/8 text-[10px] text-amber-600/80">
+          <AlertCircle className="h-3 w-3 shrink-0" />
+          <span>Sample data · price may vary</span>
         </div>
       )}
 
@@ -123,6 +173,13 @@ export default function RecommendationCard({
         {/* Reason tag */}
         {p.reason && !compact && (
           <p className="text-[10px] text-muted-foreground/80 italic px-0.5">{p.reason}</p>
+        )}
+
+        {/* Verified source line */}
+        {verified && p.data_source && !compact && (
+          <p className="text-[10px] text-emerald-600/70 px-0.5">
+            Source: {p.data_source}
+          </p>
         )}
 
         {/* Actions */}

@@ -139,6 +139,12 @@ function buildSystemPrompt(ctx: {
     "5. Use check_store_hours when asked about trading hours.",
     "6. Be concise — users are on their phone inside a busy mall.",
     "7. If recommend_products returns no results, say so clearly. Do not make up alternatives.",
+    "8. Each product result includes a data_quality_status field. Use it to adjust your language:",
+    "   - 'manually_verified' or 'live_feed': state the price confidently. You may say 'verified at R...' or 'confirmed R...'.",
+    "   - 'demo' or missing: use hedged language like 'listed at around R...' or 'priced at approximately R...' to signal the price may not be current.",
+    "   - 'stale': warn the user explicitly, e.g. 'price was R... but may have changed — check in-store'.",
+    "9. Prefer recommending manually_verified products over demo products when both match the query.",
+    "10. Never make up a data_quality_status. Only use what the tool returns.",
     "",
     ctx.budget ? `Budget mode: R${ctx.budget.toLocaleString()} — prefer cheapest options and flag anything over budget.` : "",
   ];
