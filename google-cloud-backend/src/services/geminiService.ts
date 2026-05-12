@@ -511,14 +511,55 @@ export async function runAssistant(
           const args = fn.args as { shop_ids: string[]; summary?: string };
           routeShopIds = args.shop_ids.map(String);
           routeSummary = args.summary ?? "";
-          if (ctx.session_id && routeShopIds.length) {
-            const routeResult = await buildRoute(ctx.session_id, routeShopIds, ctx.user_id ?? null);
-            routeSteps = routeResult.steps;
-            routeId = routeResult.route_id;
-            routeSummary = routeSummary || `${routeResult.stop_count} stops · ~${routeResult.estimated_minutes} min walk`;
-            toolResult = JSON.stringify({ built: true, steps: routeResult.steps.length, estimated_minutes: routeResult.estimated_minutes });
-          } else {
-            toolResult = JSON.stringify({ built: false, message: "No active session — cannot persist route." });
+
+          // Inner try so a DB failure falls back to product-derived steps
+          // rather than leaving routeSteps empty and confusing the user.
+          try {
+            if (ctx.session_id && routeShopIds.length) {
+              // ── Session path: full Dijkstra + persist ──────────────────────
+              const r = await buildRoute(ctx.session_id, routeShopIds, ctx.user_id ?? null);
+              routeSteps = r.steps.length > 0
+                ? r.steps
+                : buildFallbackRouteSteps(allProducts, routeShopIds);
+              routeId = r.route_id;
+              routeSummary = routeSummary ||
+                `${r.stop_count} stop${r.stop_count !== 1 ? "s" : ""} · ~${r.estimated_minutes} min walk`;
+              toolResult = JSON.stringify({ built: true, steps: routeSteps.length, estimated_minutes: r.estimated_minutes });
+            } else if (ctx.mall_id && routeShopIds.length) {
+              // ── No-session path: mall graph, not persisted ─────────────────
+              const r = await buildRouteNoSession(ctx.mall_id, routeShopIds);
+              if (!r.fallback && r.steps.length > 0) {
+                routeSteps = r.steps;
+                routeSummary = routeSummary ||
+                  `${r.stop_count} stop${r.stop_count !== 1 ? "s" : ""} · ~${r.estimated_minutes} min walk`;
+              } else {
+                // No graph data — synthesise from product info already in scope
+                routeSteps = buildFallbackRouteSteps(allProducts, routeShopIds);
+                routeSummary = routeSummary ||
+                  `${routeShopIds.length} stop${routeShopIds.length !== 1 ? "s" : ""}`;
+              }
+              routeId = null;
+              toolResult = JSON.stringify({ built: true, fallback: r.fallback, steps: routeSteps.length });
+            } else {
+              // ── No session and no mall — synthesise if products available ──
+              if (allProducts.length > 0) {
+                routeSteps = buildFallbackRouteSteps(allProducts, routeShopIds);
+                routeSummary = routeSummary ||
+                  `${routeShopIds.length} stop${routeShopIds.length !== 1 ? "s" : ""}`;
+                toolResult = JSON.stringify({ built: true, fallback: true, steps: routeSteps.length });
+              } else {
+                toolResult = JSON.stringify({ built: false, message: "No mall context available — cannot build route." });
+              }
+            }
+          } catch (routeErr) {
+            // DB failure — synthesise from products so the user still gets steps
+            console.error("[assistant] build_route tool failed:", routeErr);
+            if (routeSteps.length === 0 && allProducts.length > 0) {
+              routeSteps = buildFallbackRouteSteps(allProducts, routeShopIds);
+              routeSummary = routeSummary ||
+                `${routeShopIds.length} stop${routeShopIds.length !== 1 ? "s" : ""}`;
+            }
+            toolResult = JSON.stringify({ built: routeSteps.length > 0, fallback: true, steps: routeSteps.length });
           }
         } else {
           toolResult = JSON.stringify({ error: `Unknown tool: ${fn.name}` });
