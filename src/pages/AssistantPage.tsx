@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import {
   Mic, MicOff, Send, Bot, User, Route as RouteIcon,
   Store, Sparkles, MapPin, Loader2, ShoppingBag, X, Globe,
-  Volume2, VolumeX, Wallet, ChevronRight
+  Volume2, VolumeX, Wallet, ChevronRight, AlertTriangle, Navigation
 } from "lucide-react";
 import MobileShell from "@/components/MobileShell";
 import { Button } from "@/components/ui/button";
@@ -69,41 +69,6 @@ function computeTotalCost(products: ProductResult[]): number {
     }
   }
   return Object.values(groups).reduce((sum, price) => sum + price, 0);
-}
-
-// ── Product card rendered inside assistant messages ──────────────────────────
-function ProductCard({ p }: { p: ProductResult }) {
-  const hasDiscount = p.is_on_special && p.original_price != null;
-  return (
-    <div className="flex items-center gap-3 rounded-xl border border-border bg-surface/80 p-3">
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 border border-primary/20">
-        <Store className="h-4 w-4 text-primary" />
-      </div>
-      <div className="flex-1 min-w-0">
-        <p className="text-xs font-semibold truncate">{p.name}</p>
-        {p.brand && <p className="text-[10px] text-muted-foreground">{p.brand}</p>}
-        <p className="text-[10px] text-muted-foreground">
-          {p.shop_name} · Floor {p.floor ?? "?"} · {p.unit_number ?? "—"}
-        </p>
-      </div>
-      <div className="text-right shrink-0">
-        {hasDiscount && (
-          <p className="text-[10px] text-muted-foreground line-through">
-            R{p.original_price!.toFixed(0)}
-          </p>
-        )}
-        <p className={cn(
-          "font-display font-bold text-sm",
-          hasDiscount ? "text-secondary" : "text-foreground"
-        )}>
-          R{p.price.toFixed(0)}
-        </p>
-        {hasDiscount && (
-          <p className="text-[9px] uppercase tracking-wider text-secondary">Sale</p>
-        )}
-      </div>
-    </div>
-  );
 }
 
 // ── Web estimate card ─────────────────────────────────────────────────────────
@@ -810,14 +775,46 @@ const AssistantPage = () => {
                       <p className="text-[9px] uppercase tracking-wider text-primary/70 px-1 flex items-center gap-1">
                         <Store className="h-3 w-3" /> Live mall prices
                       </p>
+
                       {msg.products.map((p, i) => (
                         <RecommendationCard
                           key={`${p.product_id}-${i}`}
                           product={p}
+                          isBestPick={i === 0}
                           onNavigate={handleNavigateToShop}
                           onAddToList={user ? handleAddToList : undefined}
                         />
                       ))}
+
+                      {/* Closed-shop warning */}
+                      {msg.products[0]?.is_open_now === false && (
+                        <div className="flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-600">
+                          <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                          Store may be closed right now — confirm trading hours.
+                        </div>
+                      )}
+
+                      {/* Take me to button — only when route not yet built */}
+                      {!msg.routeShopIds?.length && (
+                        <button
+                          onClick={() => sendMessage(
+                            `Take me to ${msg.products![0].shop_name} for the ${msg.products![0].name}`
+                          )}
+                          disabled={isLoading}
+                          className="w-full flex items-center justify-center gap-2 h-9 rounded-xl border border-primary/40 bg-primary/10 text-primary text-xs font-semibold hover:bg-primary/15 transition-all disabled:opacity-50"
+                        >
+                          <Navigation className="h-3.5 w-3.5" />
+                          Take me to {msg.products[0].shop_name}
+                        </button>
+                      )}
+
+                      {/* Route built indicator */}
+                      {msg.routeShopIds && msg.routeShopIds.length > 0 && (
+                        <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-primary/8 border border-primary/25 text-[11px] text-primary font-medium">
+                          <RouteIcon className="h-3.5 w-3.5 shrink-0" />
+                          Route ready · follow the steps below
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -831,28 +828,41 @@ const AssistantPage = () => {
 
                   {msg.routeShopIds && msg.routeShopIds.length > 0 && (
                     <div className={cn(
-                      "rounded-2xl border p-3 space-y-2 w-full max-w-[300px]",
+                      "rounded-2xl border p-3 space-y-2.5 w-full max-w-[310px]",
                       msg.routeSteps?.length
                         ? "border-primary/50 bg-primary/10"
                         : "border-primary/30 bg-primary/8"
                     )}>
+                      {/* Route header */}
                       <div className="flex items-center gap-2">
-                        <RouteIcon className="h-4 w-4 text-primary" />
+                        <RouteIcon className="h-4 w-4 text-primary shrink-0" />
                         <p className="text-xs font-semibold text-primary">
-                          {msg.routeSteps?.length
-                            ? `Route ready · ${msg.routeSteps.length} steps`
-                            : `Route ready · ${msg.routeShopIds.length} stops`}
+                          {msg.routeSummary || (msg.routeSteps?.length
+                            ? `${msg.routeSteps.length} steps`
+                            : `${msg.routeShopIds.length} stop${msg.routeShopIds.length !== 1 ? "s" : ""}`)}
                         </p>
                       </div>
-                      {msg.routeSummary && (
-                        <p className="text-[11px] text-muted-foreground">{msg.routeSummary}</p>
+
+                      {/* Step-by-step directions */}
+                      {msg.routeSteps && msg.routeSteps.length > 0 && (
+                        <div className="space-y-2 pl-1">
+                          {msg.routeSteps.map((step) => (
+                            <div key={step.step} className="flex items-start gap-2.5">
+                              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/20 border border-primary/30 text-[10px] font-bold text-primary mt-0.5">
+                                {step.step}
+                              </span>
+                              <div className="min-w-0">
+                                <p className="text-[11px] text-foreground leading-snug">{step.instruction}</p>
+                                {step.floor && (
+                                  <p className="text-[9px] text-muted-foreground mt-0.5">Floor {step.floor}</p>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
                       )}
-                      {msg.routeSteps?.length && (
-                        <p className="text-[10px] text-primary/70 flex items-center gap-1">
-                          <RouteIcon className="h-3 w-3" />
-                          AI-optimised step-by-step directions
-                        </p>
-                      )}
+
+                      {/* Start navigation CTA */}
                       <Button
                         variant="neon"
                         size="sm"

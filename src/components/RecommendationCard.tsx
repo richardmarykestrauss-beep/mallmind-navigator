@@ -1,4 +1,4 @@
-import { Store, Navigation, ShoppingBag, Tag, CheckCircle2, Clock, ShieldCheck, AlertCircle } from "lucide-react";
+import { Store, Navigation, ShoppingBag, Tag, CheckCircle2, Clock, ShieldCheck, AlertCircle, Zap, Star } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export interface ProductResult {
@@ -22,6 +22,8 @@ export interface ProductResult {
   price_verified_at?: string | null;
   /** Free-text origin, e.g. "Game website", "in-store shelf" */
   data_source?: string | null;
+  /** How the price was confirmed */
+  price_verification_method?: string | null;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -47,6 +49,8 @@ interface RecommendationCardProps {
   onNavigate?: (product: ProductResult) => void;
   onAddToList?: (product: ProductResult) => void;
   compact?: boolean;
+  /** Show "Best pick" crown strip at the top of the card */
+  isBestPick?: boolean;
 }
 
 export default function RecommendationCard({
@@ -54,24 +58,40 @@ export default function RecommendationCard({
   onNavigate,
   onAddToList,
   compact = false,
+  isBestPick = false,
 }: RecommendationCardProps) {
   const hasDiscount = p.is_on_special && p.original_price != null;
   const savings = hasDiscount ? Math.round(p.original_price! - p.price) : null;
 
+  const isManuallyVerified = p.data_quality_status === "manually_verified";
+  const isLiveFeed         = p.data_quality_status === "live_feed";
   const verified = isVerified(p.data_quality_status);
   const demo     = isDemo(p.data_quality_status);
 
   return (
     <div className={cn(
       "rounded-2xl border bg-surface overflow-hidden transition-all",
-      p.is_cheapest
-        ? "border-secondary/50 shadow-[0_0_12px_hsl(142_70%_45%/0.15)]"
-        : verified
-          ? "border-emerald-500/40"
-          : "border-border"
+      isBestPick
+        ? "border-primary/60 shadow-[0_0_14px_hsl(190_100%_50%/0.18)]"
+        : p.is_cheapest
+          ? "border-secondary/50 shadow-[0_0_12px_hsl(142_70%_45%/0.15)]"
+          : verified
+            ? "border-emerald-500/40"
+            : "border-border"
     )}>
-      {/* Header strip for cheapest/special */}
-      {(p.is_cheapest || hasDiscount) && (
+      {/* Best pick strip */}
+      {isBestPick && (
+        <div className="flex items-center gap-1.5 px-3 py-1.5 bg-primary/15 text-[10px] font-bold uppercase tracking-wider text-primary">
+          <Star className="h-3 w-3 fill-primary" />
+          Best pick
+          {p.is_cheapest && (
+            <span className="ml-auto font-normal normal-case tracking-normal">Cheapest in mall</span>
+          )}
+        </div>
+      )}
+
+      {/* Header strip for cheapest/special (when not best pick) */}
+      {!isBestPick && (p.is_cheapest || hasDiscount) && (
         <div className={cn(
           "flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider",
           p.is_cheapest ? "bg-secondary/15 text-secondary" : "bg-primary/10 text-primary"
@@ -86,13 +106,26 @@ export default function RecommendationCard({
         </div>
       )}
 
-      {/* Verified price strip */}
-      {verified && (
+      {/* Trust strip — manually verified */}
+      {isManuallyVerified && (
         <div className="flex items-center gap-1.5 px-3 py-1 bg-emerald-500/10 text-[10px] font-semibold text-emerald-600">
           <ShieldCheck className="h-3 w-3 shrink-0" />
           <span>Verified price</span>
           {p.price_verified_at && (
             <span className="ml-auto font-normal text-emerald-600/70">
+              {formatVerifiedDate(p.price_verified_at)}
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Trust strip — live feed */}
+      {isLiveFeed && (
+        <div className="flex items-center gap-1.5 px-3 py-1 bg-blue-500/10 text-[10px] font-semibold text-blue-500">
+          <Zap className="h-3 w-3 shrink-0" />
+          <span>Live price</span>
+          {p.price_verified_at && (
+            <span className="ml-auto font-normal text-blue-500/70">
               {formatVerifiedDate(p.price_verified_at)}
             </span>
           )}
