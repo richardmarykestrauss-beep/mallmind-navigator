@@ -3,7 +3,8 @@ import { useNavigate, useLocation } from "react-router-dom";
 import {
   Mic, MicOff, Send, Bot, User, Route as RouteIcon,
   Store, Sparkles, MapPin, Loader2, ShoppingBag, X, Globe,
-  Volume2, VolumeX, Wallet, ChevronRight, AlertTriangle, Navigation
+  Volume2, VolumeX, Wallet, ChevronRight, AlertTriangle, Navigation,
+  ThumbsUp, ThumbsDown,
 } from "lucide-react";
 import MobileShell from "@/components/MobileShell";
 import { Button } from "@/components/ui/button";
@@ -144,6 +145,52 @@ function InlineThinkingState({ text }: { text?: string }) {
   );
 }
 
+// ── Feedback strip ────────────────────────────────────────────────────────────
+// Tiny, optional feedback row. Mobile-first, non-blocking, non-intrusive.
+
+interface FeedbackOption {
+  label: string;
+  value: string;
+  icon?: React.ReactNode;
+}
+
+function FeedbackStrip({
+  question,
+  options,
+  done,
+  doneMessage = "Thanks for the feedback",
+  onSelect,
+}: {
+  question: string;
+  options: FeedbackOption[];
+  done: boolean;
+  doneMessage?: string;
+  onSelect: (value: string) => void;
+}) {
+  if (done) {
+    return (
+      <p className="text-[10px] text-muted-foreground/55 italic px-1">
+        ✓ {doneMessage}
+      </p>
+    );
+  }
+  return (
+    <div className="flex items-center gap-1.5 px-1 flex-wrap">
+      <span className="text-[10px] text-muted-foreground/70 shrink-0">{question}</span>
+      {options.map((opt) => (
+        <button
+          key={opt.value}
+          onClick={() => onSelect(opt.value)}
+          className="flex items-center gap-1 rounded-full border border-border/60 bg-background px-2 py-0.5 text-[10px] text-muted-foreground hover:border-primary/50 hover:text-foreground active:scale-95 transition-all"
+        >
+          {opt.icon}
+          {opt.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 // ── Markdown renderer (no external deps) ─────────────────────────────────────
 
 function renderInline(text: string): React.ReactNode {
@@ -267,6 +314,92 @@ const AssistantPage = () => {
   const [budget, setBudget] = useState<number | null>(null);
   const [budgetInput, setBudgetInput] = useState("");
   const [showBudgetInput, setShowBudgetInput] = useState(false);
+
+  // ── Feedback state ─────────────────────────────────────────────────────────
+  // Map of feedbackKey → done-message string. Key format:
+  //   "${msgId}:recommendation"  "${msgId}:price:${productId}"
+  //   "${msgId}:route"           "${msgId}:purchase"
+  const [feedbackGiven, setFeedbackGiven] = useState<Record<string, string>>({});
+
+  const markFeedback = useCallback((key: string, message = "Thanks for the feedback") => {
+    setFeedbackGiven((prev) => ({ ...prev, [key]: message }));
+  }, []);
+
+  const handleFeedback = useCallback((
+    key: string,
+    eventType: "recommendation_feedback" | "price_accuracy_feedback" | "route_feedback" | "purchase_signal",
+    value: string,
+    product?: ProductResult,
+    routeData?: { routeShopIds: string[]; routeSummary?: string; routeSteps?: RouteStep[]; routeId?: string | null }
+  ) => {
+    const doneMsg =
+      eventType === "price_accuracy_feedback" && value === "incorrect"
+        ? "Thanks — we'll flag this for review."
+        : "Thanks for the feedback";
+    markFeedback(key, doneMsg);
+
+    const mallId = selectedMall?.id ? String(selectedMall.id) : null;
+    const sessionId = dbSessionId ?? null;
+
+    if (eventType === "recommendation_feedback") {
+      trackBackendEvent({
+        event_type: "recommendation_feedback",
+        product_id: product?.product_id ?? null,
+        shop_id:    product?.shop_id ?? null,
+        mall_id: mallId, session_id: sessionId,
+        metadata: {
+          value,
+          product_name:        product?.name ?? null,
+          shop_name:           product?.shop_name ?? null,
+          data_quality_status: product?.data_quality_status ?? null,
+          response_type: "product_recommendation",
+        },
+      });
+    } else if (eventType === "price_accuracy_feedback") {
+      trackBackendEvent({
+        event_type: "price_accuracy_feedback",
+        product_id: product?.product_id ?? null,
+        shop_id:    product?.shop_id ?? null,
+        mall_id: mallId, session_id: sessionId,
+        metadata: {
+          value,
+          product_name:               product?.name ?? null,
+          shop_name:                  product?.shop_name ?? null,
+          shown_price:                product?.price ?? null,
+          data_quality_status:        product?.data_quality_status ?? null,
+          price_verification_method:  product?.price_verification_method ?? null,
+          price_verified_at:          product?.price_verified_at ?? null,
+        },
+      });
+    } else if (eventType === "route_feedback") {
+      trackBackendEvent({
+        event_type: "route_feedback",
+        shop_id:   routeData?.routeShopIds?.[0] ?? null,
+        route_id:  routeData?.routeId ?? null,
+        mall_id: mallId, session_id: sessionId,
+        metadata: {
+          value,
+          route_summary:    routeData?.routeSummary ?? null,
+          route_step_count: routeData?.routeSteps?.length ?? 0,
+          route_shop_ids:   routeData?.routeShopIds ?? [],
+        },
+      });
+    } else if (eventType === "purchase_signal") {
+      trackBackendEvent({
+        event_type: "purchase_signal",
+        product_id: product?.product_id ?? null,
+        shop_id:    product?.shop_id ?? (routeData?.routeShopIds?.[0] ?? null),
+        mall_id: mallId, session_id: sessionId,
+        metadata: {
+          value,
+          product_name:        product?.name ?? null,
+          shop_name:           product?.shop_name ?? null,
+          price:               product?.price ?? null,
+          data_quality_status: product?.data_quality_status ?? null,
+        },
+      });
+    }
+  }, [markFeedback, selectedMall, dbSessionId]);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -865,15 +998,31 @@ const AssistantPage = () => {
                         <Store className="h-3 w-3" /> Live mall prices
                       </p>
 
-                      {msg.products.map((p, i) => (
-                        <RecommendationCard
-                          key={`${p.product_id}-${i}`}
-                          product={p}
-                          isBestPick={i === 0}
-                          onNavigate={handleNavigateToShop}
-                          onAddToList={user ? handleAddToList : undefined}
-                        />
-                      ))}
+                      {/* Cards — each wrapped with price-accuracy feedback */}
+                      {msg.products.map((p, i) => {
+                        const priceKey = `${msg.id}:price:${p.product_id ?? i}`;
+                        return (
+                          <div key={`${p.product_id}-${i}`} className="space-y-1">
+                            <RecommendationCard
+                              product={p}
+                              isBestPick={i === 0}
+                              onNavigate={handleNavigateToShop}
+                              onAddToList={user ? handleAddToList : undefined}
+                            />
+                            {/* Part 2: Price accuracy feedback */}
+                            <FeedbackStrip
+                              question="Was this price correct?"
+                              options={[
+                                { label: "Yes", value: "correct" },
+                                { label: "No",  value: "incorrect" },
+                              ]}
+                              done={priceKey in feedbackGiven}
+                              doneMessage={feedbackGiven[priceKey]}
+                              onSelect={(value) => handleFeedback(priceKey, "price_accuracy_feedback", value, p)}
+                            />
+                          </div>
+                        );
+                      })}
 
                       {/* Closed-shop warning */}
                       {msg.products[0]?.is_open_now === false && (
@@ -911,6 +1060,32 @@ const AssistantPage = () => {
                           <RouteIcon className="h-3.5 w-3.5 shrink-0" />
                           Route ready · follow the steps below
                         </div>
+                      )}
+
+                      {/* Part 1: Recommendation feedback */}
+                      <FeedbackStrip
+                        question="Was this helpful?"
+                        options={[
+                          { label: "Useful",     value: "useful",     icon: <ThumbsUp   className="h-3 w-3" /> },
+                          { label: "Not useful", value: "not_useful", icon: <ThumbsDown className="h-3 w-3" /> },
+                        ]}
+                        done={`${msg.id}:recommendation` in feedbackGiven}
+                        doneMessage={feedbackGiven[`${msg.id}:recommendation`]}
+                        onSelect={(value) => handleFeedback(`${msg.id}:recommendation`, "recommendation_feedback", value, msg.products![0])}
+                      />
+
+                      {/* Part 4: Purchase signal — only when no route (route block handles it when route exists) */}
+                      {!msg.routeShopIds?.length && (
+                        <FeedbackStrip
+                          question="Did you buy it?"
+                          options={[
+                            { label: "Bought it", value: "bought"    },
+                            { label: "Not today", value: "not_today" },
+                          ]}
+                          done={`${msg.id}:purchase` in feedbackGiven}
+                          doneMessage={feedbackGiven[`${msg.id}:purchase`]}
+                          onSelect={(value) => handleFeedback(`${msg.id}:purchase`, "purchase_signal", value, msg.products![0])}
+                        />
                       )}
                     </div>
                   )}
@@ -969,6 +1144,47 @@ const AssistantPage = () => {
                         <RouteIcon className="h-4 w-4" />
                         Start Navigation
                       </Button>
+
+                      {/* Part 3: Route success feedback */}
+                      <FeedbackStrip
+                        question="Did you find the store?"
+                        options={[
+                          { label: "Yes", value: "found_store"        },
+                          { label: "No",  value: "did_not_find_store" },
+                        ]}
+                        done={`${msg.id}:route` in feedbackGiven}
+                        doneMessage={feedbackGiven[`${msg.id}:route`]}
+                        onSelect={(value) => handleFeedback(
+                          `${msg.id}:route`,
+                          "route_feedback",
+                          value,
+                          undefined,
+                          {
+                            routeShopIds: msg.routeShopIds!,
+                            routeSummary: msg.routeSummary,
+                            routeSteps:   msg.routeSteps,
+                            routeId:      msg.routeId,
+                          }
+                        )}
+                      />
+
+                      {/* Part 4: Purchase signal (route context) */}
+                      <FeedbackStrip
+                        question="Did you buy it?"
+                        options={[
+                          { label: "Bought it", value: "bought"    },
+                          { label: "Not today", value: "not_today" },
+                        ]}
+                        done={`${msg.id}:purchase` in feedbackGiven}
+                        doneMessage={feedbackGiven[`${msg.id}:purchase`]}
+                        onSelect={(value) => handleFeedback(
+                          `${msg.id}:purchase`,
+                          "purchase_signal",
+                          value,
+                          msg.products?.[0],
+                          { routeShopIds: msg.routeShopIds! }
+                        )}
+                      />
                     </div>
                   )}
                 </>

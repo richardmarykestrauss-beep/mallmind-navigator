@@ -196,6 +196,16 @@ export interface AnalyticsSummary {
   }>;
   top_shops: Array<{ shop_id: string; shop_name: string; count: number }>;
   recent_events: AnalyticsRecentEvent[];
+  feedback_summary: {
+    recommendation_useful:     number;
+    recommendation_not_useful: number;
+    price_correct:             number;
+    price_incorrect:           number;
+    routes_found:              number;
+    routes_not_found:          number;
+    bought:                    number;
+    not_today:                 number;
+  };
 }
 
 export interface AdminStatsResponse {

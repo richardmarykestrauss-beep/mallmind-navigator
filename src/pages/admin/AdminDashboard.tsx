@@ -692,6 +692,83 @@ function FounderAnalytics({ data }: { data: AnalyticsSummary }) {
         </Card>
       )}
 
+      {/* ── Feedback summary ── */}
+      {(data.feedback_summary.recommendation_useful +
+        data.feedback_summary.recommendation_not_useful +
+        data.feedback_summary.price_correct +
+        data.feedback_summary.price_incorrect +
+        data.feedback_summary.routes_found +
+        data.feedback_summary.routes_not_found +
+        data.feedback_summary.bought +
+        data.feedback_summary.not_today) > 0 && (
+        <Card>
+          <CardHeader className="pb-2 pt-4">
+            <CardTitle className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">
+              <Activity className="h-4 w-4" />
+              User Feedback Signals
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pb-4 space-y-3">
+            {/* Recommendation */}
+            {(data.feedback_summary.recommendation_useful + data.feedback_summary.recommendation_not_useful) > 0 && (
+              <div>
+                <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1.5">Recommendations</p>
+                <div className="flex gap-2 flex-wrap">
+                  <span className="flex items-center gap-1 rounded-full bg-emerald-100 text-emerald-700 px-2 py-0.5 text-xs font-medium">
+                    👍 {data.feedback_summary.recommendation_useful} useful
+                  </span>
+                  <span className="flex items-center gap-1 rounded-full bg-red-100 text-red-700 px-2 py-0.5 text-xs font-medium">
+                    👎 {data.feedback_summary.recommendation_not_useful} not useful
+                  </span>
+                </div>
+              </div>
+            )}
+            {/* Price accuracy */}
+            {(data.feedback_summary.price_correct + data.feedback_summary.price_incorrect) > 0 && (
+              <div>
+                <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1.5">Price Accuracy</p>
+                <div className="flex gap-2 flex-wrap">
+                  <span className="rounded-full bg-emerald-100 text-emerald-700 px-2 py-0.5 text-xs font-medium">
+                    ✓ {data.feedback_summary.price_correct} correct
+                  </span>
+                  <span className="rounded-full bg-amber-100 text-amber-700 px-2 py-0.5 text-xs font-medium">
+                    ✗ {data.feedback_summary.price_incorrect} flagged incorrect
+                  </span>
+                </div>
+              </div>
+            )}
+            {/* Route success */}
+            {(data.feedback_summary.routes_found + data.feedback_summary.routes_not_found) > 0 && (
+              <div>
+                <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1.5">Route Success</p>
+                <div className="flex gap-2 flex-wrap">
+                  <span className="rounded-full bg-emerald-100 text-emerald-700 px-2 py-0.5 text-xs font-medium">
+                    📍 {data.feedback_summary.routes_found} found store
+                  </span>
+                  <span className="rounded-full bg-red-100 text-red-700 px-2 py-0.5 text-xs font-medium">
+                    ✗ {data.feedback_summary.routes_not_found} didn't find it
+                  </span>
+                </div>
+              </div>
+            )}
+            {/* Purchase conversion */}
+            {(data.feedback_summary.bought + data.feedback_summary.not_today) > 0 && (
+              <div>
+                <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1.5">Purchase Signals</p>
+                <div className="flex gap-2 flex-wrap">
+                  <span className="rounded-full bg-primary/15 text-primary px-2 py-0.5 text-xs font-semibold">
+                    🛍️ {data.feedback_summary.bought} bought
+                  </span>
+                  <span className="rounded-full bg-muted text-muted-foreground px-2 py-0.5 text-xs font-medium">
+                    {data.feedback_summary.not_today} not today
+                  </span>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       {/* ── Recent events ── */}
       {data.recent_events.length > 0 && (
         <Card>

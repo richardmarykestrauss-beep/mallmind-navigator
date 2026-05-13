@@ -37,7 +37,12 @@ export type AnalyticsEventType =
   | "parking_saved"
   | "budget_mode_used"
   | "price_alert_set"
-  | "price_alert_removed";
+  | "price_alert_removed"
+  // Feedback + accuracy signals (Sprint 8E)
+  | "recommendation_feedback"
+  | "price_accuracy_feedback"
+  | "route_feedback"
+  | "purchase_signal";
 
 export interface AnalyticsEvent {
   event_type: AnalyticsEventType;

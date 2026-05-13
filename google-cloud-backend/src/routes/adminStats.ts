@@ -34,6 +34,16 @@ async function fetchAnalyticsSummary(supabase: ReturnType<typeof getSupabaseClie
       count: number;
     }>,
     top_shops: [] as Array<{ shop_id: string; shop_name: string; count: number }>,
+    feedback_summary: {
+      recommendation_useful:     0,
+      recommendation_not_useful: 0,
+      price_correct:             0,
+      price_incorrect:           0,
+      routes_found:              0,
+      routes_not_found:          0,
+      bought:                    0,
+      not_today:                 0,
+    },
     recent_events: [] as Array<{
       id: string;
       created_at: string;
@@ -133,6 +143,23 @@ async function fetchAnalyticsSummary(supabase: ReturnType<typeof getSupabaseClie
       .sort((a, b) => b.count - a.count)
       .slice(0, 10);
 
+    // ── Feedback summary ─────────────────────────────────────────────────────
+    const feedbackVal = (type: string, value: string) =>
+      events.filter(
+        (e) => e.event_type === type && (e.metadata as Record<string, unknown>)?.value === value
+      ).length;
+
+    const feedback_summary = {
+      recommendation_useful:     feedbackVal("recommendation_feedback",  "useful"),
+      recommendation_not_useful: feedbackVal("recommendation_feedback",  "not_useful"),
+      price_correct:             feedbackVal("price_accuracy_feedback",  "correct"),
+      price_incorrect:           feedbackVal("price_accuracy_feedback",  "incorrect"),
+      routes_found:              feedbackVal("route_feedback",           "found_store"),
+      routes_not_found:          feedbackVal("route_feedback",           "did_not_find_store"),
+      bought:                    feedbackVal("purchase_signal",          "bought"),
+      not_today:                 feedbackVal("purchase_signal",          "not_today"),
+    };
+
     // ── Recent events — latest 20, structured for display ────────────────────
     const recent_events = events.slice(0, 20).map((e) => ({
       id:          e.id,
@@ -156,6 +183,7 @@ async function fetchAnalyticsSummary(supabase: ReturnType<typeof getSupabaseClie
       top_products,
       top_shops,
       recent_events,
+      feedback_summary,
     };
   } catch (err) {
     // Analytics errors must never crash admin-stats — return empty gracefully

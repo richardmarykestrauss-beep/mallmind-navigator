@@ -29,6 +29,11 @@ const ALLOWED_EVENT_TYPES = new Set([
   "budget_mode_used",
   "price_alert_set",
   "price_alert_removed",
+  // Feedback + accuracy signals (Sprint 8E)
+  "recommendation_feedback",
+  "price_accuracy_feedback",
+  "route_feedback",
+  "purchase_signal",
 ]);
 
 function getBearerToken(req: Request): string | null {
