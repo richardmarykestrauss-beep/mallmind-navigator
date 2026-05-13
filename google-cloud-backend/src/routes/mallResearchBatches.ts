@@ -1,5 +1,5 @@
 /**
- * mallResearchBatches.ts — Sprint 9E/9F
+ * mallResearchBatches.ts — Sprint 9E/9F/9G/9H
  *
  * REST routes for the Mall Research Batch Workflow.
  * All routes require an admin bearer token.
@@ -9,9 +9,14 @@
  * GUARANTEE: No route in this file writes to shops, products, or mall_nodes.
  * All writes are limited to mall_research_batches and mall_research_batch_items.
  *
- * Sprint 9F adds: one-click bot pipeline routes under
+ * Sprint 9F: one-click bot pipeline routes under
  *   POST /admin/mall-research/items/:itemId/run-<bot>
  *   POST /admin/mall-research/items/:itemId/run-full-pipeline
+ *
+ * Sprint 9G: Data Trust Policy engine wired into guardian + admin review routes
+ *
+ * Sprint 9H: Source Ingestion Agent
+ *   POST /admin/mall-research/batches/:id/ingest-source
  */
 
 import { Router, Request, Response } from "express";
@@ -30,6 +35,8 @@ import type { AdminReviewAssistantResult } from "../services/dataBots/adminRevie
 import type { DataGuardianResult }       from "../services/dataGuardianService.js";
 // Sprint 9G: Data Trust Policy engine
 import type { TrustPolicyResult }        from "../services/dataTrustPolicy.js";
+// Sprint 9H: Source Ingestion Agent
+import { ingestSourceForBatch }          from "../services/sourceIngestionService.js";
 
 const router = Router();
 
@@ -962,6 +969,194 @@ router.post("/items/:itemId/run-full-pipeline", async (req: Request, res: Respon
     });
   } catch (err) {
     console.error("[mall-research/items/run-full-pipeline]", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Exported shared pipeline runner (Sprint 9H)
+//
+// Allows the Source Ingestion Agent to run the full bot pipeline on a
+// newly created batch item without duplicating the pipeline logic.
+// This function mirrors the route handler logic but is a plain async function.
+// NEVER changes item.status — that is always an explicit admin action.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function runItemFullPipeline(itemId: string): Promise<void> {
+  const supabase      = getSupabaseClient();
+  const warnings:     string[] = [];
+  const stepsCompleted: string[] = [];
+
+  const ctx = await fetchItemWithBatch(itemId);
+  if (!ctx) return; // Item not found — non-fatal for ingestion batch
+
+  let hints = ((ctx.item.bot_hints_used ?? {}) as Record<string, unknown>);
+
+  async function refreshHints(): Promise<Record<string, unknown>> {
+    const { data } = await supabase
+      .from("mall_research_batch_items")
+      .select("bot_hints_used")
+      .eq("id", itemId)
+      .maybeSingle();
+    return ((data as unknown as Record<string, unknown>)?.bot_hints_used ?? {}) as Record<string, unknown>;
+  }
+
+  // Step 1: Source Research (only if source URL or name present)
+  if (ctx.item.source_url || ctx.item.source_name) {
+    try {
+      const result = runSourceResearchBot(buildSourceInput(ctx.item));
+      hints = await saveBotHint(itemId, "source_research", result);
+      stepsCompleted.push("source_research");
+      if (result.is_restricted) {
+        warnings.push(`POLICY BLOCK: ${result.restriction_reason ?? "Restricted source"}. Pipeline halted.`);
+        await saveBotHint(itemId, "pipeline", { last_run_at: new Date().toISOString(), steps_completed: stepsCompleted, warnings, halted_at: "source_research" });
+        return;
+      }
+    } catch (e) {
+      warnings.push(`source_research failed: ${String(e)}`);
+      await saveBotHint(itemId, "source_research_error", { error: String(e) });
+    }
+  }
+
+  // Step 2: Finding Extractor
+  let extractorResult: FindingExtractorResult | undefined;
+  if (ctx.item.raw_text) {
+    try {
+      extractorResult = runFindingExtractorBot(buildExtractorInput(ctx.item));
+      hints = await saveBotHint(itemId, "finding_extractor", extractorResult);
+      stepsCompleted.push("finding_extractor");
+      if (extractorResult.extracted_findings?.length) {
+        const staged: Record<string, unknown> = {};
+        for (const f of extractorResult.extracted_findings[0].fields) staged[f.field] = f.value;
+        await mergeExtractedData(itemId, staged);
+      }
+    } catch (e) {
+      warnings.push(`finding_extractor failed: ${String(e)}`);
+      await saveBotHint(itemId, "finding_extractor_error", { error: String(e) });
+    }
+  }
+
+  // Step 3: Data Guardian
+  try {
+    hints = await refreshHints();
+    const guardianInput  = buildGuardianInput(ctx.item, ctx.batch, hints.source_research as SourceResearchResult | undefined);
+    const guardianResult = reviewMallDataSubmission(guardianInput);
+    hints = await saveBotHint(itemId, "data_guardian", guardianResult);
+    stepsCompleted.push("data_guardian");
+    if (guardianResult.policy_result) {
+      hints = await saveBotHint(itemId, "policy_result", guardianResult.policy_result);
+      stepsCompleted.push("policy_result");
+    }
+  } catch (e) {
+    warnings.push(`data_guardian failed: ${String(e)}`);
+    await saveBotHint(itemId, "data_guardian_error", { error: String(e) });
+  }
+
+  // Step 4: Duplicate Detection
+  try {
+    hints = await refreshHints();
+    const dupResult = await runDuplicateDetectionBot(buildDuplicateInput(ctx.item, ctx.batch, extractorResult));
+    hints = await saveBotHint(itemId, "duplicate_detection", dupResult);
+    stepsCompleted.push("duplicate_detection");
+  } catch (e) {
+    warnings.push(`duplicate_detection failed: ${String(e)}`);
+    await saveBotHint(itemId, "duplicate_detection_error", { error: String(e) });
+  }
+
+  // Step 5: Admin Review Assistant
+  try {
+    hints = await refreshHints();
+    const reviewResult = runAdminReviewAssistantBot(buildReviewInput(hints));
+    await saveBotHint(itemId, "admin_review", reviewResult);
+    stepsCompleted.push("admin_review");
+  } catch (e) {
+    warnings.push(`admin_review failed: ${String(e)}`);
+    await saveBotHint(itemId, "admin_review_error", { error: String(e) });
+  }
+
+  // Save pipeline metadata
+  await saveBotHint(itemId, "pipeline", {
+    last_run_at:      new Date().toISOString(),
+    steps_completed:  stepsCompleted,
+    warnings,
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /admin/mall-research/batches/:id/ingest-source   (Sprint 9H)
+//
+// Ingests a single public source URL for a batch.
+// Source Research Bot → fetch → extract text → candidate chunks →
+// Finding Extractor → create batch items → optional pipeline run.
+//
+// GUARANTEE: No write to shops, products, or mall_nodes.
+// ─────────────────────────────────────────────────────────────────────────────
+
+router.post("/batches/:id/ingest-source", async (req: Request, res: Response) => {
+  const admin = await requireAdmin(req, res);
+  if (!admin) return;
+  const batchId = req.params.id as string;
+
+  const {
+    source_url,
+    source_name,
+    source_type,
+    max_items    = 50,
+    run_pipeline = false,
+  } = req.body as {
+    source_url:   string;
+    source_name?: string;
+    source_type?: string;
+    max_items?:   number;
+    run_pipeline?: boolean;
+  };
+
+  if (!source_url?.trim()) {
+    return res.status(400).json({ error: "source_url is required" });
+  }
+
+  // Verify batch exists and is not archived
+  try {
+    const supabase = getSupabaseClient();
+    const { data: batch, error: batchErr } = await supabase
+      .from("mall_research_batches")
+      .select("id, status")
+      .eq("id", batchId)
+      .maybeSingle();
+
+    if (batchErr) return res.status(500).json({ error: batchErr.message });
+    if (!batch)   return res.status(404).json({ error: "Batch not found" });
+    if ((batch as Record<string, unknown>).status === "archived") {
+      return res.status(409).json({ error: "Cannot ingest into an archived batch" });
+    }
+  } catch (err) {
+    console.error("[mall-research/batches/ingest-source] batch check", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+
+  try {
+    const result = await ingestSourceForBatch({
+      batch_id:    batchId,
+      source_url:  source_url.trim(),
+      source_name: source_name?.trim(),
+      source_type: source_type?.trim(),
+      max_items,
+      run_pipeline,
+      pipelineFn:  run_pipeline ? runItemFullPipeline : undefined,
+    });
+
+    fireAuditLog(admin.user.id, "source_ingestion_run", {
+      batch_id:             batchId,
+      source_url:           source_url.trim(),
+      allowed_to_ingest:    result.ingestion_summary.allowed_to_ingest,
+      created_item_count:   result.ingestion_summary.created_item_count,
+      skipped_item_count:   result.ingestion_summary.skipped_item_count,
+      pipeline_run_count:   result.ingestion_summary.pipeline_run_count,
+    });
+
+    return res.json(result);
+  } catch (err) {
+    console.error("[mall-research/batches/ingest-source]", err);
     return res.status(500).json({ error: "Internal server error" });
   }
 });

@@ -1,6 +1,6 @@
 # MallMind Data Intelligence Bot Suite
 
-Sprint 9C / 9G · MallMind Navigator
+Sprint 9C / 9G / 9H · MallMind Navigator
 
 ---
 
@@ -402,6 +402,31 @@ A central deterministic policy engine (`dataTrustPolicy.ts`) now underpins all f
 Each Research Batch item shows a **Truth Status** panel (collapsed by default) once the Data Guardian has run. It shows trust state, confidence, conflict risk, freshness, safe badge, blocked/allowed actions, and what evidence would elevate trust.
 
 See [DATA_TRUST_POLICY.md](DATA_TRUST_POLICY.md) for the full specification.
+
+---
+
+---
+
+## Source Ingestion Agent (Sprint 9H)
+
+The **Source Ingestion Agent** (`sourceIngestionService.ts`) feeds candidate findings into the Research Batch workflow from official/public source pages.
+
+**It is not a scraper or crawler.** It is a single-page, admin-requested fetch that:
+- Applies the same source safety rules as the Source Research Bot
+- Hard-blocks Google Maps, Apple Maps, Yelp, Foursquare, TripAdvisor, Waze, MapQuest
+- Fetches one page per request (no recursive link following)
+- Extracts plain text using deterministic HTML stripping (no browser, no AI)
+- Runs the Finding Extractor Bot on each candidate chunk
+- Creates `mall_research_batch_items` with `status: pending`
+- Optionally runs the full 5-bot pipeline on each created item
+
+**API endpoint:** `POST /admin/mall-research/batches/:id/ingest-source`
+
+**Safe source types:** official mall websites, official retailer websites, press releases, public directories, public flyers.
+
+**Always blocked:** any source matching the Source Research Bot restriction patterns.
+
+See [SOURCE_INGESTION_POLICY.md](SOURCE_INGESTION_POLICY.md) for the full allowed/blocked source list and safe workflow.
 
 ---
 

@@ -1478,3 +1478,65 @@ export async function runResearchItemFullPipeline(
     accessToken
   );
 }
+
+// ── Source Ingestion Agent types (Sprint 9H) ──────────────────────────────────
+
+export interface IngestionSummary {
+  source_url:          string;
+  source_name?:        string;
+  allowed_to_ingest:   boolean;
+  blocked_reason?:     string;
+  fetched:             boolean;
+  text_length:         number;
+  candidate_count:     number;
+  created_item_count:  number;
+  skipped_item_count:  number;
+  pipeline_run_count:  number;
+  warnings:            string[];
+}
+
+export interface SkippedCandidate {
+  reason:   string;
+  raw_text: string;
+}
+
+export interface IngestSourceResult {
+  ok:                     boolean;
+  source_research_result: Record<string, unknown> | null;
+  ingestion_summary:      IngestionSummary;
+  created_items:          MallResearchBatchItem[];
+  skipped_candidates:     SkippedCandidate[];
+}
+
+export interface IngestSourceInput {
+  source_url:    string;
+  source_name?:  string;
+  source_type?:  string;
+  max_items?:    number;
+  run_pipeline?: boolean;
+}
+
+/**
+ * POST /admin/mall-research/batches/:batchId/ingest-source
+ *
+ * Ingests a single public source URL for a research batch.
+ * Source Research Bot → fetch → HTML extraction → candidate chunks →
+ * Finding Extractor → batch items created (status: pending).
+ * Optionally runs the full bot pipeline on each created item.
+ *
+ * NEVER writes to shops, products, or mall_nodes.
+ * Restricted sources (Google Maps, Yelp, Apple Maps, etc.) are blocked.
+ * Requires admin bearer token.
+ */
+export async function ingestMallResearchSource(
+  batchId: string,
+  payload: IngestSourceInput,
+  accessToken: string
+): Promise<IngestSourceResult> {
+  if (!BASE_URL) throw new Error("VITE_GOOGLE_BACKEND_URL is not configured");
+  return postAuthWithResponse<IngestSourceResult>(
+    `/admin/mall-research/batches/${batchId}/ingest-source`,
+    payload,
+    accessToken
+  );
+}

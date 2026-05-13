@@ -1,6 +1,6 @@
 # MallMind Mall Research Batch Workflow
 
-Sprint 9E/9F/9G · MallMind Navigator
+Sprint 9E/9F/9G/9H · MallMind Navigator
 
 ---
 
@@ -366,6 +366,61 @@ The Admin Review Assistant shows a **suggestion banner** in the item row. It is 
 | Finding Extractor extracts nothing | Raw text may be too short or contain no structured signals — add more detail |
 | Duplicate bot returns no candidates | Check that `batch.mall_id` is set and the item's shop name is spelled correctly |
 | Admin Review returns no actions | Run at least one other bot first — Admin Review synthesises prior bot outputs |
+
+---
+
+---
+
+## Source Ingestion Agent (Sprint 9H)
+
+The **Source Ingestion Agent** panel appears inside each open research batch. It allows an admin to provide a single official/public source URL and have MallMind automatically:
+
+1. Check the source against the Source Research Bot policy
+2. Fetch the public page (if allowed)
+3. Extract readable plain text from the HTML
+4. Split into candidate findings (shop names, floors, units, hours, promotions)
+5. Run the Finding Extractor Bot on each candidate
+6. Create pending batch items for each useful candidate
+7. Optionally run the full bot pipeline on each created item
+
+### What is safe to ingest
+
+- Official mall websites (e.g. `mallatreds.co.za`, `sandtoncity.com`)
+- Official retailer websites (`woolworths.co.za`, `game.co.za`)
+- Press releases and public directories
+- Any page you are permitted to read as a member of the public
+
+### What is blocked
+
+- Google Maps / Google Places / Google Maps API
+- Apple Maps
+- Yelp / Foursquare / TripAdvisor / Waze / MapQuest
+- Any source the Source Research Bot classifies as `restricted`
+
+### Suggested workflow for a new mall (e.g. Mall@Reds)
+
+1. Create a batch: "Mall@Reds — June 2026 survey"
+2. Open the batch → **Source Ingestion Agent** panel
+3. Enter `https://mallatreds.co.za/stores`
+4. Source name: "Mall@Reds official website", source type: "Official website"
+5. Max items: 50 · Check "Run bot pipeline" for automated analysis
+6. Click **Ingest Source**
+7. Review the summary — candidates found, items created, any warnings
+8. Open each item in the **Findings** list:
+   - Check the **Truth Status** panel (Trust state, confidence, freshness)
+   - Check the **Data Guardian** and **Admin Recommendation** outputs
+9. Accept items that are accurate; reject items that are wrong or duplicate
+10. For accepted items with `admin_verified` trust: use Bot Suite → Live Data Apply Planner
+
+### Important guarantees
+
+- All created items have `status: pending` — always
+- No live data is updated automatically
+- Admin must explicitly accept and apply each finding
+- The agent does not follow links or download images/PDFs
+- The agent does not use AI — all extraction is deterministic regex
+
+See [SOURCE_INGESTION_POLICY.md](SOURCE_INGESTION_POLICY.md) for the full policy document.
 
 ---
 

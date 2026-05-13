@@ -91,7 +91,10 @@ import {
   runResearchItemDuplicateCheck,
   runResearchItemAdminReview,
   runResearchItemFullPipeline,
+  ingestMallResearchSource,
   isGoogleBackendConfigured,
+  type IngestSourceResult,
+  type IngestionSummary,
   type PriceVerificationMethod,
   type HealthCheckResult,
   type AnalyticsSummary,
@@ -3441,6 +3444,16 @@ function BatchDetailView({
   const [addingItem, setAddingItem] = useState(false);
   const [addError,   setAddError]   = useState<string | null>(null);
 
+  // Source Ingestion Agent state
+  const [ingestUrl,      setIngestUrl]      = useState("");
+  const [ingestName,     setIngestName]     = useState("");
+  const [ingestType,     setIngestType]     = useState("official_website");
+  const [ingestMax,      setIngestMax]      = useState(30);
+  const [ingestPipeline, setIngestPipeline] = useState(false);
+  const [ingesting,      setIngesting]      = useState(false);
+  const [ingestResult,   setIngestResult]   = useState<IngestSourceResult | null>(null);
+  const [ingestError,    setIngestError]    = useState<string | null>(null);
+
   // Status change
   const [updatingStatus, setUpdatingStatus] = useState(false);
 
@@ -3494,6 +3507,30 @@ function BatchDetailView({
       setError(String(e));
     } finally {
       setUpdatingStatus(false);
+    }
+  }
+
+  async function handleIngest() {
+    if (!ingestUrl.trim()) return;
+    setIngesting(true);
+    setIngestResult(null);
+    setIngestError(null);
+    try {
+      const result = await ingestMallResearchSource(batchId, {
+        source_url:   ingestUrl.trim(),
+        source_name:  ingestName.trim() || undefined,
+        source_type:  ingestType || undefined,
+        max_items:    ingestMax,
+        run_pipeline: ingestPipeline,
+      }, token);
+      setIngestResult(result);
+      if (result.ingestion_summary.created_item_count > 0) {
+        await load(); // Refresh item list
+      }
+    } catch (e) {
+      setIngestError(String(e));
+    } finally {
+      setIngesting(false);
     }
   }
 
@@ -3570,6 +3607,156 @@ function BatchDetailView({
             </button>
           ))}
       </div>
+
+      {/* ── Source Ingestion Agent panel ──────────────────────────────────────── */}
+      <Card className="border-amber-200/60 bg-amber-50/30 dark:bg-amber-950/10">
+        <CardHeader className="pb-2 pt-3 px-4">
+          <CardTitle className="text-xs font-semibold flex items-center gap-1.5">
+            <Zap className="h-3.5 w-3.5 text-amber-600" /> Source Ingestion Agent
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="px-4 pb-4 space-y-3">
+          {/* Safety notice */}
+          <div className="rounded border border-amber-200 bg-amber-50/80 px-3 py-2 text-[11px] text-amber-800 dark:bg-amber-950/30 dark:text-amber-300 dark:border-amber-800/40 space-y-1">
+            <p className="font-semibold">⚠ Safe use only</p>
+            <p>Only use official/public sources you are allowed to review. This tool does not ingest Google Maps, Google Places, Apple Maps, Yelp, Foursquare, or any restricted directory. It creates <strong>pending research items only</strong> — no live data is updated.</p>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="space-y-1 sm:col-span-2">
+              <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Source URL *</label>
+              <Input
+                value={ingestUrl}
+                onChange={(e) => setIngestUrl(e.target.value)}
+                placeholder="https://mallatreds.co.za/stores"
+                className="h-8 text-xs"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Source name</label>
+              <Input
+                value={ingestName}
+                onChange={(e) => setIngestName(e.target.value)}
+                placeholder="Mall@Reds official website"
+                className="h-8 text-xs"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Source type</label>
+              <Select value={ingestType} onValueChange={setIngestType}>
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="official_website" className="text-xs">Official website</SelectItem>
+                  <SelectItem value="official_mall_source" className="text-xs">Official mall source</SelectItem>
+                  <SelectItem value="official_retailer_source" className="text-xs">Official retailer source</SelectItem>
+                  <SelectItem value="public_reference_source" className="text-xs">Public reference source</SelectItem>
+                  <SelectItem value="public_flyer" className="text-xs">Public flyer / PDF</SelectItem>
+                  <SelectItem value="press_release" className="text-xs">Press release</SelectItem>
+                  <SelectItem value="unknown" className="text-xs">Unknown (use with caution)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Max items (1–150)</label>
+              <Input
+                type="number"
+                value={ingestMax}
+                onChange={(e) => setIngestMax(Math.min(150, Math.max(1, Number(e.target.value))))}
+                min={1}
+                max={150}
+                className="h-8 text-xs"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Options</label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={ingestPipeline}
+                  onChange={(e) => setIngestPipeline(e.target.checked)}
+                  className="rounded"
+                />
+                <span className="text-xs">Run bot pipeline on created items</span>
+              </label>
+            </div>
+          </div>
+
+          {ingestError && (
+            <p className="text-xs text-destructive rounded border border-destructive/20 bg-destructive/5 px-2 py-1.5">{ingestError}</p>
+          )}
+
+          <Button
+            size="sm"
+            className="h-8 text-xs w-full"
+            disabled={ingesting || !ingestUrl.trim()}
+            onClick={handleIngest}
+            variant="outline"
+          >
+            {ingesting ? (
+              <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> Ingesting…</>
+            ) : (
+              <><Zap className="h-3.5 w-3.5 mr-1.5" /> Ingest Source</>
+            )}
+          </Button>
+
+          {/* Ingestion result summary */}
+          {ingestResult && (() => {
+            const s = ingestResult.ingestion_summary;
+            const blocked = !s.allowed_to_ingest;
+            return (
+              <div className={cn(
+                "rounded border px-3 py-2.5 text-[11px] space-y-2",
+                blocked
+                  ? "border-red-200 bg-red-50/80 text-red-800 dark:bg-red-950/30 dark:border-red-800/40 dark:text-red-300"
+                  : "border-green-200 bg-green-50/80 text-green-800 dark:bg-green-950/30 dark:border-green-800/40 dark:text-green-300"
+              )}>
+                {blocked ? (
+                  <>
+                    <p className="font-semibold">🚫 Source blocked by policy</p>
+                    <p>{s.blocked_reason}</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="font-semibold text-green-900 dark:text-green-200">
+                      ✓ Ingestion complete — {s.created_item_count} item{s.created_item_count !== 1 ? "s" : ""} created
+                    </p>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-[10px]">
+                      <span className="text-muted-foreground">Source allowed</span>
+                      <span>{s.allowed_to_ingest ? "Yes" : "No"}</span>
+                      <span className="text-muted-foreground">Page fetched</span>
+                      <span>{s.fetched ? "Yes" : "No"}</span>
+                      <span className="text-muted-foreground">Text extracted</span>
+                      <span>{s.text_length.toLocaleString()} chars</span>
+                      <span className="text-muted-foreground">Candidates found</span>
+                      <span>{s.candidate_count}</span>
+                      <span className="text-muted-foreground">Items created</span>
+                      <span className="font-semibold">{s.created_item_count}</span>
+                      <span className="text-muted-foreground">Items skipped</span>
+                      <span>{s.skipped_item_count}</span>
+                      {ingestPipeline && (
+                        <>
+                          <span className="text-muted-foreground">Pipeline runs</span>
+                          <span>{s.pipeline_run_count}</span>
+                        </>
+                      )}
+                    </div>
+                  </>
+                )}
+                {s.warnings.length > 0 && (
+                  <div>
+                    <p className="font-medium text-yellow-700 dark:text-yellow-400 mb-0.5">Warnings ({s.warnings.length}):</p>
+                    <ul className="list-disc list-inside space-y-0.5 opacity-80">
+                      {s.warnings.map((w, i) => <li key={i}>{w}</li>)}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+        </CardContent>
+      </Card>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:items-start">
         {/* Add item form */}
