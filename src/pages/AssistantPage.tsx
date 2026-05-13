@@ -20,6 +20,7 @@ import type { Shop } from "@/lib/supabaseClient";
 import {
   isGoogleBackendConfigured,
   sendAssistantMessage as googleSendAssistantMessage,
+  reportPriceCorrection,
   type WebResult,
   type AssistantResponse,
 } from "@/lib/googleBackendClient";
@@ -191,6 +192,152 @@ function FeedbackStrip({
   );
 }
 
+// ── Price correction form ─────────────────────────────────────────────────────
+// Inline compact form — shown when user taps "Price wrong?".
+// Sends a report to the backend; never directly updates products.
+
+const CORRECTION_SOURCES = [
+  { value: "in_store_seen",    label: "Saw in-store" },
+  { value: "retailer_website", label: "Retailer website" },
+  { value: "catalogue",        label: "Catalogue / flyer" },
+  { value: "other",            label: "Not sure / other" },
+];
+
+function PriceCorrectionForm({
+  product,
+  mallId,
+  sessionId,
+  onClose,
+  onSubmitted,
+}: {
+  product: ProductResult;
+  mallId: string | null;
+  sessionId: string | null;
+  onClose: () => void;
+  onSubmitted: () => void;
+}) {
+  const [reportedPrice, setReportedPrice] = useState("");
+  const [sourceType,    setSourceType]    = useState("in_store_seen");
+  const [note,          setNote]          = useState("");
+  const [loading,       setLoading]       = useState(false);
+  const [error,         setError]         = useState<string | null>(null);
+
+  async function handleSubmit() {
+    const price = parseFloat(reportedPrice.replace(/[^0-9.]/g, ""));
+    if (isNaN(price) || price <= 0) {
+      setError("Please enter a valid price.");
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      await reportPriceCorrection({
+        product_id:    product.product_id,
+        shop_id:       product.shop_id ?? null,
+        mall_id:       mallId,
+        current_price: product.price,
+        reported_price: price,
+        user_note:     note.trim() || null,
+        source_type:   sourceType,
+        metadata: {
+          product_name:        product.name,
+          shop_name:           product.shop_name,
+          data_quality_status: product.data_quality_status ?? null,
+          price_verified_at:   product.price_verified_at ?? null,
+          session_id:          sessionId,
+        },
+      });
+      onSubmitted();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to submit — try again.");
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 space-y-2.5">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-semibold text-foreground">Report incorrect price</p>
+        <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors">
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+
+      {/* Current price reference */}
+      <p className="text-[10px] text-muted-foreground/80">
+        Currently showing: <span className="font-semibold text-foreground">R{product.price.toFixed(0)}</span>
+      </p>
+
+      <div className="space-y-2">
+        {/* Reported price */}
+        <div>
+          <label className="text-[10px] text-muted-foreground">Correct price (R)</label>
+          <input
+            type="number"
+            min="1"
+            value={reportedPrice}
+            onChange={(e) => setReportedPrice(e.target.value)}
+            placeholder="e.g. 3599"
+            className="mt-0.5 w-full h-8 rounded-lg border border-border bg-background px-3 text-sm focus:outline-none focus:border-primary/50 transition-all"
+          />
+        </div>
+
+        {/* Source */}
+        <div>
+          <label className="text-[10px] text-muted-foreground">Where did you see this price?</label>
+          <select
+            value={sourceType}
+            onChange={(e) => setSourceType(e.target.value)}
+            className="mt-0.5 w-full h-8 rounded-lg border border-border bg-background px-2.5 text-sm focus:outline-none transition-all"
+          >
+            {CORRECTION_SOURCES.map((s) => (
+              <option key={s.value} value={s.value}>{s.label}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Optional note */}
+        <div>
+          <label className="text-[10px] text-muted-foreground">Note (optional)</label>
+          <input
+            type="text"
+            value={note}
+            onChange={(e) => setNote(e.target.value.slice(0, 500))}
+            placeholder="Any extra context…"
+            className="mt-0.5 w-full h-8 rounded-lg border border-border bg-background px-3 text-sm focus:outline-none focus:border-primary/50 transition-all"
+          />
+        </div>
+      </div>
+
+      {error && (
+        <p className="text-[10px] text-destructive flex items-center gap-1">
+          <AlertTriangle className="h-3 w-3 shrink-0" />{error}
+        </p>
+      )}
+
+      <div className="flex gap-2">
+        <button
+          onClick={handleSubmit}
+          disabled={!reportedPrice || loading}
+          className="flex-1 h-8 rounded-lg bg-amber-500 text-white text-xs font-semibold disabled:opacity-40 hover:bg-amber-600 active:scale-[0.98] transition-all"
+        >
+          {loading ? "Submitting…" : "Submit report"}
+        </button>
+        <button
+          onClick={onClose}
+          className="h-8 px-3 rounded-lg border border-border text-xs text-muted-foreground hover:text-foreground transition-all"
+        >
+          Cancel
+        </button>
+      </div>
+
+      <p className="text-[9px] text-muted-foreground/50 leading-relaxed">
+        Your report will be reviewed before any price change. We never update prices automatically.
+      </p>
+    </div>
+  );
+}
+
 // ── Markdown renderer (no external deps) ─────────────────────────────────────
 
 function renderInline(text: string): React.ReactNode {
@@ -320,6 +467,12 @@ const AssistantPage = () => {
   //   "${msgId}:recommendation"  "${msgId}:price:${productId}"
   //   "${msgId}:route"           "${msgId}:purchase"
   const [feedbackGiven, setFeedbackGiven] = useState<Record<string, string>>({});
+
+  // ── Price correction state ─────────────────────────────────────────────────
+  // correctionOpenId: product_id (or fallback index string) of the open form.
+  // correctionDoneIds: set of product ids that have had a report submitted.
+  const [correctionOpenId,  setCorrectionOpenId]  = useState<string | null>(null);
+  const [correctionDoneIds, setCorrectionDoneIds] = useState<Set<string>>(new Set());
 
   const markFeedback = useCallback((key: string, message = "Thanks for the feedback") => {
     setFeedbackGiven((prev) => ({ ...prev, [key]: message }));
@@ -1020,6 +1173,40 @@ const AssistantPage = () => {
                               doneMessage={feedbackGiven[priceKey]}
                               onSelect={(value) => handleFeedback(priceKey, "price_accuracy_feedback", value, p)}
                             />
+
+                            {/* Part 2b: Price correction — "Price wrong?" trigger / inline form / done */}
+                            {(() => {
+                              const corrKey = p.product_id ?? String(i);
+                              if (correctionDoneIds.has(corrKey)) {
+                                return (
+                                  <p className="text-[10px] text-muted-foreground/55 italic px-1">
+                                    ✓ Price report submitted — thanks!
+                                  </p>
+                                );
+                              }
+                              if (correctionOpenId === corrKey) {
+                                return (
+                                  <PriceCorrectionForm
+                                    product={p}
+                                    mallId={selectedMall?.id ? String(selectedMall.id) : null}
+                                    sessionId={dbSessionId ?? null}
+                                    onClose={() => setCorrectionOpenId(null)}
+                                    onSubmitted={() => {
+                                      setCorrectionDoneIds((prev) => new Set([...prev, corrKey]));
+                                      setCorrectionOpenId(null);
+                                    }}
+                                  />
+                                );
+                              }
+                              return (
+                                <button
+                                  onClick={() => setCorrectionOpenId(corrKey)}
+                                  className="text-[10px] text-amber-500/70 hover:text-amber-500 transition-colors px-1 underline underline-offset-2"
+                                >
+                                  Price wrong?
+                                </button>
+                              );
+                            })()}
                           </div>
                         );
                       })}
@@ -1236,7 +1423,11 @@ const AssistantPage = () => {
           <div className="flex items-center justify-between mb-2">
             {messages.length > 0 ? (
               <button
-                onClick={() => setMessages([])}
+                onClick={() => {
+                  setMessages([]);
+                  setCorrectionOpenId(null);
+                  setCorrectionDoneIds(new Set());
+                }}
                 className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
               >
                 <X className="h-3 w-3" />

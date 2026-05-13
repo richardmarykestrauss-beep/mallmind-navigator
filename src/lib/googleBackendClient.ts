@@ -245,6 +245,56 @@ export async function getAdminStats(): Promise<AdminStatsResponse> {
   return res.json() as Promise<AdminStatsResponse>;
 }
 
+// ── Price correction types ────────────────────────────────────────────────────
+
+export interface PriceCorrectionReport {
+  id: string;
+  created_at: string;
+  updated_at: string;
+  user_id: string | null;
+  mall_id: string | null;
+  product_id: string;
+  shop_id: string | null;
+  current_price: number | null;
+  reported_price: number | null;
+  user_note: string | null;
+  source_type: string | null;
+  status: "pending" | "needs_verification" | "approved" | "rejected";
+  admin_note: string | null;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  confidence_score: number | null;
+  metadata: Record<string, unknown>;
+  // Flattened join fields
+  product_name: string | null;
+  product_current_price: number | null;
+  shop_name: string | null;
+}
+
+export interface PriceCorrectionsAdminResponse {
+  pending: PriceCorrectionReport[];
+  recent: PriceCorrectionReport[];
+}
+
+export interface ReportPriceCorrectionRequest {
+  product_id: string;
+  shop_id?: string | null;
+  mall_id?: string | null;
+  current_price?: number | null;
+  reported_price?: number | null;
+  user_note?: string | null;
+  source_type?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ReviewPriceCorrectionRequest {
+  action: "approve" | "reject" | "needs_verification";
+  approved_price?: number;
+  admin_note?: string;
+  verification_method?: string;
+  data_source?: string;
+}
+
 export type PriceVerificationMethod =
   | "phone"
   | "website"
@@ -408,4 +458,76 @@ export async function verifyProductPrice(
   accessToken: string
 ): Promise<void> {
   return postAuthenticated("/admin/verify-product-price", payload, accessToken);
+}
+
+// ── Price correction public API ───────────────────────────────────────────────
+
+/**
+ * POST /price-corrections/report
+ *
+ * Submit a user price correction report.
+ * Does NOT require auth — token attached if available.
+ * Never updates product prices directly.
+ */
+export async function reportPriceCorrection(
+  payload: ReportPriceCorrectionRequest
+): Promise<{ ok: boolean; report_id: string }> {
+  return post<{ ok: boolean; report_id: string }>("/price-corrections/report", payload);
+}
+
+/**
+ * GET /price-corrections/admin
+ *
+ * Fetch pending + recently reviewed price correction reports.
+ * Requires admin bearer token.
+ */
+export async function getAdminPriceCorrections(
+  accessToken: string
+): Promise<PriceCorrectionsAdminResponse> {
+  if (!BASE_URL) throw new Error("VITE_GOOGLE_BACKEND_URL is not configured");
+  const res = await fetch(`${BASE_URL}/price-corrections/admin`, {
+    method: "GET",
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    let message = `Price corrections error ${res.status}`;
+    try {
+      const err = (await res.json()) as { error?: string };
+      if (err.error) message = err.error;
+    } catch { /* ignore */ }
+    throw new Error(message);
+  }
+  return res.json() as Promise<PriceCorrectionsAdminResponse>;
+}
+
+/**
+ * POST /price-corrections/admin/:id/review
+ *
+ * Admin approve / reject / needs_verification action.
+ * Only approve can update product prices — reject and needs_verification do not.
+ * Requires admin bearer token. All actions are written to admin_audit_log.
+ */
+export async function reviewPriceCorrection(
+  reportId: string,
+  payload: ReviewPriceCorrectionRequest,
+  accessToken: string
+): Promise<{ ok: boolean; action: string }> {
+  if (!BASE_URL) throw new Error("VITE_GOOGLE_BACKEND_URL is not configured");
+  const res = await fetch(`${BASE_URL}/price-corrections/admin/${reportId}/review`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    let message = `Review error ${res.status}`;
+    try {
+      const err = (await res.json()) as { error?: string };
+      if (err.error) message = err.error;
+    } catch { /* ignore */ }
+    throw new Error(message);
+  }
+  return res.json() as Promise<{ ok: boolean; action: string }>;
 }

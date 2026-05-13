@@ -34,6 +34,11 @@ const ALLOWED_EVENT_TYPES = new Set([
   "price_accuracy_feedback",
   "route_feedback",
   "purchase_signal",
+  // Price correction workflow (Sprint 8F)
+  "price_correction_reported",
+  "price_correction_approved",
+  "price_correction_rejected",
+  "price_correction_needs_verification",
 ]);
 
 function getBearerToken(req: Request): string | null {

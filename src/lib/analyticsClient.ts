@@ -42,7 +42,12 @@ export type AnalyticsEventType =
   | "recommendation_feedback"
   | "price_accuracy_feedback"
   | "route_feedback"
-  | "purchase_signal";
+  | "purchase_signal"
+  // Price correction workflow (Sprint 8F)
+  | "price_correction_reported"
+  | "price_correction_approved"
+  | "price_correction_rejected"
+  | "price_correction_needs_verification";
 
 export interface AnalyticsEvent {
   event_type: AnalyticsEventType;

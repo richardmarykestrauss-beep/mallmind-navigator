@@ -34,16 +34,21 @@ import {
   Clock,
   Search,
   TrendingUp,
+  Inbox,
 } from "lucide-react";
 import {
   verifyProductPrice,
   checkBackendHealth,
   getAdminStats,
+  getAdminPriceCorrections,
+  reviewPriceCorrection,
   isGoogleBackendConfigured,
   type PriceVerificationMethod,
   type HealthCheckResult,
   type AnalyticsSummary,
+  type PriceCorrectionReport,
 } from "@/lib/googleBackendClient";
+import { cn } from "@/lib/utils";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -809,6 +814,397 @@ function FounderAnalytics({ data }: { data: AnalyticsSummary }) {
   );
 }
 
+// ── PriceCorrectionsQueue ─────────────────────────────────────────────────────
+
+type CorrectionTab     = "pending" | "recent";
+type ReviewActionState = "approve" | "reject" | "needs_verification" | null;
+
+/** Inline confirm-form shown when an action button is pressed. */
+function CorrectionReviewForm({
+  report,
+  action,
+  accessToken,
+  onCancel,
+  onDone,
+}: {
+  report:       PriceCorrectionReport;
+  action:       ReviewActionState;
+  accessToken:  string;
+  onCancel:     () => void;
+  onDone:       (action: string) => void;
+}) {
+  const [approvedPrice,       setApprovedPrice]       = useState(
+    report.reported_price != null ? String(report.reported_price) : ""
+  );
+  const [verificationMethod,  setVerificationMethod]  = useState("phone");
+  const [dataSource,          setDataSource]          = useState("");
+  const [adminNote,           setAdminNote]           = useState("");
+  const [loading,             setLoading]             = useState(false);
+  const [error,               setError]               = useState<string | null>(null);
+
+  async function handleSubmit() {
+    if (action === "approve") {
+      const price = parseFloat(approvedPrice.replace(/[^0-9.]/g, ""));
+      if (isNaN(price) || price <= 0) {
+        setError("Approved price must be a positive number.");
+        return;
+      }
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      await reviewPriceCorrection(
+        report.id,
+        {
+          action: action!,
+          ...(action === "approve" && {
+            approved_price:       parseFloat(approvedPrice.replace(/[^0-9.]/g, "")),
+            verification_method:  verificationMethod,
+            data_source:          dataSource.trim() || undefined,
+          }),
+          admin_note: adminNote.trim() || undefined,
+        },
+        accessToken
+      );
+      onDone(action!);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Action failed — try again.");
+      setLoading(false);
+    }
+  }
+
+  const actionLabel =
+    action === "approve"             ? "Approve & Update Price" :
+    action === "reject"              ? "Reject Report"          :
+                                       "Flag for Verification";
+  const actionColorClass =
+    action === "approve"             ? "bg-emerald-600 hover:bg-emerald-700 text-white" :
+    action === "reject"              ? "bg-destructive hover:bg-destructive/90 text-destructive-foreground" :
+                                       "bg-amber-500 hover:bg-amber-600 text-white";
+
+  return (
+    <div className="mt-2 space-y-2 rounded-lg border border-border bg-muted/30 p-3">
+      {action === "approve" && (
+        <>
+          <div>
+            <label className="text-[10px] text-muted-foreground">Approved price (R)</label>
+            <Input
+              type="number"
+              min="1"
+              value={approvedPrice}
+              onChange={(e) => setApprovedPrice(e.target.value)}
+              placeholder="e.g. 3599"
+              className="mt-0.5 h-8 text-sm"
+            />
+          </div>
+          <div>
+            <label className="text-[10px] text-muted-foreground">Verification method</label>
+            <Select value={verificationMethod} onValueChange={setVerificationMethod}>
+              <SelectTrigger className="mt-0.5 h-8 text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {VERIFICATION_METHODS.map((m) => (
+                  <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <label className="text-[10px] text-muted-foreground">Data source</label>
+            <Input
+              value={dataSource}
+              onChange={(e) => setDataSource(e.target.value)}
+              placeholder="e.g. Game website, in-store shelf"
+              className="mt-0.5 h-8 text-sm"
+            />
+          </div>
+        </>
+      )}
+
+      <div>
+        <label className="text-[10px] text-muted-foreground">Admin note (optional)</label>
+        <Input
+          value={adminNote}
+          onChange={(e) => setAdminNote(e.target.value)}
+          placeholder="Internal note…"
+          className="mt-0.5 h-8 text-sm"
+        />
+      </div>
+
+      {error && (
+        <div className="flex items-center gap-1.5 rounded-md bg-destructive/10 px-2.5 py-1.5 text-xs text-destructive">
+          <AlertCircle className="h-3 w-3 shrink-0" />{error}
+        </div>
+      )}
+
+      <div className="flex gap-2">
+        <button
+          onClick={handleSubmit}
+          disabled={loading}
+          className={cn(
+            "flex flex-1 items-center justify-center gap-1.5 rounded-lg h-8 text-xs font-semibold transition-all disabled:opacity-50",
+            actionColorClass
+          )}
+        >
+          {loading
+            ? <><Loader2 className="h-3 w-3 animate-spin" />Processing…</>
+            : actionLabel
+          }
+        </button>
+        <button
+          onClick={onCancel}
+          disabled={loading}
+          className="h-8 px-3 rounded-lg border border-border text-xs text-muted-foreground hover:text-foreground transition-all disabled:opacity-40"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** Single report card — handles both pending (with action buttons) and reviewed. */
+function CorrectionCard({
+  report,
+  accessToken,
+  showReviewed,
+  onActioned,
+}: {
+  report:       PriceCorrectionReport;
+  accessToken:  string;
+  showReviewed: boolean;
+  onActioned:   () => void;
+}) {
+  const [activeAction,  setActiveAction]  = useState<ReviewActionState>(null);
+  const [actionSuccess, setActionSuccess] = useState<string | null>(null);
+
+  function handleDone(action: string) {
+    setActionSuccess(action);
+    setActiveAction(null);
+    setTimeout(onActioned, 800);
+  }
+
+  const STATUS_BADGE: Record<string, string> = {
+    approved:           "bg-emerald-100 text-emerald-700",
+    rejected:           "bg-red-100 text-red-700",
+    needs_verification: "bg-amber-100 text-amber-700",
+    pending:            "bg-muted text-muted-foreground",
+  };
+
+  const STATUS_LABEL: Record<string, string> = {
+    approved:           "Approved",
+    rejected:           "Rejected",
+    needs_verification: "Needs Verification",
+    pending:            "Pending",
+  };
+
+  const SOURCE_LABEL: Record<string, string> = {
+    in_store_seen:    "Saw in-store",
+    retailer_website: "Retailer website",
+    catalogue:        "Catalogue / flyer",
+    user_memory:      "User memory",
+    other:            "Other",
+  };
+
+  return (
+    <Card className="overflow-hidden">
+      <CardContent className="pt-3 pb-3 space-y-2">
+        {/* Header row */}
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0 flex-1">
+            <p className="truncate font-semibold text-sm leading-tight">
+              {report.product_name ?? report.product_id}
+            </p>
+            {report.shop_name && (
+              <p className="text-xs text-muted-foreground">{report.shop_name}</p>
+            )}
+          </div>
+          <div className="flex shrink-0 items-center gap-1.5">
+            {showReviewed && (
+              <span className={cn(
+                "rounded-full px-2 py-0.5 text-[10px] font-medium",
+                STATUS_BADGE[report.status] ?? STATUS_BADGE.pending
+              )}>
+                {STATUS_LABEL[report.status] ?? report.status}
+              </span>
+            )}
+            <span className="text-[10px] text-muted-foreground/60">
+              {formatRelativeTime(report.created_at)}
+            </span>
+          </div>
+        </div>
+
+        {/* Price comparison */}
+        <div className="flex items-center gap-2 text-xs">
+          <span className="text-muted-foreground">
+            Currently:{" "}
+            <span className="font-semibold text-foreground">
+              {report.current_price != null ? `R${report.current_price}` : "—"}
+            </span>
+          </span>
+          <span className="text-muted-foreground/50">→</span>
+          <span className="text-muted-foreground">
+            Reported:{" "}
+            <span className="font-semibold text-amber-600">
+              {report.reported_price != null ? `R${report.reported_price}` : "—"}
+            </span>
+          </span>
+        </div>
+
+        {/* Source + notes */}
+        <div className="space-y-0.5 text-xs text-muted-foreground">
+          <p>
+            Source:{" "}
+            <span className="text-foreground">
+              {SOURCE_LABEL[report.source_type ?? ""] ?? (report.source_type ?? "—")}
+            </span>
+          </p>
+          {report.user_note && (
+            <p>
+              User note:{" "}
+              <span className="text-foreground italic">"{report.user_note}"</span>
+            </p>
+          )}
+          {showReviewed && report.admin_note && (
+            <p>
+              Admin note:{" "}
+              <span className="text-foreground italic">"{report.admin_note}"</span>
+            </p>
+          )}
+        </div>
+
+        {/* Action success message */}
+        {actionSuccess && (
+          <div className="flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs text-emerald-700">
+            <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+            {actionSuccess === "approve"             ? "Price approved — product updated." :
+             actionSuccess === "reject"              ? "Report rejected." :
+                                                      "Flagged for verification."}
+          </div>
+        )}
+
+        {/* Action buttons — pending only */}
+        {!showReviewed && !actionSuccess && (
+          activeAction ? (
+            <CorrectionReviewForm
+              report={report}
+              action={activeAction}
+              accessToken={accessToken}
+              onCancel={() => setActiveAction(null)}
+              onDone={handleDone}
+            />
+          ) : (
+            <div className="flex flex-wrap gap-1.5 pt-1">
+              <button
+                onClick={() => setActiveAction("approve")}
+                className="flex-1 min-w-[80px] h-8 rounded-lg bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 active:scale-[0.98] transition-all"
+              >
+                Approve
+              </button>
+              <button
+                onClick={() => setActiveAction("needs_verification")}
+                className="flex-1 min-w-[80px] h-8 rounded-lg border border-amber-400 bg-amber-50 text-amber-700 text-xs font-semibold hover:bg-amber-100 active:scale-[0.98] transition-all"
+              >
+                Needs Verify
+              </button>
+              <button
+                onClick={() => setActiveAction("reject")}
+                className="flex-1 min-w-[80px] h-8 rounded-lg border border-destructive/40 bg-destructive/5 text-destructive text-xs font-semibold hover:bg-destructive/10 active:scale-[0.98] transition-all"
+              >
+                Reject
+              </button>
+            </div>
+          )
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function PriceCorrectionsQueue() {
+  const { session }    = useAuth();
+  const [tab,          setTab]         = useState<CorrectionTab>("pending");
+  const [pending,      setPending]     = useState<PriceCorrectionReport[]>([]);
+  const [recent,       setRecent]      = useState<PriceCorrectionReport[]>([]);
+  const [loading,      setLoading]     = useState(false);
+  const [error,        setError]       = useState<string | null>(null);
+  const [refreshKey,   setRefreshKey]  = useState(0);
+
+  useEffect(() => {
+    if (!session?.access_token) return;
+    setLoading(true);
+    setError(null);
+    getAdminPriceCorrections(session.access_token)
+      .then((data) => { setPending(data.pending); setRecent(data.recent); })
+      .catch((e)   => setError(e instanceof Error ? e.message : String(e)))
+      .finally(()  => setLoading(false));
+  }, [session?.access_token, refreshKey]);
+
+  const displayed = tab === "pending" ? pending : recent;
+
+  return (
+    <div className="space-y-3">
+      {/* Tab toggle */}
+      <div className="flex gap-1 rounded-xl border border-border bg-muted/30 p-1">
+        {(["pending", "recent"] as const).map((t) => (
+          <button
+            key={t}
+            onClick={() => setTab(t)}
+            className={cn(
+              "flex-1 rounded-lg py-1.5 text-xs font-medium transition-all",
+              tab === t
+                ? "bg-background shadow-sm text-foreground"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            {t === "pending"
+              ? `Pending (${pending.length})`
+              : `Reviewed (${recent.length})`}
+          </button>
+        ))}
+      </div>
+
+      {loading && (
+        <div className="flex justify-center py-6">
+          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        </div>
+      )}
+
+      {error && (
+        <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+          {error}
+        </div>
+      )}
+
+      {!loading && !error && displayed.length === 0 && (
+        <div className="flex flex-col items-center gap-2 py-8 text-center">
+          <Inbox className="h-8 w-8 text-muted-foreground/30" />
+          <p className="text-sm text-muted-foreground">
+            {tab === "pending"
+              ? "No pending reports — inbox is clear."
+              : "No reviewed reports yet."}
+          </p>
+        </div>
+      )}
+
+      {!loading && !error && displayed.length > 0 && session?.access_token && (
+        <div className="space-y-3">
+          {displayed.map((r) => (
+            <CorrectionCard
+              key={r.id}
+              report={r}
+              accessToken={session.access_token!}
+              showReviewed={tab === "recent"}
+              onActioned={() => setRefreshKey((k) => k + 1)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 function AdminDashboardContent() {
@@ -1005,6 +1401,17 @@ function AdminDashboardContent() {
               {!analyticsLoading && !analyticsError && analytics && (
                 <FounderAnalytics data={analytics} />
               )}
+            </section>
+          )}
+
+          {/* ── Price Correction Review Queue ── */}
+          {isGoogleBackendConfigured() && (
+            <section>
+              <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                <Inbox className="h-4 w-4" />
+                Price Correction Reports
+              </h2>
+              <PriceCorrectionsQueue />
             </section>
           )}
 
