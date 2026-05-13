@@ -166,6 +166,75 @@ export async function checkBackendHealth(): Promise<HealthCheckResult> {
 
 // ── Admin types ───────────────────────────────────────────────────────────────
 
+// ── Founder Analytics types ───────────────────────────────────────────────────
+
+export interface AnalyticsRecentEvent {
+  id: string;
+  created_at: string;
+  event_type: string;
+  query_text: string | null;
+  product_id: string | null;
+  shop_id: string | null;
+  metadata: Record<string, unknown>;
+}
+
+export interface AnalyticsSummary {
+  total_events: number;
+  events_last_24h: number;
+  assistant_queries: number;
+  route_requests: number;
+  route_responses: number;
+  product_views: number;
+  unique_event_types: string[];
+  top_searches: Array<{ query_text: string; count: number }>;
+  top_products: Array<{
+    product_id: string;
+    product_name: string;
+    shop_name: string;
+    data_quality_status: string;
+    count: number;
+  }>;
+  top_shops: Array<{ shop_id: string; shop_name: string; count: number }>;
+  recent_events: AnalyticsRecentEvent[];
+}
+
+export interface AdminStatsResponse {
+  counts: {
+    malls: number;
+    shops: number;
+    products: number;
+    users: number;
+    active_sessions: number;
+    active_routes: number;
+  };
+  recent_searches: Array<{ query: string; mall_id: string | null; created_at: string }>;
+  recent_events: Array<{ event_name: string; user_id: string | null; created_at: string }>;
+  analytics: AnalyticsSummary;
+  generated_at: string;
+}
+
+/**
+ * GET /admin-stats
+ *
+ * Returns aggregated platform metrics + founder analytics from analytics_events.
+ * DEV_ONLY: No auth enforcement yet — protect before going public.
+ */
+export async function getAdminStats(): Promise<AdminStatsResponse> {
+  if (!BASE_URL) {
+    throw new Error("VITE_GOOGLE_BACKEND_URL is not configured");
+  }
+  const res = await fetch(`${BASE_URL}/admin-stats`, { method: "GET" });
+  if (!res.ok) {
+    let message = `Admin stats error ${res.status}`;
+    try {
+      const err = (await res.json()) as { error?: string };
+      if (err.error) message = err.error;
+    } catch { /* ignore */ }
+    throw new Error(message);
+  }
+  return res.json() as Promise<AdminStatsResponse>;
+}
+
 export type PriceVerificationMethod =
   | "phone"
   | "website"

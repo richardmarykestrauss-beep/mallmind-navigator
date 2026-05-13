@@ -27,12 +27,22 @@ import {
   KeyRound,
   User,
   Server,
+  BarChart3,
+  MessageSquare,
+  Route as RouteIcon,
+  Eye,
+  Clock,
+  Search,
+  TrendingUp,
 } from "lucide-react";
 import {
   verifyProductPrice,
   checkBackendHealth,
+  getAdminStats,
+  isGoogleBackendConfigured,
   type PriceVerificationMethod,
   type HealthCheckResult,
+  type AnalyticsSummary,
 } from "@/lib/googleBackendClient";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -513,6 +523,215 @@ function SystemDiagnostics() {
   );
 }
 
+// ── Helpers for FounderAnalytics ──────────────────────────────────────────────
+
+function formatEventType(type: string): string {
+  return type.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function formatRelativeTime(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins  = Math.floor(diff / 60_000);
+  const hours = Math.floor(diff / 3_600_000);
+  const days  = Math.floor(diff / 86_400_000);
+  if (mins  < 1)   return "just now";
+  if (mins  < 60)  return `${mins}m ago`;
+  if (hours < 24)  return `${hours}h ago`;
+  return `${days}d ago`;
+}
+
+function metaSummary(metadata: Record<string, unknown>): string | null {
+  const parts: string[] = [];
+  if (metadata.product_name)  parts.push(String(metadata.product_name));
+  if (metadata.shop_name)     parts.push(String(metadata.shop_name));
+  if (metadata.price != null) parts.push(`R${metadata.price}`);
+  if (metadata.route_summary) parts.push(String(metadata.route_summary));
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
+function eventTypeColor(type: string): string {
+  if (type.includes("route"))     return "bg-primary/15 text-primary";
+  if (type.includes("assistant")) return "bg-secondary/15 text-secondary";
+  if (type.includes("product"))   return "bg-emerald-100 text-emerald-700";
+  return "bg-muted text-muted-foreground";
+}
+
+// ── FounderAnalytics component ────────────────────────────────────────────────
+
+function FounderAnalytics({ data }: { data: AnalyticsSummary }) {
+  const isEmpty = data.total_events === 0;
+
+  if (isEmpty) {
+    return (
+      <div className="rounded-xl border border-dashed border-primary/30 bg-primary/5 p-5 text-center">
+        <BarChart3 className="mx-auto mb-2 h-6 w-6 text-primary/40" />
+        <p className="text-sm font-medium text-muted-foreground">No analytics data yet.</p>
+        <p className="mt-1 text-xs text-muted-foreground/70">
+          Use the Assistant to generate events.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-5">
+      {/* ── Summary cards ── */}
+      <div className="grid grid-cols-2 gap-3">
+        <StatCard
+          icon={<BarChart3 className="h-4 w-4" />}
+          label="Total Events"
+          value={data.total_events}
+        />
+        <StatCard
+          icon={<Clock className="h-4 w-4" />}
+          label="Last 24 h"
+          value={data.events_last_24h}
+        />
+        <StatCard
+          icon={<MessageSquare className="h-4 w-4" />}
+          label="AI Searches"
+          value={data.assistant_queries}
+          sub="assistant queries"
+        />
+        <StatCard
+          icon={<RouteIcon className="h-4 w-4" />}
+          label="Route Requests"
+          value={data.route_requests}
+        />
+        <StatCard
+          icon={<Eye className="h-4 w-4" />}
+          label="Product Views"
+          value={data.product_views}
+          sub="best pick impressions"
+        />
+        <StatCard
+          icon={<TrendingUp className="h-4 w-4" />}
+          label="Event Types"
+          value={data.unique_event_types.length}
+          sub="distinct tracked actions"
+        />
+      </div>
+
+      {/* ── Top searches ── */}
+      {data.top_searches.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2 pt-4">
+            <CardTitle className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">
+              <Search className="h-4 w-4" />
+              Top Searches
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pb-4">
+            <div className="space-y-1.5">
+              {data.top_searches.map((s, i) => (
+                <div key={i} className="flex items-center justify-between gap-3 text-sm">
+                  <span className="truncate text-foreground">{s.query_text}</span>
+                  <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">
+                    ×{s.count}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ── Top products ── */}
+      {data.top_products.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2 pt-4">
+            <CardTitle className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">
+              <Package className="h-4 w-4" />
+              Top Products Viewed
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pb-4">
+            <div className="space-y-2">
+              {data.top_products.map((p, i) => (
+                <div key={i} className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">{p.product_name}</p>
+                    <p className="truncate text-xs text-muted-foreground">{p.shop_name}</p>
+                  </div>
+                  <div className="flex shrink-0 flex-col items-end gap-1">
+                    <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">
+                      ×{p.count}
+                    </span>
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${qualityBadgeClasses(p.data_quality_status)}`}>
+                      {qualityBadgeLabel(p.data_quality_status)}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ── Top shops ── */}
+      {data.top_shops.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2 pt-4">
+            <CardTitle className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">
+              <Store className="h-4 w-4" />
+              Top Shops Mentioned
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pb-4">
+            <div className="space-y-1.5">
+              {data.top_shops.map((s, i) => (
+                <div key={i} className="flex items-center justify-between gap-3 text-sm">
+                  <span className="truncate text-foreground">{s.shop_name}</span>
+                  <span className="shrink-0 rounded-full bg-secondary/10 px-2 py-0.5 text-xs font-semibold text-secondary">
+                    ×{s.count}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ── Recent events ── */}
+      {data.recent_events.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2 pt-4">
+            <CardTitle className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">
+              <Activity className="h-4 w-4" />
+              Recent Events
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pb-4">
+            <div className="space-y-2">
+              {data.recent_events.map((e) => {
+                const summary = metaSummary(e.metadata);
+                return (
+                  <div key={e.id} className="flex items-start gap-2.5 text-xs">
+                    <span className={`mt-0.5 shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${eventTypeColor(e.event_type)}`}>
+                      {formatEventType(e.event_type)}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      {e.query_text && (
+                        <p className="truncate text-foreground font-medium">"{e.query_text}"</p>
+                      )}
+                      {summary && !e.query_text && (
+                        <p className="truncate text-muted-foreground">{summary}</p>
+                      )}
+                    </div>
+                    <span className="shrink-0 text-muted-foreground/60">
+                      {formatRelativeTime(e.created_at)}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 function AdminDashboardContent() {
@@ -526,6 +745,11 @@ function AdminDashboardContent() {
   const [productsError, setProductsError]   = useState<string | null>(null);
   const [productsLoading, setProductsLoading] = useState(true);
   const [refreshKey, setRefreshKey]         = useState(0);
+
+  // Founder analytics state
+  const [analytics, setAnalytics]           = useState<AnalyticsSummary | null>(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [analyticsError, setAnalyticsError] = useState<string | null>(null);
 
   // Default "verified by" name: prefer full_name, fall back to email
   const defaultVerifiedBy =
@@ -546,6 +770,17 @@ function AdminDashboardContent() {
       .catch((e) => setProductsError(String(e)))
       .finally(() => setProductsLoading(false));
   }, [refreshKey]);
+
+  // Fetch founder analytics from backend (only if backend is configured)
+  useEffect(() => {
+    if (!isGoogleBackendConfigured()) return;
+    setAnalyticsLoading(true);
+    setAnalyticsError(null);
+    getAdminStats()
+      .then((resp) => setAnalytics(resp.analytics))
+      .catch((e) => setAnalyticsError(String(e)))
+      .finally(() => setAnalyticsLoading(false));
+  }, []);
 
   return (
     <MobileShell hideNav>
@@ -651,6 +886,49 @@ function AdminDashboardContent() {
                 </ol>
               </section>
             </>
+          )}
+
+          {/* ── Founder Analytics ── */}
+          {isGoogleBackendConfigured() && (
+            <section>
+              <div className="mb-3 flex items-center justify-between">
+                <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                  <BarChart3 className="h-4 w-4" />
+                  Founder Analytics
+                </h2>
+                <button
+                  onClick={() => {
+                    setAnalyticsLoading(true);
+                    setAnalyticsError(null);
+                    getAdminStats()
+                      .then((resp) => setAnalytics(resp.analytics))
+                      .catch((e) => setAnalyticsError(String(e)))
+                      .finally(() => setAnalyticsLoading(false));
+                  }}
+                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                  aria-label="Refresh analytics"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  Refresh
+                </button>
+              </div>
+
+              {analyticsLoading && (
+                <div className="flex justify-center py-8">
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                </div>
+              )}
+
+              {analyticsError && (
+                <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+                  Failed to load analytics: {analyticsError}
+                </div>
+              )}
+
+              {!analyticsLoading && !analyticsError && analytics && (
+                <FounderAnalytics data={analytics} />
+              )}
+            </section>
           )}
 
           {/* ── Recent Products (verification queue) ── */}
