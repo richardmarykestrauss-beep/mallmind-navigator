@@ -1177,6 +1177,17 @@ function PriceCorrectionsQueue() {
         </div>
       )}
 
+      {/* Trust impact callout — shown only when there are pending reports */}
+      {!loading && tab === "pending" && pending.length > 0 && (
+        <div className="flex items-start gap-2 rounded-lg border border-amber-400/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-700">
+          <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0 text-amber-500" />
+          <span>
+            <strong>Trust impact:</strong> Pending reports will show affected products as{" "}
+            <em>Recently disputed</em> in the app until reviewed and rejected or approved.
+          </span>
+        </div>
+      )}
+
       {!loading && !error && displayed.length === 0 && (
         <div className="flex flex-col items-center gap-2 py-8 text-center">
           <Inbox className="h-8 w-8 text-muted-foreground/30" />

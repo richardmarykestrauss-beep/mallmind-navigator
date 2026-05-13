@@ -1211,6 +1211,14 @@ const AssistantPage = () => {
                         );
                       })}
 
+                      {/* Trust warning — disputed / expired / needs review */}
+                      {msg.products[0]?.display_warning && (
+                        <div className="flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-600">
+                          <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                          {msg.products[0].display_warning}
+                        </div>
+                      )}
+
                       {/* Closed-shop warning */}
                       {msg.products[0]?.is_open_now === false && (
                         <div className="flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-600">

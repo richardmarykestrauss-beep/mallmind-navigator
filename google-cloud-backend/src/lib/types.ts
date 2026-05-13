@@ -22,6 +22,29 @@ export interface Shop {
   closing_time: string | null;   // "19:00:00"
 }
 
+// ── Sprint 8G: Price trust types ─────────────────────────────────────────────
+
+export type TrustLevel = "high" | "medium" | "low" | "disputed";
+export type TrustState =
+  | "verified"
+  | "live"
+  | "expired"
+  | "disputed"
+  | "needs_review"
+  | "sample"
+  | "unknown";
+
+/** Calculated trust snapshot attached to every ScoredProduct. */
+export interface PriceTrust {
+  trust_label: string;
+  trust_level: TrustLevel;
+  trust_state: TrustState;
+  is_price_expired: boolean;
+  has_pending_dispute: boolean;
+  price_age_days: number | null;
+  display_warning: string | null;
+}
+
 /** Allowed values for products.data_quality_status */
 export type DataQualityStatus =
   | "demo"
@@ -138,6 +161,15 @@ export interface ScoredProduct {
   data_source: string | null;
   /** Who last verified this price. */
   verified_by: string | null;
+  // ── Sprint 8G: calculated trust fields ────────────────────────────────────
+  // Optional so intermediate builder objects compile; always set by productService.
+  trust_label?: string;
+  trust_level?: TrustLevel;
+  trust_state?: TrustState;
+  is_price_expired?: boolean;
+  has_pending_dispute?: boolean;
+  price_age_days?: number | null;
+  display_warning?: string | null;
 }
 
 export interface ApiError {

@@ -167,14 +167,18 @@ function buildSystemPrompt(ctx: {
     "   prices, floors, unit numbers, or stock levels.",
     "",
     // ── Trust language ────────────────────────────────────────────────────────
-    "PRICE TRUST RULES — follow these exactly based on data_quality_status:",
-    "- manually_verified → say 'verified at R...' or 'confirmed R...'. Speak confidently.",
-    "  Note: data_source may show 'manual_seed' — this does NOT downgrade a verified price.",
-    "  Always use data_quality_status, not data_source, to decide trust language.",
-    "- live_feed → say 'currently listed at R...' or 'live-feed price of R...'.",
-    "- demo / missing → say 'listed at around R...' or 'sample price — confirm in-store'.",
-    "- stale → warn explicitly: 'price was R... but may have changed — check in-store'.",
-    "- Prefer manually_verified products over demo products when both match.",
+    "PRICE TRUST RULES — follow these exactly based on trust_state (pre-computed field in results):",
+    "- trust_state=verified → say 'verified at R...' or 'confirmed R...'. Speak confidently.",
+    "  Note: data_source may show 'manual_seed' — does NOT downgrade a verified price.",
+    "  Always use trust_state, not data_source, to decide trust language.",
+    "- trust_state=live → say 'currently listed at R...' or 'live-feed price of R...'.",
+    "- trust_state=expired → say 'previously verified at R... but verification has expired — confirm in-store'.",
+    "  Do NOT claim this as a current verified price. Urge confirmation.",
+    "- trust_state=disputed → say 'listed at around R... but recently disputed — confirm in-store before buying'.",
+    "  Do NOT say 'verified'. Do NOT omit the dispute warning.",
+    "- trust_state=needs_review → say 'listed at around R... — needs in-store confirmation'.",
+    "- trust_state=sample / demo / missing → say 'listed at around R...' or 'sample price — confirm in-store'.",
+    "- Prefer verified/live products over sample/disputed when both match a query.",
     "",
     // ── Response quality ──────────────────────────────────────────────────────
     "RESPONSE QUALITY:",
@@ -249,37 +253,37 @@ function classifyAssistantIntent(message: string): AssistantIntent {
 }
 
 // ── Product trust helpers ─────────────────────────────────────────────────────
-// NOTE: always use data_quality_status to determine trust — not data_source.
-// A product with data_source="manual_seed" but data_quality_status="manually_verified"
-// must be treated as verified.
+// Sprint 8G: always use trust_state (computed by priceTrust.ts) rather than
+// raw data_quality_status.  trust_state already incorporates expiry logic and
+// pending dispute lookups — reading data_quality_status directly would miss both.
 
-function hasVerifiedPrice(p: ScoredProduct): boolean {
-  return p.data_quality_status === "manually_verified" || p.data_quality_status === "live_feed";
+function hasHighTrust(p: ScoredProduct): boolean {
+  return p.trust_state === "verified" || p.trust_state === "live";
 }
 
-/** Short trust label for embedding in natural-language messages. */
-function getTrustLabel(p: ScoredProduct): string {
-  switch (p.data_quality_status) {
-    case "manually_verified": return "verified";
-    case "live_feed":          return "live-feed price";
-    case "stale":              return "possibly outdated — confirm in-store";
-    case "user_submitted":     return "user-submitted price";
-    case "needs_review":       return "needs in-store confirmation";
-    default:                   return "sample data — price may vary";
+/** Short clause for embedding in natural-language messages. */
+function getTrustClause(p: ScoredProduct): string {
+  switch (p.trust_state) {
+    case "verified":      return "verified";
+    case "live":          return "live-feed price";
+    case "expired":       return "previously verified but needs recheck — confirm in-store";
+    case "disputed":      return "recently disputed — confirm in-store before buying";
+    case "needs_review":  return "needs in-store confirmation";
+    default:              return "sample data — price may vary";
   }
 }
 
 /** "R3,499 (verified)" or "around R3,499 (sample data — price may vary)" */
 function formatPrice(p: ScoredProduct): string {
-  const label = getTrustLabel(p);
+  const clause = getTrustClause(p);
   const amount = `R${p.price.toLocaleString("en-ZA")}`;
-  return hasVerifiedPrice(p) ? `${amount} (${label})` : `around ${amount} (${label})`;
+  return hasHighTrust(p) ? `${amount} (${clause})` : `around ${amount} (${clause})`;
 }
 
 /** One-liner: "Hisense 43\" FHD LED TV at Game for a verified R3,499" */
 function buildBestPickLine(p: ScoredProduct): string {
-  const trust = hasVerifiedPrice(p) ? "verified " : "";
-  return `${p.name} at ${p.shop_name} for a ${trust}R${p.price.toLocaleString("en-ZA")}`;
+  const prefix = hasHighTrust(p) ? "verified " : "";
+  return `${p.name} at ${p.shop_name} for a ${prefix}R${p.price.toLocaleString("en-ZA")}`;
 }
 
 /**
@@ -288,8 +292,12 @@ function buildBestPickLine(p: ScoredProduct): string {
  */
 function buildRecommendationWhy(p: ScoredProduct, budget: number | null | undefined): string {
   const reasons: string[] = [];
-  if (p.data_quality_status === "manually_verified") reasons.push("verified price");
-  else if (p.data_quality_status === "live_feed") reasons.push("live-feed price");
+
+  // Trust fragment
+  if (p.trust_state === "verified")     reasons.push("verified price");
+  else if (p.trust_state === "live")    reasons.push("live-feed price");
+  else if (p.trust_state === "expired") reasons.push("price needs recheck — confirm in-store");
+  else if (p.trust_state === "disputed") reasons.push("price disputed — confirm in-store");
 
   if (p.is_on_special && p.discount_pct != null) reasons.push(`${p.discount_pct}% off`);
 
@@ -386,9 +394,13 @@ function buildRouteConfirmationMessage(
     return "Your route is ready — follow the steps on screen.";
   }
 
-  const priceStr = hasVerifiedPrice(top)
+  const priceStr = hasHighTrust(top)
     ? `verified at R${top.price.toLocaleString("en-ZA")}`
-    : `around R${top.price.toLocaleString("en-ZA")} (sample data — confirm in-store)`;
+    : top.trust_state === "disputed"
+      ? `around R${top.price.toLocaleString("en-ZA")} (recently disputed — confirm in-store)`
+      : top.trust_state === "expired"
+        ? `around R${top.price.toLocaleString("en-ZA")} (verification expired — confirm in-store)`
+        : `around R${top.price.toLocaleString("en-ZA")} (sample data — confirm in-store)`;
 
   const closedWarning =
     top.is_open_now === false
@@ -441,8 +453,12 @@ function buildProductFallbackMessage(
   }
 
   // Next action
-  if (hasVerifiedPrice(top)) {
+  if (hasHighTrust(top)) {
     parts.push(`Say "take me to ${top.shop_name}" for turn-by-turn directions.`);
+  } else if (top.trust_state === "disputed") {
+    parts.push("Confirm the price in-store before buying — this price has been disputed.");
+  } else if (top.trust_state === "expired") {
+    parts.push("Confirm the price in-store — the verification has expired.");
   } else {
     parts.push("Confirm the price in-store — this is sample data.");
   }

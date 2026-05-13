@@ -1,5 +1,6 @@
 import { getSupabaseClient } from "../lib/supabase.js";
 import type { Shop, Product, ScoredProduct } from "../lib/types.js";
+import { calculatePriceTrust } from "./priceTrust.js";
 
 // SA timezone UTC+2 — works with "HH:MM:SS" time columns
 function isOpenNow(openingTime: string | null, closingTime: string | null): boolean | null {
@@ -208,13 +209,37 @@ export async function recommendProducts(opts: RecommendOptions): Promise<ScoredP
     });
   }
 
-  // 5. Sort, deduplicate, return top 8
+  // 5. Sort, deduplicate, take top 8
   scored.sort((a, b) => b.score - a.score);
   const seen = new Set<string>();
-  return scored.filter((p) => {
+  const top8 = scored.filter((p) => {
     const key = `${p.shop_id}:${p.name.toLowerCase().trim()}`;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
   }).slice(0, 8);
+
+  if (!top8.length) return [];
+
+  // 6. Batch-query pending/needs_verification disputes for returned product IDs only.
+  //    Service role bypasses RLS — never exposes report details to end users.
+  const productIds = top8.map((p) => p.product_id);
+  const { data: disputes } = await supabase
+    .from("price_correction_reports")
+    .select("product_id, status")
+    .in("product_id", productIds)
+    .in("status", ["pending", "needs_verification"]);
+
+  const pendingSet      = new Set<string>();
+  const needsVerifySet  = new Set<string>();
+  for (const d of disputes ?? []) {
+    if (d.status === "pending")           pendingSet.add(d.product_id);
+    if (d.status === "needs_verification") needsVerifySet.add(d.product_id);
+  }
+
+  // 7. Attach trust fields to every returned product
+  return top8.map((p) => ({
+    ...p,
+    ...calculatePriceTrust(p, pendingSet.has(p.product_id), needsVerifySet.has(p.product_id)),
+  }));
 }

@@ -1,4 +1,4 @@
-import { Store, Navigation, ShoppingBag, Tag, CheckCircle2, Clock, ShieldCheck, AlertCircle, Zap, Star } from "lucide-react";
+import { Store, Navigation, ShoppingBag, Tag, CheckCircle2, Clock, ShieldCheck, AlertCircle, Zap, Star, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export interface ProductResult {
@@ -24,6 +24,14 @@ export interface ProductResult {
   data_source?: string | null;
   /** How the price was confirmed */
   price_verification_method?: string | null;
+  // ── Sprint 8G: calculated trust fields (optional — absent on legacy/cached data) ──
+  trust_label?: string | null;
+  trust_level?: "high" | "medium" | "low" | "disputed" | null;
+  trust_state?: "verified" | "live" | "expired" | "disputed" | "needs_review" | "sample" | "unknown" | null;
+  is_price_expired?: boolean | null;
+  has_pending_dispute?: boolean | null;
+  price_age_days?: number | null;
+  display_warning?: string | null;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -36,12 +44,28 @@ function formatVerifiedDate(iso: string): string {
   });
 }
 
-function isVerified(status: string | null | undefined): boolean {
-  return status === "manually_verified" || status === "live_feed";
-}
-
-function isDemo(status: string | null | undefined): boolean {
-  return !status || status === "demo";
+/**
+ * Resolve the effective trust state for display.
+ * Sprint 8G: prefer the computed `trust_state` field from the backend.
+ * Falls back to `data_quality_status` for legacy/cached cards that
+ * don't have the new fields yet.
+ */
+function resolveTrustState(p: ProductResult): {
+  state: ProductResult["trust_state"];
+  label: string | null;
+} {
+  // New path: trust_state set by backend priceTrust.ts
+  if (p.trust_state) {
+    return { state: p.trust_state, label: p.trust_label ?? null };
+  }
+  // Legacy fallback: derive from data_quality_status
+  switch (p.data_quality_status) {
+    case "manually_verified": return { state: "verified",      label: "Verified price" };
+    case "live_feed":         return { state: "live",          label: "Live price" };
+    case "needs_review":      return { state: "needs_review",  label: "Needs review" };
+    case "stale":             return { state: "expired",       label: "Verification expired" };
+    default:                  return { state: "sample",        label: "Sample data · price may vary" };
+  }
 }
 
 interface RecommendationCardProps {
@@ -63,10 +87,8 @@ export default function RecommendationCard({
   const hasDiscount = p.is_on_special && p.original_price != null;
   const savings = hasDiscount ? Math.round(p.original_price! - p.price) : null;
 
-  const isManuallyVerified = p.data_quality_status === "manually_verified";
-  const isLiveFeed         = p.data_quality_status === "live_feed";
-  const verified = isVerified(p.data_quality_status);
-  const demo     = isDemo(p.data_quality_status);
+  const { state: trustState, label: trustLabel } = resolveTrustState(p);
+  const isHighTrust = trustState === "verified" || trustState === "live";
 
   return (
     <div className={cn(
@@ -75,9 +97,11 @@ export default function RecommendationCard({
         ? "border-primary/60 shadow-[0_0_14px_hsl(190_100%_50%/0.18)]"
         : p.is_cheapest
           ? "border-secondary/50 shadow-[0_0_12px_hsl(142_70%_45%/0.15)]"
-          : verified
+          : trustState === "verified"
             ? "border-emerald-500/40"
-            : "border-border"
+            : trustState === "disputed"
+              ? "border-amber-500/40"
+              : "border-border"
     )}>
       {/* Best pick strip */}
       {isBestPick && (
@@ -106,11 +130,11 @@ export default function RecommendationCard({
         </div>
       )}
 
-      {/* Trust strip — manually verified */}
-      {isManuallyVerified && (
+      {/* ── Trust strip (Sprint 8G) ── */}
+      {trustState === "verified" && (
         <div className="flex items-center gap-1.5 px-3 py-1 bg-emerald-500/10 text-[10px] font-semibold text-emerald-600">
           <ShieldCheck className="h-3 w-3 shrink-0" />
-          <span>Verified price</span>
+          <span>{trustLabel ?? "Verified price"}</span>
           {p.price_verified_at && (
             <span className="ml-auto font-normal text-emerald-600/70">
               {formatVerifiedDate(p.price_verified_at)}
@@ -119,11 +143,10 @@ export default function RecommendationCard({
         </div>
       )}
 
-      {/* Trust strip — live feed */}
-      {isLiveFeed && (
+      {trustState === "live" && (
         <div className="flex items-center gap-1.5 px-3 py-1 bg-blue-500/10 text-[10px] font-semibold text-blue-500">
           <Zap className="h-3 w-3 shrink-0" />
-          <span>Live price</span>
+          <span>{trustLabel ?? "Live price"}</span>
           {p.price_verified_at && (
             <span className="ml-auto font-normal text-blue-500/70">
               {formatVerifiedDate(p.price_verified_at)}
@@ -132,11 +155,42 @@ export default function RecommendationCard({
         </div>
       )}
 
-      {/* Demo data strip */}
-      {demo && (
+      {trustState === "expired" && (
+        <div className="flex items-center gap-1.5 px-3 py-1 bg-amber-500/10 text-[10px] font-semibold text-amber-600">
+          <AlertCircle className="h-3 w-3 shrink-0" />
+          <span>{trustLabel ?? "Verification expired"}</span>
+          {p.price_age_days != null && (
+            <span className="ml-auto font-normal text-amber-600/70">{p.price_age_days}d ago</span>
+          )}
+        </div>
+      )}
+
+      {trustState === "disputed" && (
+        <div className="flex items-center gap-1.5 px-3 py-1 bg-red-500/10 text-[10px] font-semibold text-red-600">
+          <AlertTriangle className="h-3 w-3 shrink-0" />
+          <span>{trustLabel ?? "Recently disputed"}</span>
+        </div>
+      )}
+
+      {trustState === "needs_review" && (
+        <div className="flex items-center gap-1.5 px-3 py-1 bg-amber-500/10 text-[10px] font-semibold text-amber-600">
+          <AlertCircle className="h-3 w-3 shrink-0" />
+          <span>{trustLabel ?? "Needs review"}</span>
+        </div>
+      )}
+
+      {(trustState === "sample" || trustState === "unknown" || !trustState) && (
         <div className="flex items-center gap-1.5 px-3 py-1 bg-amber-500/8 text-[10px] text-amber-600/80">
           <AlertCircle className="h-3 w-3 shrink-0" />
-          <span>Sample data · price may vary</span>
+          <span>{trustLabel ?? "Sample data · price may vary"}</span>
+        </div>
+      )}
+
+      {/* display_warning line — shown below trust strip when backend adds a caution */}
+      {p.display_warning && (
+        <div className="flex items-center gap-1.5 px-3 py-1 bg-amber-500/5 text-[10px] text-amber-700/80 border-t border-amber-500/10">
+          <AlertTriangle className="h-3 w-3 shrink-0" />
+          <span>{p.display_warning}</span>
         </div>
       )}
 
@@ -209,7 +263,7 @@ export default function RecommendationCard({
         )}
 
         {/* Verified source line */}
-        {verified && p.data_source && !compact && (
+        {isHighTrust && p.data_source && !compact && (
           <p className="text-[10px] text-emerald-600/70 px-0.5">
             Source: {p.data_source}
           </p>
