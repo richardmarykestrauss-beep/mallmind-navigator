@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useAuth } from "@/context/AuthContext";
-import MobileShell from "@/components/MobileShell";
 import AdminGuard from "./AdminGuard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -43,6 +42,10 @@ import {
   Bot,
   ShieldAlert,
   ListChecks,
+  Cpu,
+  Copy,
+  Layers,
+  Pencil,
 } from "lucide-react";
 import {
   verifyProductPrice,
@@ -56,6 +59,11 @@ import {
   createMallDataFinding,
   reviewMallDataFinding,
   reviewDataSubmission,
+  runSourceResearch,
+  runFindingExtractor,
+  runDuplicateDetection,
+  runAdminReviewAssistant,
+  runLiveDataApplyPlanner,
   isGoogleBackendConfigured,
   type PriceVerificationMethod,
   type HealthCheckResult,
@@ -70,6 +78,11 @@ import {
   type DataGuardianResult,
   type DataGuardianTrustLevel,
   type DataGuardianRecommendedAction,
+  type SourceResearchResult,
+  type FindingExtractorResult,
+  type DuplicateDetectionResult,
+  type AdminReviewAssistantResult,
+  type LiveDataApplyPlannerResult,
 } from "@/lib/googleBackendClient";
 import { cn } from "@/lib/utils";
 
@@ -1421,8 +1434,9 @@ function DataGuardian() {
   }
 
   return (
-    <div className="space-y-3">
-      {/* ── Form ─────────────────────────────────────────────────────────── */}
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:items-start">
+
+      {/* ── Left: Form ───────────────────────────────────────────────────── */}
       <Card>
         <CardContent className="space-y-3 pt-4 pb-4">
 
@@ -1561,8 +1575,16 @@ function DataGuardian() {
         </CardContent>
       </Card>
 
-      {/* ── Result ───────────────────────────────────────────────────────── */}
-      {result && (
+      {/* ── Right: Result ────────────────────────────────────────────────── */}
+      <div>
+        {!result && !loading && (
+          <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed py-14 text-center">
+            <Bot className="h-7 w-7 text-muted-foreground/20" />
+            <p className="text-sm text-muted-foreground">Run a review to see the result here</p>
+            <p className="text-xs text-muted-foreground/60">Trust level, confidence score, and missing evidence will appear in this panel.</p>
+          </div>
+        )}
+        {result && (
         <div className="space-y-3">
           {/* must_not_update_live_data banner */}
           {result.must_not_update_live_data ? (
@@ -1672,7 +1694,8 @@ function DataGuardian() {
             Review another submission
           </button>
         </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
@@ -2334,28 +2357,562 @@ function MallDataCompiler() {
   );
 }
 
+// ── DataIntelligenceBots ──────────────────────────────────────────────────────
+
+type BotTab = "source" | "extractor" | "duplicates" | "assistant" | "planner";
+
+const BOT_TABS: { id: BotTab; label: string; icon: React.ReactNode }[] = [
+  { id: "source",     label: "Source",      icon: <Globe        className="h-3.5 w-3.5" /> },
+  { id: "extractor",  label: "Extractor",   icon: <Pencil       className="h-3.5 w-3.5" /> },
+  { id: "duplicates", label: "Duplicates",  icon: <Copy         className="h-3.5 w-3.5" /> },
+  { id: "assistant",  label: "Reviewer",    icon: <ListChecks   className="h-3.5 w-3.5" /> },
+  { id: "planner",    label: "Planner",     icon: <Layers       className="h-3.5 w-3.5" /> },
+];
+
+/** Colour classes for bot risk level */
+function riskClass(level?: string): string {
+  switch (level) {
+    case "critical": return "bg-red-100 text-red-800";
+    case "high":     return "bg-orange-100 text-orange-800";
+    case "medium":   return "bg-yellow-100 text-yellow-800";
+    case "low":      return "bg-green-100 text-green-800";
+    default:         return "bg-muted text-muted-foreground";
+  }
+}
+
+/** Colour classes for live data action safety */
+function safetyClass(s?: string): string {
+  switch (s) {
+    case "safe_to_plan":      return "bg-green-100 text-green-800";
+    case "requires_review":   return "bg-yellow-100 text-yellow-800";
+    case "do_not_apply":      return "bg-orange-100 text-orange-800";
+    case "blocked_by_policy": return "bg-red-100 text-red-800";
+    default:                  return "bg-muted text-muted-foreground";
+  }
+}
+
+/** Common result header shown above each bot output */
+function BotResultHeader({ result }: { result: { bot_name: string; risk_level: string; live_data_action_safety: string; must_not_update_live_data: boolean } }) {
+  return (
+    <div className="flex flex-wrap gap-1.5 mb-2">
+      <span className={cn("inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium", riskClass(result.risk_level))}>
+        Risk: {result.risk_level}
+      </span>
+      <span className={cn("inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium", safetyClass(result.live_data_action_safety))}>
+        {result.live_data_action_safety.replace(/_/g, " ")}
+      </span>
+      {result.must_not_update_live_data && (
+        <span className="inline-flex items-center gap-0.5 rounded bg-red-50 px-1.5 py-0.5 text-[10px] font-medium text-red-700">
+          <ShieldAlert className="h-3 w-3" /> No live update
+        </span>
+      )}
+    </div>
+  );
+}
+
+/** Numbered reasoning list */
+function ReasoningList({ items }: { items: string[] }) {
+  return (
+    <ol className="mt-1.5 space-y-0.5 pl-4 list-decimal text-xs text-muted-foreground">
+      {items.map((r, i) => <li key={i}>{r}</li>)}
+    </ol>
+  );
+}
+
+// ── Tab: Source Research ──────────────────────────────────────────────────────
+
+function SourceResearchTab({ token }: { token: string }) {
+  const [url,   setUrl]   = useState("");
+  const [name,  setName]  = useState("");
+  const [desc,  setDesc]  = useState("");
+  const [by,    setBy]    = useState<"user" | "admin" | "retailer" | "mall" | "system">("admin");
+  const [result, setResult] = useState<SourceResearchResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error,   setError]   = useState<string | null>(null);
+
+  async function run() {
+    setLoading(true); setError(null); setResult(null);
+    try {
+      const r = await runSourceResearch({ source_url: url || undefined, source_name: name || undefined, source_description: desc || undefined, submitted_by_type: by }, token);
+      setResult(r);
+    } catch (e) { setError(String(e)); }
+    finally { setLoading(false); }
+  }
+
+  return (
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:items-start">
+      {/* Left: form */}
+      <div className="space-y-3">
+        <p className="text-xs text-muted-foreground">Classify a source URL or name. Blocks Google Maps / Apple Maps / Yelp / Foursquare by policy.</p>
+        <div className="space-y-2">
+          <Input placeholder="Source URL (optional)" value={url}  onChange={(e) => setUrl(e.target.value)}  className="h-8 text-xs" />
+          <Input placeholder="Source name (optional)" value={name} onChange={(e) => setName(e.target.value)} className="h-8 text-xs" />
+          <Input placeholder="Description (optional)" value={desc} onChange={(e) => setDesc(e.target.value)} className="h-8 text-xs" />
+          <Select value={by} onValueChange={(v) => setBy(v as typeof by)}>
+            <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {(["user","admin","retailer","mall","system"] as const).map((v) => (
+                <SelectItem key={v} value={v}>{v}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <Button size="sm" className="w-full" onClick={run} disabled={loading || !token}>
+          {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Run Source Research Bot"}
+        </Button>
+        {error && <p className="text-xs text-destructive">{error}</p>}
+      </div>
+      {/* Right: result */}
+      <div>
+        {!result && !loading && (
+          <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed py-10 text-center">
+            <Globe className="h-6 w-6 text-muted-foreground/20" />
+            <p className="text-xs text-muted-foreground">Result will appear here</p>
+          </div>
+        )}
+        {result && (
+          <div className="rounded-md border bg-muted/30 p-3 space-y-2">
+            <BotResultHeader result={result} />
+            <div className="text-xs space-y-0.5">
+              <p><span className="font-medium">Category:</span> {result.source_category}</p>
+              <p><span className="font-medium">Trust ceiling:</span> {result.trust_ceiling}</p>
+              {result.is_restricted && <p className="text-red-700 font-medium">⛔ {result.restriction_reason}</p>}
+            </div>
+            {result.sa_relevance_signals.length > 0 && (
+              <div className="text-xs"><span className="font-medium">SA signals:</span> {result.sa_relevance_signals.join("; ")}</div>
+            )}
+            {result.quality_flags.length > 0 && (
+              <div className="text-xs text-yellow-700"><span className="font-medium">Quality flags:</span> {result.quality_flags.join("; ")}</div>
+            )}
+            <ReasoningList items={result.reasoning} />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Tab: Finding Extractor ────────────────────────────────────────────────────
+
+function FindingExtractorTab({ token }: { token: string }) {
+  const [text, setText] = useState("");
+  const [hint, setHint] = useState("unknown");
+  const [result, setResult] = useState<FindingExtractorResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error,   setError]   = useState<string | null>(null);
+
+  const HINT_TYPES = ["unknown","shop_listing","price","trading_hours","promotion","floor_layout","product"];
+
+  async function run() {
+    setLoading(true); setError(null); setResult(null);
+    try {
+      const r = await runFindingExtractor({ raw_text: text, hint_finding_type: hint !== "unknown" ? hint as never : undefined }, token);
+      setResult(r);
+    } catch (e) { setError(String(e)); }
+    finally { setLoading(false); }
+  }
+
+  return (
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:items-start">
+      {/* Left: form */}
+      <div className="space-y-3">
+        <p className="text-xs text-muted-foreground">Parse prices, floor codes, shop names and trading hours from free-form text.</p>
+        <textarea
+          className="w-full rounded-md border bg-background px-3 py-2 text-xs resize-none h-28 focus:outline-none focus:ring-1 focus:ring-ring"
+          placeholder="Paste raw text here..."
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+        />
+        <Select value={hint} onValueChange={setHint}>
+          <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Hint finding type" /></SelectTrigger>
+          <SelectContent>
+            {HINT_TYPES.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        <Button size="sm" className="w-full" onClick={run} disabled={loading || !text || !token}>
+          {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Run Finding Extractor Bot"}
+        </Button>
+        {error && <p className="text-xs text-destructive">{error}</p>}
+      </div>
+      {/* Right: result */}
+      <div>
+        {!result && !loading && (
+          <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed py-10 text-center">
+            <Pencil className="h-6 w-6 text-muted-foreground/20" />
+            <p className="text-xs text-muted-foreground">Extracted fields will appear here</p>
+          </div>
+        )}
+        {result && (
+          <div className="rounded-md border bg-muted/30 p-3 space-y-2">
+            <BotResultHeader result={result} />
+            <p className="text-xs font-medium">{result.extraction_summary}</p>
+            {result.extracted_findings.map((f, i) => (
+              <div key={i} className="rounded border bg-background p-2 space-y-1">
+                <p className="text-[10px] font-semibold text-primary uppercase">{f.finding_type}</p>
+                {f.fields.map((fld, j) => (
+                  <div key={j} className="flex items-baseline gap-2 text-xs">
+                    <span className="font-medium w-24 shrink-0">{fld.field}</span>
+                    <span className="text-muted-foreground">{String(fld.value)}</span>
+                    <span className="ml-auto text-[10px] text-muted-foreground/60">{fld.confidence}%</span>
+                  </div>
+                ))}
+              </div>
+            ))}
+            <ReasoningList items={result.reasoning} />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Tab: Duplicate Detection ──────────────────────────────────────────────────
+
+function DuplicateDetectionTab({ token }: { token: string }) {
+  const [name,  setName]  = useState("");
+  const [type,  setType]  = useState<"shop"|"product"|"price"|"other">("shop");
+  const [mallId, setMallId] = useState("");
+  const [result, setResult] = useState<DuplicateDetectionResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error,   setError]   = useState<string | null>(null);
+
+  async function run() {
+    setLoading(true); setError(null); setResult(null);
+    try {
+      const r = await runDuplicateDetection({ finding_type: type, name: name || undefined, mall_id: mallId || undefined }, token);
+      setResult(r);
+    } catch (e) { setError(String(e)); }
+    finally { setLoading(false); }
+  }
+
+  return (
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:items-start">
+      {/* Left: form */}
+      <div className="space-y-3">
+        <p className="text-xs text-muted-foreground">Search existing shops and products for potential duplicates before adding new data.</p>
+        <div className="space-y-2">
+          <Input placeholder="Name to check" value={name}   onChange={(e) => setName(e.target.value)}   className="h-8 text-xs" />
+          <Input placeholder="Mall ID (optional)" value={mallId} onChange={(e) => setMallId(e.target.value)} className="h-8 text-xs" />
+          <Select value={type} onValueChange={(v) => setType(v as typeof type)}>
+            <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {(["shop","product","price","other"] as const).map((v) => (
+                <SelectItem key={v} value={v}>{v}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <Button size="sm" className="w-full" onClick={run} disabled={loading || !name || !token}>
+          {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Run Duplicate Detection Bot"}
+        </Button>
+        {error && <p className="text-xs text-destructive">{error}</p>}
+      </div>
+      {/* Right: result */}
+      <div>
+        {!result && !loading && (
+          <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed py-10 text-center">
+            <Copy className="h-6 w-6 text-muted-foreground/20" />
+            <p className="text-xs text-muted-foreground">Duplicate candidates will appear here</p>
+          </div>
+        )}
+        {result && (
+          <div className="rounded-md border bg-muted/30 p-3 space-y-2">
+            <BotResultHeader result={result} />
+            <p className="text-xs">
+              <span className="font-medium">{result.duplicates_found}</span> candidate(s) found ·{" "}
+              <span className={cn("font-medium", result.dedup_recommendation === "create_new" ? "text-green-700" : result.dedup_recommendation === "link_to_existing" ? "text-orange-700" : "text-yellow-700")}>
+                {result.dedup_recommendation.replace(/_/g, " ")}
+              </span>
+            </p>
+            {result.all_candidates.slice(0, 5).map((c, i) => (
+              <div key={i} className="rounded border bg-background p-2 text-xs space-y-0.5">
+                <p className="font-medium">{c.matched_name}</p>
+                <p className="text-muted-foreground">{c.matched_table} · score {c.match_score}% ({c.match_strength})</p>
+                <p className="text-[10px] text-muted-foreground/70">{c.overlap_reason}</p>
+              </div>
+            ))}
+            <ReasoningList items={result.reasoning} />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Tab: Admin Review Assistant ───────────────────────────────────────────────
+
+function AdminReviewAssistantTab({ token }: { token: string }) {
+  const [guardianJson,  setGuardianJson]  = useState("");
+  const [sourceJson,    setSourceJson]    = useState("");
+  const [dupJson,       setDupJson]       = useState("");
+  const [result, setResult] = useState<AdminReviewAssistantResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error,   setError]   = useState<string | null>(null);
+
+  function safeParse(s: string) {
+    if (!s.trim()) return undefined;
+    try { return JSON.parse(s); } catch { return undefined; }
+  }
+
+  async function run() {
+    setLoading(true); setError(null); setResult(null);
+    try {
+      const r = await runAdminReviewAssistant({
+        guardian_result:  safeParse(guardianJson),
+        source_result:    safeParse(sourceJson),
+        duplicate_result: safeParse(dupJson),
+      }, token);
+      setResult(r);
+    } catch (e) { setError(String(e)); }
+    finally { setLoading(false); }
+  }
+
+  return (
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:items-start">
+      {/* Left: form */}
+      <div className="space-y-3">
+        <p className="text-xs text-muted-foreground">Paste JSON results from other bots to get a synthesised action summary.</p>
+        <textarea className="w-full rounded-md border bg-background px-3 py-2 text-xs resize-none h-16 focus:outline-none focus:ring-1 focus:ring-ring font-mono" placeholder='Guardian result JSON (optional)' value={guardianJson} onChange={(e) => setGuardianJson(e.target.value)} />
+        <textarea className="w-full rounded-md border bg-background px-3 py-2 text-xs resize-none h-16 focus:outline-none focus:ring-1 focus:ring-ring font-mono" placeholder='Source research result JSON (optional)' value={sourceJson}   onChange={(e) => setSourceJson(e.target.value)} />
+        <textarea className="w-full rounded-md border bg-background px-3 py-2 text-xs resize-none h-16 focus:outline-none focus:ring-1 focus:ring-ring font-mono" placeholder='Duplicate detection result JSON (optional)' value={dupJson}      onChange={(e) => setDupJson(e.target.value)} />
+        <Button size="sm" className="w-full" onClick={run} disabled={loading || !token}>
+          {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Run Admin Review Assistant"}
+        </Button>
+        {error && <p className="text-xs text-destructive">{error}</p>}
+      </div>
+      {/* Right: result */}
+      <div>
+        {!result && !loading && (
+          <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed py-10 text-center">
+            <ListChecks className="h-6 w-6 text-muted-foreground/20" />
+            <p className="text-xs text-muted-foreground">Synthesised action list will appear here</p>
+          </div>
+        )}
+        {result && (
+          <div className="rounded-md border bg-muted/30 p-3 space-y-2">
+            <BotResultHeader result={result} />
+            <p className="text-xs font-medium">{result.summary_for_admin}</p>
+            {result.recommended_actions.map((a, i) => (
+              <div key={i} className={cn("rounded border p-2 text-xs", a.priority === "critical" ? "border-red-300 bg-red-50" : a.priority === "high" ? "border-orange-200 bg-orange-50" : "bg-background")}>
+                <p className="font-semibold">{a.action_label}</p>
+                <p className="text-muted-foreground mt-0.5">{a.description}</p>
+              </div>
+            ))}
+            {result.blocker_reasons.length > 0 && (
+              <div className="rounded border border-red-300 bg-red-50 p-2 text-xs text-red-700">
+                <p className="font-semibold">Blockers:</p>
+                <ul className="list-disc pl-4">{result.blocker_reasons.map((r, i) => <li key={i}>{r}</li>)}</ul>
+              </div>
+            )}
+            <ReasoningList items={result.reasoning} />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Tab: Live Data Apply Planner ──────────────────────────────────────────────
+
+function LiveDataApplyPlannerTab({ token }: { token: string }) {
+  const [findingType, setFindingType] = useState<"shop"|"product"|"price"|"trading_hours"|"floor_layout"|"promotion"|"other">("shop");
+  const [trustLevel,  setTrustLevel]  = useState("admin_verified");
+  const [confidence,  setConfidence]  = useState("85");
+  const [recordId,    setRecordId]    = useState("");
+  const [dataJson,    setDataJson]    = useState('{\n  "name": "Game",\n  "floor": "G"\n}');
+  const [result, setResult] = useState<LiveDataApplyPlannerResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error,   setError]   = useState<string | null>(null);
+
+  const TRUST_LEVELS = ["demo","user_submitted","evidence_submitted","source_matched","admin_verified","physically_verified","retailer_verified","mall_verified"];
+  const FINDING_TYPES = ["shop","product","price","trading_hours","floor_layout","promotion","other"] as const;
+
+  async function run() {
+    setLoading(true); setError(null); setResult(null);
+    let parsed: Record<string, unknown> = {};
+    try { parsed = JSON.parse(dataJson); } catch { setError("Invalid JSON in structured_data"); setLoading(false); return; }
+    try {
+      const r = await runLiveDataApplyPlanner({
+        finding_type:     findingType,
+        trust_level:      trustLevel,
+        confidence_score: parseInt(confidence, 10),
+        structured_data:  parsed,
+        target_record_id: recordId || undefined,
+      }, token);
+      setResult(r);
+    } catch (e) { setError(String(e)); }
+    finally { setLoading(false); }
+  }
+
+  return (
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:items-start">
+      {/* Left: form */}
+      <div className="space-y-3">
+        <p className="text-xs text-muted-foreground">Propose a field-level patch plan. Returns a proposal only — no live data is updated.</p>
+        <div className="grid grid-cols-2 gap-2">
+          <Select value={findingType} onValueChange={(v) => setFindingType(v as typeof findingType)}>
+            <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+            <SelectContent>{FINDING_TYPES.map((v) => <SelectItem key={v} value={v}>{v}</SelectItem>)}</SelectContent>
+          </Select>
+          <Select value={trustLevel} onValueChange={setTrustLevel}>
+            <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+            <SelectContent>{TRUST_LEVELS.map((v) => <SelectItem key={v} value={v}>{v}</SelectItem>)}</SelectContent>
+          </Select>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <Input placeholder="Confidence 0-100" value={confidence} onChange={(e) => setConfidence(e.target.value)} className="h-8 text-xs" type="number" min={0} max={100} />
+          <Input placeholder="Target record ID (optional)" value={recordId} onChange={(e) => setRecordId(e.target.value)} className="h-8 text-xs" />
+        </div>
+        <textarea
+          className="w-full rounded-md border bg-background px-3 py-2 text-xs resize-none h-24 focus:outline-none focus:ring-1 focus:ring-ring font-mono"
+          placeholder='Structured data JSON'
+          value={dataJson}
+          onChange={(e) => setDataJson(e.target.value)}
+        />
+        <Button size="sm" className="w-full" onClick={run} disabled={loading || !token}>
+          {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Run Live Data Apply Planner"}
+        </Button>
+        {error && <p className="text-xs text-destructive">{error}</p>}
+      </div>
+      {/* Right: result */}
+      <div>
+        {!result && !loading && (
+          <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed py-10 text-center">
+            <Layers className="h-6 w-6 text-muted-foreground/20" />
+            <p className="text-xs text-muted-foreground">Patch plan will appear here</p>
+          </div>
+        )}
+        {result && (
+          <div className="rounded-md border bg-muted/30 p-3 space-y-2">
+            <BotResultHeader result={result} />
+            {result.plan_blocked && (
+              <div className="rounded border border-red-300 bg-red-50 p-2 text-xs text-red-700 font-medium">
+                ⛔ Plan blocked: {result.block_reason}
+              </div>
+            )}
+            {!result.plan_blocked && (
+              <>
+                <p className="text-xs font-medium">Target: <span className="font-mono">{result.target_table}</span>{result.target_record_id ? ` · ${result.target_record_id}` : " (new)"}</p>
+                <p className="text-xs text-muted-foreground">{result.plan_summary}</p>
+                <div className="space-y-1">
+                  {result.proposed_patches.map((p, i) => (
+                    <div key={i} className="flex items-baseline gap-2 rounded border bg-background p-2 text-xs">
+                      <span className="font-mono font-medium w-28 shrink-0">{p.field}</span>
+                      <span className="text-primary">{String(p.proposed_value)}</span>
+                      <span className="ml-auto text-[10px] text-muted-foreground/60">{p.confidence}%</span>
+                      {p.notes && <span className="text-[10px] text-yellow-700 block w-full mt-0.5">{p.notes}</span>}
+                    </div>
+                  ))}
+                </div>
+                {result.fields_skipped.length > 0 && (
+                  <p className="text-[10px] text-muted-foreground/70">Skipped: {result.fields_skipped.join(", ")}</p>
+                )}
+              </>
+            )}
+            <ReasoningList items={result.reasoning} />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── DataIntelligenceBots container ────────────────────────────────────────────
+
+function DataIntelligenceBots() {
+  const { session } = useAuth();
+  const [activeBotTab, setActiveBotTab] = useState<BotTab>("source");
+  const token = session?.access_token ?? "";
+
+  return (
+    <div className="space-y-4">
+      {/* Policy reminder */}
+      <div className="flex items-center gap-1.5 rounded-md border border-orange-200 bg-orange-50 px-3 py-2 text-[10px] text-orange-800">
+        <ShieldAlert className="h-3.5 w-3.5 shrink-0" />
+        All bot outputs are proposals only. No live data is updated automatically. An explicit admin apply action is always required.
+      </div>
+
+      {/* Bot sub-tabs */}
+      <div className="flex gap-1 overflow-x-auto pb-1 border-b" role="tablist">
+        {BOT_TABS.map((tab) => (
+          <button
+            key={tab.id}
+            role="tab"
+            aria-selected={activeBotTab === tab.id}
+            onClick={() => setActiveBotTab(tab.id)}
+            className={cn(
+              "flex shrink-0 items-center gap-1.5 border-b-2 -mb-px px-3 py-2 text-xs font-medium transition-colors whitespace-nowrap",
+              activeBotTab === tab.id
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            )}
+          >
+            {tab.icon}
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Bot tab content */}
+      <div>
+        {activeBotTab === "source"     && <SourceResearchTab       token={token} />}
+        {activeBotTab === "extractor"  && <FindingExtractorTab     token={token} />}
+        {activeBotTab === "duplicates" && <DuplicateDetectionTab   token={token} />}
+        {activeBotTab === "assistant"  && <AdminReviewAssistantTab token={token} />}
+        {activeBotTab === "planner"    && <LiveDataApplyPlannerTab token={token} />}
+      </div>
+    </div>
+  );
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
+
+type AdminTab =
+  | "overview"
+  | "diagnostics"
+  | "analytics"
+  | "price-trust"
+  | "mall-data"
+  | "guardian"
+  | "bots";
+
+interface AdminTabDef {
+  id:               AdminTab;
+  label:            string;
+  icon:             React.ReactNode;
+  requiresBackend?: boolean;
+}
+
+const ADMIN_TABS: AdminTabDef[] = [
+  { id: "overview",    label: "Overview",      icon: <BarChart3   className="h-3.5 w-3.5" /> },
+  { id: "diagnostics", label: "Diagnostics",   icon: <Activity    className="h-3.5 w-3.5" /> },
+  { id: "analytics",   label: "Analytics",     icon: <TrendingUp  className="h-3.5 w-3.5" />, requiresBackend: true },
+  { id: "price-trust", label: "Price Trust",   icon: <ShieldCheck className="h-3.5 w-3.5" /> },
+  { id: "mall-data",   label: "Mall Data",     icon: <Database    className="h-3.5 w-3.5" />, requiresBackend: true },
+  { id: "guardian",    label: "Data Guardian", icon: <Bot         className="h-3.5 w-3.5" />, requiresBackend: true },
+  { id: "bots",        label: "Bot Suite",     icon: <Cpu         className="h-3.5 w-3.5" />, requiresBackend: true },
+];
 
 function AdminDashboardContent() {
   const { session, profile } = useAuth();
 
-  const [counts, setCounts]                 = useState<Counts | null>(null);
-  const [countsError, setCountsError]       = useState<string | null>(null);
-  const [countsLoading, setCountsLoading]   = useState(true);
+  const [activeTab, setActiveTab] = useState<AdminTab>("overview");
 
-  const [products, setProducts]             = useState<ProductWithShop[]>([]);
-  const [productsError, setProductsError]   = useState<string | null>(null);
+  const [counts, setCounts]                   = useState<Counts | null>(null);
+  const [countsError, setCountsError]         = useState<string | null>(null);
+  const [countsLoading, setCountsLoading]     = useState(true);
+
+  const [products, setProducts]               = useState<ProductWithShop[]>([]);
+  const [productsError, setProductsError]     = useState<string | null>(null);
   const [productsLoading, setProductsLoading] = useState(true);
-  const [refreshKey, setRefreshKey]         = useState(0);
+  const [refreshKey, setRefreshKey]           = useState(0);
 
-  // Founder analytics state
-  const [analytics, setAnalytics]           = useState<AnalyticsSummary | null>(null);
+  const [analytics, setAnalytics]             = useState<AnalyticsSummary | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
-  const [analyticsError, setAnalyticsError] = useState<string | null>(null);
+  const [analyticsError, setAnalyticsError]   = useState<string | null>(null);
 
-  // Default "verified by" name: prefer full_name, fall back to email
-  const defaultVerifiedBy =
-    profile?.full_name ?? session?.user?.email ?? "";
+  const defaultVerifiedBy = profile?.full_name ?? session?.user?.email ?? "";
+  const backendOk         = isGoogleBackendConfigured();
 
   useEffect(() => {
     fetchCounts()
@@ -2373,253 +2930,388 @@ function AdminDashboardContent() {
       .finally(() => setProductsLoading(false));
   }, [refreshKey]);
 
-  // Fetch founder analytics from backend (only if backend is configured)
   useEffect(() => {
-    if (!isGoogleBackendConfigured()) return;
+    if (!backendOk) return;
     setAnalyticsLoading(true);
     setAnalyticsError(null);
     getAdminStats()
       .then((resp) => setAnalytics(resp.analytics))
       .catch((e) => setAnalyticsError(String(e)))
       .finally(() => setAnalyticsLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  function refreshAnalytics() {
+    setAnalyticsLoading(true);
+    setAnalyticsError(null);
+    getAdminStats()
+      .then((resp) => setAnalytics(resp.analytics))
+      .catch((e) => setAnalyticsError(String(e)))
+      .finally(() => setAnalyticsLoading(false));
+  }
+
+  const visibleTabs = ADMIN_TABS.filter((t) => !t.requiresBackend || backendOk);
+
+  const needsBackend = (tab: AdminTab) =>
+    ["analytics", "mall-data", "guardian", "bots"].includes(tab);
+
   return (
-    <MobileShell hideNav>
-      <div className="flex min-h-screen flex-col bg-background">
-        {/* ── Header ── */}
-        <header className="border-b bg-card px-4 py-4">
-          <div className="flex items-center gap-2">
-            <ShieldCheck className="h-5 w-5 text-primary" />
-            <h1 className="text-lg font-semibold">Admin Dashboard</h1>
+    <div className="min-h-screen bg-background">
+
+      {/* ── Sticky admin header + tab bar ─────────────────────────────────── */}
+      <header className="sticky top-0 z-30 border-b bg-card/95 backdrop-blur-sm shadow-sm">
+        <div className="mx-auto max-w-screen-2xl px-4 md:px-6 lg:px-8">
+
+          {/* Title / identity row */}
+          <div className="flex items-center justify-between py-3">
+            <div className="flex items-center gap-3">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+                <ShieldCheck className="h-4 w-4 text-primary" />
+              </div>
+              <div>
+                <h1 className="text-sm font-semibold leading-none sm:text-base">MallMind Admin</h1>
+                <p className="mt-0.5 hidden text-[11px] text-muted-foreground leading-none sm:block">
+                  Founder control centre · data quality, analytics &amp; intelligence bots
+                </p>
+              </div>
+            </div>
+
+            {/* Status pills — hidden on very small screens */}
+            <div className="hidden items-center gap-2 sm:flex">
+              <span className={cn(
+                "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium",
+                backendOk
+                  ? "bg-emerald-100 text-emerald-700"
+                  : "bg-red-100 text-red-700"
+              )}>
+                <span className={cn(
+                  "h-1.5 w-1.5 rounded-full",
+                  backendOk ? "bg-emerald-500" : "bg-red-500"
+                )} />
+                {backendOk ? "Backend connected" : "Backend not set"}
+              </span>
+              {session && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+                  <User className="h-2.5 w-2.5" />
+                  {session.user?.email ?? "Admin"}
+                </span>
+              )}
+            </div>
           </div>
-          <p className="mt-0.5 text-xs text-muted-foreground">Read-only · MallMind Data Engine</p>
-        </header>
 
-        <main className="flex-1 space-y-6 p-4">
-          {/* ── System diagnostics ── */}
-          <SystemDiagnostics />
+          {/* Tab bar */}
+          <div
+            className="flex gap-0 overflow-x-auto scrollbar-hide"
+            role="tablist"
+            aria-label="Admin sections"
+          >
+            {visibleTabs.map((tab) => (
+              <button
+                key={tab.id}
+                role="tab"
+                aria-selected={activeTab === tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={cn(
+                  "flex shrink-0 items-center gap-1.5 border-b-2 px-3 py-2.5 text-xs font-medium transition-colors whitespace-nowrap",
+                  activeTab === tab.id
+                    ? "border-primary text-primary"
+                    : "border-transparent text-muted-foreground hover:border-border hover:text-foreground"
+                )}
+              >
+                {tab.icon}
+                <span>{tab.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </header>
 
-          {/* ── Overview loading / error ── */}
-          {countsLoading && (
-            <div className="flex justify-center py-8">
-              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-            </div>
-          )}
-          {countsError && (
-            <div className="rounded-md border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
-              Failed to load data: {countsError}
-            </div>
-          )}
+      {/* ── Tab content ───────────────────────────────────────────────────── */}
+      <main className="mx-auto max-w-screen-2xl px-4 py-6 md:px-6 lg:px-8">
 
-          {counts && (
-            <>
-              {/* ── Stat cards ── */}
-              <section>
-                <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                  Overview
-                </h2>
-                <div className="grid grid-cols-2 gap-3">
-                  <StatCard
-                    icon={<Store className="h-4 w-4" />}
-                    label="Malls"
-                    value={counts.malls}
-                  />
-                  <StatCard
-                    icon={<ShoppingBag className="h-4 w-4" />}
-                    label="Shops"
-                    value={counts.shops}
-                  />
-                  <StatCard
-                    icon={<Package className="h-4 w-4" />}
-                    label="Products"
-                    value={counts.products.total}
-                    sub="across all shops"
-                  />
-                  <StatCard
-                    icon={<ShieldCheck className="h-4 w-4" />}
-                    label="Verified"
-                    value={counts.products.manually_verified + counts.products.live_feed}
-                    sub="manually verified or live feed"
-                  />
-                </div>
-              </section>
+        {/* ── Overview ────────────────────────────────────────────────────── */}
+        {activeTab === "overview" && (
+          <div className="space-y-8">
 
-              {/* ── Data quality breakdown ── */}
-              <section>
-                <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                  Product Data Quality
-                </h2>
-                <Card>
-                  <CardContent className="space-y-3 pt-4">
-                    {counts.products.live_feed > 0 && (
-                      <QualityRow label="live_feed" count={counts.products.live_feed} total={counts.products.total} color="bg-green-500" />
-                    )}
-                    {counts.products.manually_verified > 0 && (
-                      <QualityRow label="manually_verified" count={counts.products.manually_verified} total={counts.products.total} color="bg-emerald-400" />
-                    )}
-                    <QualityRow label="demo" count={counts.products.demo} total={counts.products.total} color="bg-yellow-400" />
-                    {counts.products.needs_review > 0 && (
-                      <QualityRow label="needs_review" count={counts.products.needs_review} total={counts.products.total} color="bg-orange-400" />
-                    )}
-                    {counts.products.stale > 0 && (
-                      <QualityRow label="stale" count={counts.products.stale} total={counts.products.total} color="bg-red-400" />
-                    )}
-                    {counts.products.user_submitted > 0 && (
-                      <QualityRow label="user_submitted" count={counts.products.user_submitted} total={counts.products.total} color="bg-blue-400" />
-                    )}
-                    <div className="border-t pt-2">
-                      <div className="flex items-center justify-between text-sm font-medium">
-                        <span>Total products</span>
-                        <span>{counts.products.total}</span>
-                      </div>
+            {countsLoading && (
+              <div className="flex justify-center py-12">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            )}
+            {countsError && (
+              <div className="rounded-md border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
+                Failed to load overview: {countsError}
+              </div>
+            )}
+
+            {counts && (
+              <>
+                {/* Stat cards — 4 across on desktop */}
+                <section>
+                  <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Platform snapshot
+                  </h2>
+                  <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+                    <StatCard icon={<Store      className="h-4 w-4" />} label="Malls"    value={counts.malls} />
+                    <StatCard icon={<ShoppingBag className="h-4 w-4" />} label="Shops"    value={counts.shops} />
+                    <StatCard icon={<Package    className="h-4 w-4" />} label="Products" value={counts.products.total} sub="across all shops" />
+                    <StatCard icon={<ShieldCheck className="h-4 w-4" />} label="Verified" value={counts.products.manually_verified + counts.products.live_feed} sub="verified or live feed" />
+                  </div>
+                </section>
+
+                {/* Two-column: quality + quick nav */}
+                <div className="grid gap-6 lg:grid-cols-2">
+                  <section>
+                    <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      Product data quality
+                    </h2>
+                    <Card>
+                      <CardContent className="space-y-3 pt-4 pb-4">
+                        {counts.products.live_feed > 0 && (
+                          <QualityRow label="live_feed"         count={counts.products.live_feed}         total={counts.products.total} color="bg-green-500" />
+                        )}
+                        {counts.products.manually_verified > 0 && (
+                          <QualityRow label="manually_verified" count={counts.products.manually_verified} total={counts.products.total} color="bg-emerald-400" />
+                        )}
+                        <QualityRow label="demo"          count={counts.products.demo}          total={counts.products.total} color="bg-yellow-400" />
+                        {counts.products.needs_review > 0 && (
+                          <QualityRow label="needs_review"  count={counts.products.needs_review}  total={counts.products.total} color="bg-orange-400" />
+                        )}
+                        {counts.products.stale > 0 && (
+                          <QualityRow label="stale"         count={counts.products.stale}         total={counts.products.total} color="bg-red-400" />
+                        )}
+                        {counts.products.user_submitted > 0 && (
+                          <QualityRow label="user_submitted" count={counts.products.user_submitted} total={counts.products.total} color="bg-blue-400" />
+                        )}
+                        <div className="border-t pt-2">
+                          <div className="flex items-center justify-between text-sm font-medium">
+                            <span>Total products</span>
+                            <span>{counts.products.total}</span>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </section>
+
+                  <section className="space-y-4">
+                    <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      Quick nav
+                    </h2>
+                    <div className="grid grid-cols-2 gap-3 text-xs">
+                      {([
+                        { label: "Diagnostics",    tab: "diagnostics" as AdminTab, desc: "Test backend connection",      icon: <Activity    className="h-3.5 w-3.5 text-muted-foreground" /> },
+                        { label: "Analytics",      tab: "analytics"   as AdminTab, desc: "Usage events & search trends", icon: <TrendingUp  className="h-3.5 w-3.5 text-muted-foreground" />, backend: true },
+                        { label: "Price Trust",    tab: "price-trust" as AdminTab, desc: "Verify & correct prices",      icon: <ShieldCheck className="h-3.5 w-3.5 text-muted-foreground" /> },
+                        { label: "Mall Data",      tab: "mall-data"   as AdminTab, desc: "Sources & findings",           icon: <Database    className="h-3.5 w-3.5 text-muted-foreground" />, backend: true },
+                        { label: "Data Guardian",  tab: "guardian"    as AdminTab, desc: "Trust scoring",                icon: <Bot         className="h-3.5 w-3.5 text-muted-foreground" />, backend: true },
+                        { label: "Bot Suite",      tab: "bots"        as AdminTab, desc: "Intelligence bots",            icon: <Cpu         className="h-3.5 w-3.5 text-muted-foreground" />, backend: true },
+                      ] as const).map((item) => {
+                        const disabled = "backend" in item && item.backend && !backendOk;
+                        return (
+                          <button
+                            key={item.tab}
+                            onClick={() => !disabled && setActiveTab(item.tab)}
+                            disabled={disabled}
+                            className={cn(
+                              "flex items-start gap-2 rounded-lg border bg-card px-3 py-2.5 text-left transition-colors",
+                              disabled
+                                ? "opacity-40 cursor-not-allowed"
+                                : "hover:border-primary/40 hover:bg-primary/5"
+                            )}
+                          >
+                            <span className="mt-0.5 shrink-0">{item.icon}</span>
+                            <span>
+                              <span className="block font-medium">{item.label}</span>
+                              <span className="text-muted-foreground">{item.desc}</span>
+                            </span>
+                          </button>
+                        );
+                      })}
                     </div>
-                  </CardContent>
-                </Card>
-              </section>
 
-              {/* ── Next steps hint ── */}
-              <section className="rounded-md border border-dashed p-4 text-xs text-muted-foreground">
-                <p className="font-medium text-foreground">To promote products to VERIFIED_DATA:</p>
-                <ol className="mt-2 list-decimal space-y-1 pl-4">
-                  <li>Run migration <code>007_price_verified_at.sql</code> in Supabase</li>
-                  <li>Run migration <code>008_data_quality_fields.sql</code> in Supabase</li>
-                  <li>Use the <strong>Verify Price</strong> form below for each product</li>
-                </ol>
-              </section>
-            </>
-          )}
+                    <div className="rounded-md border border-dashed p-4 text-xs text-muted-foreground">
+                      <p className="font-medium text-foreground">Promote products to verified status:</p>
+                      <ol className="mt-2 list-decimal space-y-1 pl-4">
+                        <li>Run migration <code>007_price_verified_at.sql</code> in Supabase</li>
+                        <li>Run migration <code>008_data_quality_fields.sql</code> in Supabase</li>
+                        <li>Use <strong>Price Trust → Verification Queue</strong></li>
+                      </ol>
+                    </div>
+                  </section>
+                </div>
+              </>
+            )}
+          </div>
+        )}
 
-          {/* ── Founder Analytics ── */}
-          {isGoogleBackendConfigured() && (
+        {/* ── Diagnostics ─────────────────────────────────────────────────── */}
+        {activeTab === "diagnostics" && (
+          <div className="max-w-2xl space-y-4">
+            <div>
+              <h2 className="text-sm font-semibold">System Diagnostics</h2>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Backend connectivity, session status, and environment health checks.
+              </p>
+            </div>
+            <SystemDiagnostics />
+          </div>
+        )}
+
+        {/* ── Analytics ───────────────────────────────────────────────────── */}
+        {activeTab === "analytics" && backendOk && (
+          <div className="space-y-4">
+            <div className="flex items-start justify-between">
+              <div>
+                <h2 className="text-sm font-semibold">Founder Analytics</h2>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Live usage events, top searches, products viewed, and route requests.
+                </p>
+              </div>
+              <button
+                onClick={refreshAnalytics}
+                className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                Refresh
+              </button>
+            </div>
+            {analyticsLoading && (
+              <div className="flex justify-center py-12">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              </div>
+            )}
+            {analyticsError && (
+              <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+                Failed to load analytics: {analyticsError}
+              </div>
+            )}
+            {!analyticsLoading && !analyticsError && analytics && (
+              <FounderAnalytics data={analytics} />
+            )}
+          </div>
+        )}
+
+        {/* ── Price Trust ─────────────────────────────────────────────────── */}
+        {activeTab === "price-trust" && (
+          <div className="space-y-8">
+            {backendOk && (
+              <section>
+                <h2 className="mb-1 text-sm font-semibold">Price Correction Reports</h2>
+                <p className="mb-4 text-xs text-muted-foreground">
+                  User-reported price corrections awaiting admin review and approval.
+                </p>
+                <PriceCorrectionsQueue />
+              </section>
+            )}
+
             <section>
-              <div className="mb-3 flex items-center justify-between">
-                <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                  <BarChart3 className="h-4 w-4" />
-                  Founder Analytics
-                </h2>
+              <div className="mb-4 flex items-start justify-between">
+                <div>
+                  <h2 className="text-sm font-semibold">Price Verification Queue</h2>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    Manually verify product prices to upgrade their trust status.
+                  </p>
+                </div>
                 <button
-                  onClick={() => {
-                    setAnalyticsLoading(true);
-                    setAnalyticsError(null);
-                    getAdminStats()
-                      .then((resp) => setAnalytics(resp.analytics))
-                      .catch((e) => setAnalyticsError(String(e)))
-                      .finally(() => setAnalyticsLoading(false));
-                  }}
-                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-                  aria-label="Refresh analytics"
+                  onClick={() => setRefreshKey((k) => k + 1)}
+                  className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
                 >
                   <RefreshCw className="h-3.5 w-3.5" />
                   Refresh
                 </button>
               </div>
 
-              {analyticsLoading && (
+              {productsLoading && (
                 <div className="flex justify-center py-8">
                   <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                 </div>
               )}
-
-              {analyticsError && (
+              {productsError && (
                 <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-                  Failed to load analytics: {analyticsError}
+                  Failed to load products: {productsError}
                 </div>
               )}
-
-              {!analyticsLoading && !analyticsError && analytics && (
-                <FounderAnalytics data={analytics} />
+              {!productsLoading && !productsError && products.length === 0 && (
+                <div className="flex flex-col items-center gap-2 py-12 text-center">
+                  <Package className="h-8 w-8 text-muted-foreground/20" />
+                  <p className="text-sm text-muted-foreground">No products found.</p>
+                </div>
+              )}
+              {!productsLoading && products.length > 0 && (
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                  {products.map((product) => (
+                    <ProductVerifyCard
+                      key={product.id}
+                      product={product}
+                      defaultVerifiedBy={defaultVerifiedBy}
+                      onVerified={() => setRefreshKey((k) => k + 1)}
+                    />
+                  ))}
+                </div>
               )}
             </section>
-          )}
+          </div>
+        )}
 
-          {/* ── Price Correction Review Queue ── */}
-          {isGoogleBackendConfigured() && (
-            <section>
-              <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                <Inbox className="h-4 w-4" />
-                Price Correction Reports
-              </h2>
-              <PriceCorrectionsQueue />
-            </section>
-          )}
-
-          {/* ── Data Guardian ── */}
-          {isGoogleBackendConfigured() && (
-            <section>
-              <h2 className="mb-1 flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                <Bot className="h-4 w-4" />
-                Data Guardian
-              </h2>
-              <p className="mb-3 text-xs text-muted-foreground/70">
-                Deterministic trust scoring for any data submission.
-                No live data is updated — findings only.
+        {/* ── Mall Data ───────────────────────────────────────────────────── */}
+        {activeTab === "mall-data" && backendOk && (
+          <div className="space-y-4">
+            <div>
+              <h2 className="text-sm font-semibold">Mall Data Compiler</h2>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Research sources and structured findings — raw data only. No live data writes occur here.
               </p>
-              <DataGuardian />
-            </section>
-          )}
-
-          {/* ── Mall Data Compiler ── */}
-          {isGoogleBackendConfigured() && (
-            <section>
-              <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                <Database className="h-4 w-4" />
-                Mall Data Compiler
-              </h2>
-              <MallDataCompiler />
-            </section>
-          )}
-
-          {/* ── Recent Products (verification queue) ── */}
-          <section>
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                Price Verification Queue
-              </h2>
-              <button
-                onClick={() => setRefreshKey((k) => k + 1)}
-                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-                aria-label="Refresh product list"
-              >
-                <RefreshCw className="h-3.5 w-3.5" />
-                Refresh
-              </button>
             </div>
+            <MallDataCompiler />
+          </div>
+        )}
 
-            {productsLoading && (
-              <div className="flex justify-center py-8">
-                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-              </div>
-            )}
-
-            {productsError && (
-              <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-                Failed to load products: {productsError}
-              </div>
-            )}
-
-            {!productsLoading && !productsError && products.length === 0 && (
-              <p className="py-4 text-center text-sm text-muted-foreground">
-                No products found.
+        {/* ── Data Guardian ───────────────────────────────────────────────── */}
+        {activeTab === "guardian" && backendOk && (
+          <div className="space-y-4">
+            <div>
+              <h2 className="text-sm font-semibold">Data Guardian</h2>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Deterministic trust scoring for any data submission. No live data is updated — findings only.
               </p>
-            )}
+            </div>
+            <DataGuardian />
+          </div>
+        )}
 
-            {!productsLoading && products.length > 0 && (
-              <div className="space-y-3">
-                {products.map((product) => (
-                  <ProductVerifyCard
-                    key={product.id}
-                    product={product}
-                    defaultVerifiedBy={defaultVerifiedBy}
-                    onVerified={() => setRefreshKey((k) => k + 1)}
-                  />
-                ))}
-              </div>
-            )}
-          </section>
-        </main>
-      </div>
-    </MobileShell>
+        {/* ── Bot Suite ───────────────────────────────────────────────────── */}
+        {activeTab === "bots" && backendOk && (
+          <div className="space-y-4">
+            <div>
+              <h2 className="text-sm font-semibold">Data Intelligence Bot Suite</h2>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Five deterministic bots: source classification, field extraction, duplicate detection,
+                review synthesis, and live data apply planning. No AI calls. No live data writes.
+              </p>
+            </div>
+            <DataIntelligenceBots />
+          </div>
+        )}
+
+        {/* ── Backend-required tab but backend not configured ──────────────── */}
+        {needsBackend(activeTab) && !backendOk && (
+          <div className="flex flex-col items-center gap-3 py-20 text-center">
+            <Server className="h-10 w-10 text-muted-foreground/20" />
+            <p className="text-sm font-medium">Backend not configured</p>
+            <p className="max-w-xs text-xs text-muted-foreground">
+              Set <code className="font-mono">VITE_GOOGLE_BACKEND_URL</code> in your .env to enable
+              this section.
+            </p>
+            <button
+              onClick={() => setActiveTab("diagnostics")}
+              className="mt-1 text-xs text-primary hover:underline"
+            >
+              Go to Diagnostics →
+            </button>
+          </div>
+        )}
+      </main>
+    </div>
   );
 }
 

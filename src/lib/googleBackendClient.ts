@@ -886,3 +886,246 @@ export async function reviewDataSubmission(
     accessToken
   );
 }
+
+// ── Data Intelligence Bots types ──────────────────────────────────────────────
+
+export type BotRiskLevel      = "low" | "medium" | "high" | "critical";
+export type BotRecommendation = "proceed" | "proceed_with_caution" | "needs_admin_review" | "reject" | "escalate";
+export type LiveDataActionSafety =
+  | "safe_to_plan"
+  | "requires_review"
+  | "do_not_apply"
+  | "blocked_by_policy";
+
+export interface BotOutputBase {
+  bot_name:                  string;
+  processed_at:              string;
+  risk_level:                BotRiskLevel;
+  recommendation:            BotRecommendation;
+  live_data_action_safety:   LiveDataActionSafety;
+  reasoning:                 string[];
+  must_not_update_live_data: boolean;
+}
+
+// Source Research Bot
+export interface SourceResearchInput {
+  source_url?:         string;
+  source_name?:        string;
+  source_description?: string;
+  submitted_by_type?:  "user" | "admin" | "retailer" | "mall" | "system";
+}
+
+export interface SourceResearchResult extends BotOutputBase {
+  source_category:      string;
+  is_restricted:        boolean;
+  restriction_reason?:  string;
+  trust_ceiling:        string;
+  sa_relevance_signals: string[];
+  quality_flags:        string[];
+}
+
+// Finding Extractor Bot
+export interface FindingExtractorInput {
+  raw_text:           string;
+  hint_finding_type?: string;
+}
+
+export interface ExtractedField {
+  field:           string;
+  value:           string;
+  confidence:      number;
+  pattern_matched: string;
+}
+
+export interface ExtractedFinding {
+  finding_type: string;
+  fields:       ExtractedField[];
+  raw_snippet:  string;
+}
+
+export interface FindingExtractorResult extends BotOutputBase {
+  extracted_findings:     ExtractedFinding[];
+  extraction_summary:     string;
+  total_signals_found:    number;
+  finding_types_detected: string[];
+}
+
+// Duplicate Detection Bot
+export interface DuplicateDetectionInput {
+  finding_type:  "shop" | "product" | "price" | "other";
+  name?:         string;
+  mall_id?:      string;
+  floor?:        string;
+  unit_number?:  string;
+  brand?:        string;
+}
+
+export interface DuplicateCandidate {
+  match_strength:   string;
+  match_score:      number;
+  matched_table:    "shops" | "products";
+  matched_id:       string;
+  matched_name:     string;
+  matched_mall_id?: string;
+  matched_floor?:   string;
+  matched_unit?:    string;
+  overlap_reason:   string;
+}
+
+export interface DuplicateDetectionResult extends BotOutputBase {
+  duplicates_found:     number;
+  top_candidate?:       DuplicateCandidate;
+  all_candidates:       DuplicateCandidate[];
+  dedup_recommendation: "create_new" | "link_to_existing" | "needs_human_review";
+}
+
+// Admin Review Assistant Bot
+export interface AdminReviewAssistantInput {
+  guardian_result?:  DataGuardianResult;
+  source_result?:    SourceResearchResult;
+  duplicate_result?: DuplicateDetectionResult;
+  extractor_result?: FindingExtractorResult;
+}
+
+export interface AdminReviewAction {
+  priority:     "critical" | "high" | "medium" | "low";
+  action_label: string;
+  description:  string;
+}
+
+export interface AdminReviewAssistantResult extends BotOutputBase {
+  overall_risk:        BotRiskLevel;
+  recommended_actions: AdminReviewAction[];
+  summary_for_admin:   string;
+  confidence_score:    number;
+  trust_level?:        string;
+  safe_to_proceed:     boolean;
+  blocker_reasons:     string[];
+}
+
+// Live Data Apply Planner Bot
+export interface LiveDataApplyPlannerInput {
+  finding_type:     "shop" | "product" | "price" | "trading_hours" | "floor_layout" | "promotion" | "other";
+  trust_level:      string;
+  confidence_score: number;
+  structured_data:  Record<string, unknown>;
+  target_record_id?: string;
+  mall_id?:         string;
+}
+
+export interface FieldPatch {
+  field:          string;
+  proposed_value: unknown;
+  current_value?: unknown;
+  confidence:     number;
+  notes?:         string;
+}
+
+export interface LiveDataApplyPlannerResult extends BotOutputBase {
+  target_table:     string;
+  target_record_id?: string;
+  proposed_patches: FieldPatch[];
+  fields_skipped:   string[];
+  plan_summary:     string;
+  plan_blocked:     boolean;
+  block_reason?:    string;
+}
+
+// ── Data Intelligence Bots public API ────────────────────────────────────────
+
+/**
+ * POST /admin/data-bots/source-research
+ *
+ * Classify a source URL/name/description for safety and SA relevance.
+ * Deterministic — no DB reads. Blocks Google Maps / Places sources.
+ * Requires admin bearer token.
+ */
+export async function runSourceResearch(
+  payload: SourceResearchInput,
+  accessToken: string
+): Promise<SourceResearchResult> {
+  if (!BASE_URL) throw new Error("VITE_GOOGLE_BACKEND_URL is not configured");
+  return postAuthWithResponse<SourceResearchResult>(
+    "/admin/data-bots/source-research",
+    payload,
+    accessToken
+  );
+}
+
+/**
+ * POST /admin/data-bots/extract-finding
+ *
+ * Parse structured fields (prices, unit codes, shop names, hours) from raw text.
+ * Deterministic regex extraction — no DB reads.
+ * Requires admin bearer token.
+ */
+export async function runFindingExtractor(
+  payload: FindingExtractorInput,
+  accessToken: string
+): Promise<FindingExtractorResult> {
+  if (!BASE_URL) throw new Error("VITE_GOOGLE_BACKEND_URL is not configured");
+  return postAuthWithResponse<FindingExtractorResult>(
+    "/admin/data-bots/extract-finding",
+    payload,
+    accessToken
+  );
+}
+
+/**
+ * POST /admin/data-bots/detect-duplicates
+ *
+ * Search existing shops/products for potential duplicates of a submission.
+ * Reads Supabase — async. Never writes.
+ * Requires admin bearer token.
+ */
+export async function runDuplicateDetection(
+  payload: DuplicateDetectionInput,
+  accessToken: string
+): Promise<DuplicateDetectionResult> {
+  if (!BASE_URL) throw new Error("VITE_GOOGLE_BACKEND_URL is not configured");
+  return postAuthWithResponse<DuplicateDetectionResult>(
+    "/admin/data-bots/detect-duplicates",
+    payload,
+    accessToken
+  );
+}
+
+/**
+ * POST /admin/data-bots/review-assistant
+ *
+ * Synthesise Guardian + Source + Duplicate + Extractor results into a
+ * prioritised action summary for an admin.
+ * Pure function — accepts pre-run bot results as input.
+ * Requires admin bearer token.
+ */
+export async function runAdminReviewAssistant(
+  payload: AdminReviewAssistantInput,
+  accessToken: string
+): Promise<AdminReviewAssistantResult> {
+  if (!BASE_URL) throw new Error("VITE_GOOGLE_BACKEND_URL is not configured");
+  return postAuthWithResponse<AdminReviewAssistantResult>(
+    "/admin/data-bots/review-assistant",
+    payload,
+    accessToken
+  );
+}
+
+/**
+ * POST /admin/data-bots/plan-apply
+ *
+ * Propose a field-level patch plan for applying a finding to live data.
+ * Returns a proposal ONLY — never writes to shops/products/mall_nodes.
+ * Minimum trust level: admin_verified (rank 4/7).
+ * Requires admin bearer token.
+ */
+export async function runLiveDataApplyPlanner(
+  payload: LiveDataApplyPlannerInput,
+  accessToken: string
+): Promise<LiveDataApplyPlannerResult> {
+  if (!BASE_URL) throw new Error("VITE_GOOGLE_BACKEND_URL is not configured");
+  return postAuthWithResponse<LiveDataApplyPlannerResult>(
+    "/admin/data-bots/plan-apply",
+    payload,
+    accessToken
+  );
+}
