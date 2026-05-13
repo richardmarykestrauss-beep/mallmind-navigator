@@ -1,5 +1,5 @@
 /**
- * mallResearchBatches.ts — Sprint 9E
+ * mallResearchBatches.ts — Sprint 9E/9F
  *
  * REST routes for the Mall Research Batch Workflow.
  * All routes require an admin bearer token.
@@ -8,10 +8,26 @@
  *
  * GUARANTEE: No route in this file writes to shops, products, or mall_nodes.
  * All writes are limited to mall_research_batches and mall_research_batch_items.
+ *
+ * Sprint 9F adds: one-click bot pipeline routes under
+ *   POST /admin/mall-research/items/:itemId/run-<bot>
+ *   POST /admin/mall-research/items/:itemId/run-full-pipeline
  */
 
 import { Router, Request, Response } from "express";
 import { getSupabaseClient }            from "../lib/supabase.js";
+
+// ── Bot service imports (Sprint 9F) ───────────────────────────────────────────
+import { runSourceResearchBot }       from "../services/dataBots/sourceResearchBot.js";
+import { runFindingExtractorBot }     from "../services/dataBots/findingExtractorBot.js";
+import { runDuplicateDetectionBot }   from "../services/dataBots/duplicateDetectionBot.js";
+import { runAdminReviewAssistantBot } from "../services/dataBots/adminReviewAssistantBot.js";
+import { reviewMallDataSubmission }   from "../services/dataGuardianService.js";
+import type { SourceResearchResult }     from "../services/dataBots/sourceResearchBot.js";
+import type { FindingExtractorResult }   from "../services/dataBots/findingExtractorBot.js";
+import type { DuplicateDetectionResult } from "../services/dataBots/duplicateDetectionBot.js";
+import type { AdminReviewAssistantResult } from "../services/dataBots/adminReviewAssistantBot.js";
+import type { DataGuardianResult }       from "../services/dataGuardianService.js";
 
 const router = Router();
 
@@ -425,6 +441,510 @@ router.patch("/batches/:id/status", async (req: Request, res: Response) => {
     return res.json(data);
   } catch (err) {
     console.error("[mall-research/batches/:id/status PATCH]", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Sprint 9F — One-Click Bot Pipeline routes
+// POST /admin/mall-research/items/:itemId/run-<bot>
+// POST /admin/mall-research/items/:itemId/run-full-pipeline
+//
+// GUARANTEE: No route below writes to shops, products, or mall_nodes.
+// All bot outputs are stored in mall_research_batch_items.bot_hints_used only.
+// Item status is NEVER changed automatically.
+// ══════════════════════════════════════════════════════════════════════════════
+
+// ── Shared helpers ────────────────────────────────────────────────────────────
+
+/** Fetch a batch item together with its parent batch (for mall_id context). */
+async function fetchItemWithBatch(itemId: string): Promise<{
+  item: Record<string, unknown>;
+  batch: Record<string, unknown> | null;
+} | null> {
+  const supabase = getSupabaseClient();
+
+  const { data: item, error: itemErr } = await supabase
+    .from("mall_research_batch_items")
+    .select("*")
+    .eq("id", itemId)
+    .maybeSingle();
+
+  if (itemErr || !item) return null;
+
+  const itemRow = item as unknown as Record<string, unknown>;
+  const batchId = itemRow.batch_id as string | undefined;
+
+  if (!batchId) return { item: itemRow, batch: null };
+
+  const { data: batch } = await supabase
+    .from("mall_research_batches")
+    .select("id, mall_id, title")
+    .eq("id", batchId)
+    .maybeSingle();
+
+  return {
+    item:  itemRow,
+    batch: batch ? (batch as unknown as Record<string, unknown>) : null,
+  };
+}
+
+/** Merge a bot result into bot_hints_used JSONB, preserving existing keys. */
+async function saveBotHint(
+  itemId: string,
+  key: string,
+  result: unknown,
+): Promise<Record<string, unknown>> {
+  const supabase = getSupabaseClient();
+
+  // Read current bot_hints_used
+  const { data: current } = await supabase
+    .from("mall_research_batch_items")
+    .select("bot_hints_used")
+    .eq("id", itemId)
+    .maybeSingle();
+
+  const existing = ((current as unknown as Record<string, unknown>)?.bot_hints_used ?? {}) as Record<string, unknown>;
+
+  const merged: Record<string, unknown> = { ...existing, [key]: result };
+
+  await supabase
+    .from("mall_research_batch_items")
+    .update({ bot_hints_used: merged })
+    .eq("id", itemId);
+
+  return merged;
+}
+
+/** Merge extracted_data from finding extractor into item.extracted_data. */
+async function mergeExtractedData(
+  itemId: string,
+  newData: Record<string, unknown>,
+): Promise<void> {
+  const supabase = getSupabaseClient();
+  const { data: current } = await supabase
+    .from("mall_research_batch_items")
+    .select("extracted_data")
+    .eq("id", itemId)
+    .maybeSingle();
+
+  const existing = ((current as unknown as Record<string, unknown>)?.extracted_data ?? {}) as Record<string, unknown>;
+  // Never blindly overwrite — merge with existing keys taking precedence for admin-set fields
+  const merged = { ...newData, ...existing, _extractor_ran_at: new Date().toISOString() };
+
+  await supabase
+    .from("mall_research_batch_items")
+    .update({ extracted_data: merged })
+    .eq("id", itemId);
+}
+
+// ── Helper: build bot inputs from item + batch ────────────────────────────────
+
+function buildSourceInput(item: Record<string, unknown>) {
+  return {
+    source_url:         (item.source_url as string | undefined) ?? undefined,
+    source_name:        (item.source_name as string | undefined) ?? undefined,
+    source_description: (item.raw_text as string | undefined)?.slice(0, 300) ?? undefined,
+    submitted_by_type:  "admin" as const,
+  };
+}
+
+function buildExtractorInput(item: Record<string, unknown>) {
+  return {
+    raw_text:           ((item.raw_text as string | undefined) ?? ""),
+    hint_finding_type:  (item.finding_type as string | undefined) as
+      "shop_listing" | "price" | "trading_hours" | "promotion" | "floor_layout" | "product" | "unknown" | undefined,
+  };
+}
+
+function buildGuardianInput(
+  item: Record<string, unknown>,
+  batch: Record<string, unknown> | null,
+  sourceResult?: SourceResearchResult,
+) {
+  const extractedData = (item.extracted_data as Record<string, unknown> | undefined) ?? {};
+  const hasOfficialSource = sourceResult
+    ? ["official_mall_website", "official_retailer_website"].includes(sourceResult.source_category)
+    : false;
+
+  return {
+    mall_id:                   (batch?.mall_id as string | undefined) ?? undefined,
+    finding_type:              (item.finding_type as string | undefined) ?? "other",
+    submitted_by_type:         "admin" as const,
+    raw_text:                  (item.raw_text as string | undefined) ?? undefined,
+    source_url:                (item.source_url as string | undefined) ?? undefined,
+    structured_data:           extractedData,
+    has_official_source:       hasOfficialSource,
+    has_photo:                 false,
+    has_receipt:               false,
+    has_retailer_confirmation: !!(extractedData.has_retailer_confirmation),
+    has_mall_confirmation:     !!(extractedData.has_mall_confirmation),
+    has_physical_verification: !!(extractedData.has_physical_verification),
+  };
+}
+
+function buildDuplicateInput(
+  item: Record<string, unknown>,
+  batch: Record<string, unknown> | null,
+  extractorResult?: FindingExtractorResult,
+) {
+  // Prefer shop/product name from extractor output fields, else from extracted_data
+  let name: string | undefined;
+  if (extractorResult?.extracted_findings?.length) {
+    const shopField = extractorResult.extracted_findings[0]?.fields
+      ?.find((f) => f.field === "shop_name");
+    name = shopField?.value;
+  }
+  if (!name) {
+    const ed = (item.extracted_data as Record<string, unknown> | undefined) ?? {};
+    name = (ed.name as string | undefined) ?? (ed.shop_name as string | undefined);
+  }
+  // Fallback: first capitalised word sequence from raw_text
+  if (!name && item.raw_text) {
+    const m = (item.raw_text as string).match(/^([A-Z][A-Za-z0-9\s&'.]{1,40})/);
+    if (m) name = m[1].trim();
+  }
+
+  const findingType = (item.finding_type as string | undefined) ?? "other";
+  const dupType: "shop" | "product" | "price" | "other" =
+    findingType === "shop" || findingType === "product" || findingType === "price"
+      ? findingType as "shop" | "product" | "price"
+      : "other";
+
+  return {
+    finding_type: dupType,
+    name,
+    mall_id:      (batch?.mall_id as string | undefined) ?? undefined,
+  };
+}
+
+function buildReviewInput(hints: Record<string, unknown>) {
+  return {
+    guardian_result:  (hints.data_guardian as DataGuardianResult | undefined)          ?? undefined,
+    source_result:    (hints.source_research as SourceResearchResult | undefined)       ?? undefined,
+    duplicate_result: (hints.duplicate_detection as DuplicateDetectionResult | undefined) ?? undefined,
+    extractor_result: (hints.finding_extractor as FindingExtractorResult | undefined)   ?? undefined,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /admin/mall-research/items/:itemId/run-source-research
+// ─────────────────────────────────────────────────────────────────────────────
+
+router.post("/items/:itemId/run-source-research", async (req: Request, res: Response) => {
+  const admin = await requireAdmin(req, res);
+  if (!admin) return;
+  const itemId = req.params.itemId as string;
+
+  try {
+    const ctx = await fetchItemWithBatch(itemId);
+    if (!ctx) return res.status(404).json({ error: "Item not found" });
+
+    const botInput  = buildSourceInput(ctx.item);
+    const botResult = runSourceResearchBot(botInput);
+    const hints     = await saveBotHint(itemId, "source_research", botResult);
+
+    fireAuditLog(admin.user.id, "bot_source_research_run", {
+      item_id:    itemId,
+      risk_level: botResult.risk_level,
+    });
+
+    return res.json({ item_id: itemId, source_research: botResult, bot_hints_used: hints });
+  } catch (err) {
+    console.error("[mall-research/items/run-source-research]", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /admin/mall-research/items/:itemId/run-finding-extractor
+// ─────────────────────────────────────────────────────────────────────────────
+
+router.post("/items/:itemId/run-finding-extractor", async (req: Request, res: Response) => {
+  const admin = await requireAdmin(req, res);
+  if (!admin) return;
+  const itemId = req.params.itemId as string;
+
+  try {
+    const ctx = await fetchItemWithBatch(itemId);
+    if (!ctx) return res.status(404).json({ error: "Item not found" });
+
+    const botInput  = buildExtractorInput(ctx.item);
+    const botResult = runFindingExtractorBot(botInput);
+    const hints     = await saveBotHint(itemId, "finding_extractor", botResult);
+
+    // Optionally merge first finding's fields into extracted_data as staging copy
+    if (botResult.extracted_findings?.length) {
+      const firstFinding = botResult.extracted_findings[0];
+      const staged: Record<string, unknown> = {};
+      for (const f of firstFinding.fields) {
+        staged[f.field] = f.value;
+      }
+      await mergeExtractedData(itemId, staged);
+    }
+
+    fireAuditLog(admin.user.id, "bot_finding_extractor_run", {
+      item_id:           itemId,
+      signals_found:     botResult.total_signals_found,
+      finding_types:     botResult.finding_types_detected,
+    });
+
+    return res.json({ item_id: itemId, finding_extractor: botResult, bot_hints_used: hints });
+  } catch (err) {
+    console.error("[mall-research/items/run-finding-extractor]", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /admin/mall-research/items/:itemId/run-data-guardian
+// ─────────────────────────────────────────────────────────────────────────────
+
+router.post("/items/:itemId/run-data-guardian", async (req: Request, res: Response) => {
+  const admin = await requireAdmin(req, res);
+  if (!admin) return;
+  const itemId = req.params.itemId as string;
+
+  try {
+    const ctx = await fetchItemWithBatch(itemId);
+    if (!ctx) return res.status(404).json({ error: "Item not found" });
+
+    const existingHints = ((ctx.item.bot_hints_used ?? {}) as Record<string, unknown>);
+    const botInput  = buildGuardianInput(
+      ctx.item,
+      ctx.batch,
+      existingHints.source_research as SourceResearchResult | undefined,
+    );
+    const botResult = reviewMallDataSubmission(botInput);
+    const hints     = await saveBotHint(itemId, "data_guardian", botResult);
+
+    fireAuditLog(admin.user.id, "bot_data_guardian_run", {
+      item_id:          itemId,
+      trust_level:      botResult.trust_level,
+      confidence_score: botResult.confidence_score,
+    });
+
+    return res.json({ item_id: itemId, data_guardian: botResult, bot_hints_used: hints });
+  } catch (err) {
+    console.error("[mall-research/items/run-data-guardian]", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /admin/mall-research/items/:itemId/run-duplicate-check
+// ─────────────────────────────────────────────────────────────────────────────
+
+router.post("/items/:itemId/run-duplicate-check", async (req: Request, res: Response) => {
+  const admin = await requireAdmin(req, res);
+  if (!admin) return;
+  const itemId = req.params.itemId as string;
+
+  try {
+    const ctx = await fetchItemWithBatch(itemId);
+    if (!ctx) return res.status(404).json({ error: "Item not found" });
+
+    const existingHints = ((ctx.item.bot_hints_used ?? {}) as Record<string, unknown>);
+    const botInput  = buildDuplicateInput(
+      ctx.item,
+      ctx.batch,
+      existingHints.finding_extractor as FindingExtractorResult | undefined,
+    );
+    const botResult = await runDuplicateDetectionBot(botInput);
+    const hints     = await saveBotHint(itemId, "duplicate_detection", botResult);
+
+    fireAuditLog(admin.user.id, "bot_duplicate_check_run", {
+      item_id:          itemId,
+      duplicates_found: botResult.duplicates_found,
+      recommendation:   botResult.dedup_recommendation,
+    });
+
+    return res.json({ item_id: itemId, duplicate_detection: botResult, bot_hints_used: hints });
+  } catch (err) {
+    console.error("[mall-research/items/run-duplicate-check]", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /admin/mall-research/items/:itemId/run-admin-review
+// ─────────────────────────────────────────────────────────────────────────────
+
+router.post("/items/:itemId/run-admin-review", async (req: Request, res: Response) => {
+  const admin = await requireAdmin(req, res);
+  if (!admin) return;
+  const itemId = req.params.itemId as string;
+
+  try {
+    const ctx = await fetchItemWithBatch(itemId);
+    if (!ctx) return res.status(404).json({ error: "Item not found" });
+
+    const existingHints = ((ctx.item.bot_hints_used ?? {}) as Record<string, unknown>);
+    const botInput  = buildReviewInput(existingHints);
+    const botResult = runAdminReviewAssistantBot(botInput);
+    const hints     = await saveBotHint(itemId, "admin_review", botResult);
+
+    fireAuditLog(admin.user.id, "bot_admin_review_run", {
+      item_id:         itemId,
+      overall_risk:    botResult.overall_risk,
+      safe_to_proceed: botResult.safe_to_proceed,
+      actions_count:   botResult.recommended_actions.length,
+    });
+
+    return res.json({ item_id: itemId, admin_review: botResult, bot_hints_used: hints });
+  } catch (err) {
+    console.error("[mall-research/items/run-admin-review]", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /admin/mall-research/items/:itemId/run-full-pipeline
+//
+// Runs all 5 bots in sequence. Steps that fail are saved as errors;
+// pipeline continues unless a critical policy block is hit.
+// Item status is NEVER changed automatically.
+// ─────────────────────────────────────────────────────────────────────────────
+
+router.post("/items/:itemId/run-full-pipeline", async (req: Request, res: Response) => {
+  const admin = await requireAdmin(req, res);
+  if (!admin) return;
+  const itemId = req.params.itemId as string;
+
+  const warnings: string[] = [];
+  const stepsCompleted: string[] = [];
+
+  try {
+    const ctx = await fetchItemWithBatch(itemId);
+    if (!ctx) return res.status(404).json({ error: "Item not found" });
+
+    const supabase   = getSupabaseClient();
+    let hints        = ((ctx.item.bot_hints_used ?? {}) as Record<string, unknown>);
+
+    // Helper: read fresh hints from DB
+    async function refreshHints(): Promise<Record<string, unknown>> {
+      const { data } = await supabase
+        .from("mall_research_batch_items")
+        .select("bot_hints_used")
+        .eq("id", itemId)
+        .maybeSingle();
+      return ((data as unknown as Record<string, unknown>)?.bot_hints_used ?? {}) as Record<string, unknown>;
+    }
+
+    // ── Step 1: Source Research (only if source URL or name present) ──────────
+    if (ctx.item.source_url || ctx.item.source_name) {
+      try {
+        const result = runSourceResearchBot(buildSourceInput(ctx.item));
+        hints = await saveBotHint(itemId, "source_research", result);
+        stepsCompleted.push("source_research");
+
+        // Hard stop on restricted source
+        if (result.is_restricted) {
+          warnings.push(`POLICY BLOCK: ${result.restriction_reason ?? "Restricted source"}. Pipeline halted.`);
+          hints = await refreshHints();
+          await saveBotHint(itemId, "pipeline", {
+            last_run_at: new Date().toISOString(),
+            steps_completed: stepsCompleted,
+            warnings,
+            halted_at: "source_research",
+          });
+          return res.json({
+            item_id: itemId,
+            steps_completed: stepsCompleted,
+            warnings,
+            halted_at: "source_research",
+            bot_hints_used: await refreshHints(),
+          });
+        }
+      } catch (e) {
+        warnings.push(`source_research failed: ${String(e)}`);
+        await saveBotHint(itemId, "source_research_error", { error: String(e) });
+      }
+    }
+
+    // ── Step 2: Finding Extractor ─────────────────────────────────────────────
+    let extractorResult: FindingExtractorResult | undefined;
+    if (ctx.item.raw_text) {
+      try {
+        extractorResult = runFindingExtractorBot(buildExtractorInput(ctx.item));
+        hints = await saveBotHint(itemId, "finding_extractor", extractorResult);
+        stepsCompleted.push("finding_extractor");
+
+        if (extractorResult.extracted_findings?.length) {
+          const staged: Record<string, unknown> = {};
+          for (const f of extractorResult.extracted_findings[0].fields) {
+            staged[f.field] = f.value;
+          }
+          await mergeExtractedData(itemId, staged);
+        }
+      } catch (e) {
+        warnings.push(`finding_extractor failed: ${String(e)}`);
+        await saveBotHint(itemId, "finding_extractor_error", { error: String(e) });
+      }
+    } else {
+      warnings.push("finding_extractor skipped — no raw_text on item");
+    }
+
+    // ── Step 3: Data Guardian ─────────────────────────────────────────────────
+    try {
+      hints = await refreshHints();
+      const guardianInput = buildGuardianInput(
+        ctx.item,
+        ctx.batch,
+        hints.source_research as SourceResearchResult | undefined,
+      );
+      const guardianResult = reviewMallDataSubmission(guardianInput);
+      hints = await saveBotHint(itemId, "data_guardian", guardianResult);
+      stepsCompleted.push("data_guardian");
+    } catch (e) {
+      warnings.push(`data_guardian failed: ${String(e)}`);
+      await saveBotHint(itemId, "data_guardian_error", { error: String(e) });
+    }
+
+    // ── Step 4: Duplicate Detection ───────────────────────────────────────────
+    try {
+      hints = await refreshHints();
+      const dupInput = buildDuplicateInput(ctx.item, ctx.batch, extractorResult);
+      const dupResult = await runDuplicateDetectionBot(dupInput);
+      hints = await saveBotHint(itemId, "duplicate_detection", dupResult);
+      stepsCompleted.push("duplicate_detection");
+    } catch (e) {
+      warnings.push(`duplicate_detection failed: ${String(e)}`);
+      await saveBotHint(itemId, "duplicate_detection_error", { error: String(e) });
+    }
+
+    // ── Step 5: Admin Review Assistant ────────────────────────────────────────
+    try {
+      hints = await refreshHints();
+      const reviewResult = runAdminReviewAssistantBot(buildReviewInput(hints));
+      hints = await saveBotHint(itemId, "admin_review", reviewResult);
+      stepsCompleted.push("admin_review");
+    } catch (e) {
+      warnings.push(`admin_review failed: ${String(e)}`);
+      await saveBotHint(itemId, "admin_review_error", { error: String(e) });
+    }
+
+    // ── Save pipeline metadata ────────────────────────────────────────────────
+    await saveBotHint(itemId, "pipeline", {
+      last_run_at:     new Date().toISOString(),
+      steps_completed: stepsCompleted,
+      warnings,
+    });
+
+    fireAuditLog(admin.user.id, "bot_full_pipeline_run", {
+      item_id:         itemId,
+      steps_completed: stepsCompleted,
+      warnings_count:  warnings.length,
+    });
+
+    return res.json({
+      item_id:         itemId,
+      steps_completed: stepsCompleted,
+      warnings,
+      bot_hints_used:  await refreshHints(),
+    });
+  } catch (err) {
+    console.error("[mall-research/items/run-full-pipeline]", err);
     return res.status(500).json({ error: "Internal server error" });
   }
 });

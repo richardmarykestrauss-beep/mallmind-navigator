@@ -1341,3 +1341,140 @@ export async function updateMallResearchBatchStatus(
     accessToken
   );
 }
+
+// ── One-Click Bot Pipeline types (Sprint 9F) ──────────────────────────────────
+
+export interface PipelineBotResult {
+  item_id:         string;
+  bot_hints_used:  Record<string, unknown>;
+  steps_completed?: string[];
+  warnings?:        string[];
+  halted_at?:       string;
+  // Individual bot outputs — whichever were run
+  source_research?:     Record<string, unknown>;
+  finding_extractor?:   Record<string, unknown>;
+  data_guardian?:       Record<string, unknown>;
+  duplicate_detection?: Record<string, unknown>;
+  admin_review?:        Record<string, unknown>;
+}
+
+// ── One-Click Bot Pipeline public API ─────────────────────────────────────────
+
+/**
+ * POST /admin/mall-research/items/:itemId/run-source-research
+ *
+ * Run Source Research Bot on a batch item's source URL/name.
+ * Saves result to item.bot_hints_used.source_research.
+ * Requires admin bearer token.
+ */
+export async function runResearchItemSourceResearch(
+  itemId: string,
+  accessToken: string
+): Promise<PipelineBotResult> {
+  if (!BASE_URL) throw new Error("VITE_GOOGLE_BACKEND_URL is not configured");
+  return postAuthWithResponse<PipelineBotResult>(
+    `/admin/mall-research/items/${itemId}/run-source-research`,
+    {},
+    accessToken
+  );
+}
+
+/**
+ * POST /admin/mall-research/items/:itemId/run-finding-extractor
+ *
+ * Run Finding Extractor Bot on a batch item's raw text.
+ * Saves result to item.bot_hints_used.finding_extractor.
+ * Also merges extracted fields into item.extracted_data (staging only).
+ * Requires admin bearer token.
+ */
+export async function runResearchItemFindingExtractor(
+  itemId: string,
+  accessToken: string
+): Promise<PipelineBotResult> {
+  if (!BASE_URL) throw new Error("VITE_GOOGLE_BACKEND_URL is not configured");
+  return postAuthWithResponse<PipelineBotResult>(
+    `/admin/mall-research/items/${itemId}/run-finding-extractor`,
+    {},
+    accessToken
+  );
+}
+
+/**
+ * POST /admin/mall-research/items/:itemId/run-data-guardian
+ *
+ * Run Data Guardian on a batch item.
+ * Saves result to item.bot_hints_used.data_guardian.
+ * Requires admin bearer token.
+ */
+export async function runResearchItemDataGuardian(
+  itemId: string,
+  accessToken: string
+): Promise<PipelineBotResult> {
+  if (!BASE_URL) throw new Error("VITE_GOOGLE_BACKEND_URL is not configured");
+  return postAuthWithResponse<PipelineBotResult>(
+    `/admin/mall-research/items/${itemId}/run-data-guardian`,
+    {},
+    accessToken
+  );
+}
+
+/**
+ * POST /admin/mall-research/items/:itemId/run-duplicate-check
+ *
+ * Run Duplicate Detection Bot on a batch item.
+ * Saves result to item.bot_hints_used.duplicate_detection.
+ * Requires admin bearer token.
+ */
+export async function runResearchItemDuplicateCheck(
+  itemId: string,
+  accessToken: string
+): Promise<PipelineBotResult> {
+  if (!BASE_URL) throw new Error("VITE_GOOGLE_BACKEND_URL is not configured");
+  return postAuthWithResponse<PipelineBotResult>(
+    `/admin/mall-research/items/${itemId}/run-duplicate-check`,
+    {},
+    accessToken
+  );
+}
+
+/**
+ * POST /admin/mall-research/items/:itemId/run-admin-review
+ *
+ * Run Admin Review Assistant on a batch item, synthesising all previously
+ * run bot outputs in bot_hints_used.
+ * Saves result to item.bot_hints_used.admin_review.
+ * Requires admin bearer token.
+ */
+export async function runResearchItemAdminReview(
+  itemId: string,
+  accessToken: string
+): Promise<PipelineBotResult> {
+  if (!BASE_URL) throw new Error("VITE_GOOGLE_BACKEND_URL is not configured");
+  return postAuthWithResponse<PipelineBotResult>(
+    `/admin/mall-research/items/${itemId}/run-admin-review`,
+    {},
+    accessToken
+  );
+}
+
+/**
+ * POST /admin/mall-research/items/:itemId/run-full-pipeline
+ *
+ * Run all 5 bots in sequence: Source Research → Finding Extractor →
+ * Data Guardian → Duplicate Detection → Admin Review Assistant.
+ * Saves each output to bot_hints_used. Steps that fail are saved as errors;
+ * pipeline continues where safe.
+ * Item status is NEVER changed automatically.
+ * Requires admin bearer token.
+ */
+export async function runResearchItemFullPipeline(
+  itemId: string,
+  accessToken: string
+): Promise<PipelineBotResult> {
+  if (!BASE_URL) throw new Error("VITE_GOOGLE_BACKEND_URL is not configured");
+  return postAuthWithResponse<PipelineBotResult>(
+    `/admin/mall-research/items/${itemId}/run-full-pipeline`,
+    {},
+    accessToken
+  );
+}

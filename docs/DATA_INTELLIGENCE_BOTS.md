@@ -341,8 +341,40 @@ The bot suite surfaces these risks deterministically. A human admin is always th
 
 ---
 
+---
+
+## Research Batch Integration (Sprint 9F)
+
+All five bots can now run directly from Research Batch items via one-click buttons in the Admin Dashboard → Research Batches tab.
+
+### New endpoints (Sprint 9F)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/admin/mall-research/items/:id/run-source-research`  | Run Source Research Bot on item |
+| POST | `/admin/mall-research/items/:id/run-finding-extractor` | Run Finding Extractor Bot on item |
+| POST | `/admin/mall-research/items/:id/run-data-guardian`    | Run Data Guardian on item |
+| POST | `/admin/mall-research/items/:id/run-duplicate-check`  | Run Duplicate Detection on item |
+| POST | `/admin/mall-research/items/:id/run-admin-review`     | Run Admin Review Assistant on item |
+| POST | `/admin/mall-research/items/:id/run-full-pipeline`    | Run all 5 bots in sequence |
+
+Bot outputs are saved to `mall_research_batch_items.bot_hints_used` JSONB — never to `shops`, `products`, or `mall_nodes`.
+Item status is never changed automatically by a bot run.
+
+### Standalone Bot Suite tab
+
+The Bot Suite tab remains fully functional and useful for:
+- **Testing bots with freeform input** — paste any raw text or URL without creating a batch item
+- **One-off source validation** — check a source URL before starting a research session
+- **Debugging bot behaviour** — run individual bots with controlled inputs and inspect the full JSON response
+- **Live Data Apply Planner** — generate a patch plan from any structured data, not just batch items
+
+The Research Batch integration is the **production workflow** (input derived from real batch items, outputs saved back). The Bot Suite tab is the **sandbox** (freeform input, no persistence).
+
+---
+
 ## Roadmap
 
-- **Sprint 10:** Wire bot pipeline into Mall Data Compiler findings review flow — one-click "run all bots" on a pending finding
-- **Sprint 11:** Apply Planner → admin confirm → actual `UPDATE` call (first live data write)
-- **Sprint 12:** Batch processing — run bots against all pending findings in a queue
+- **Sprint 10:** Apply Planner → admin confirm → actual `UPDATE` call (first live data write from batch item)
+- **Sprint 11:** Batch processing — run full pipeline against all pending items in a batch queue
+- **Sprint 12:** Mall Data Compiler findings → Research Batch bridge — import compiler findings as batch items

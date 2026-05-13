@@ -57,6 +57,10 @@ import {
   XCircle,
   Flag,
   RotateCcw,
+  Zap,
+  AlertTriangle,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import {
   verifyProductPrice,
@@ -81,6 +85,12 @@ import {
   createMallResearchBatchItem,
   reviewMallResearchBatchItem,
   updateMallResearchBatchStatus,
+  runResearchItemSourceResearch,
+  runResearchItemFindingExtractor,
+  runResearchItemDataGuardian,
+  runResearchItemDuplicateCheck,
+  runResearchItemAdminReview,
+  runResearchItemFullPipeline,
   isGoogleBackendConfigured,
   type PriceVerificationMethod,
   type HealthCheckResult,
@@ -106,6 +116,7 @@ import {
   type MallResearchBatchStatus,
   type MallResearchItemStatus,
   type MallResearchFindingType,
+  type PipelineBotResult,
 } from "@/lib/googleBackendClient";
 import { cn } from "@/lib/utils";
 
@@ -2935,16 +2946,114 @@ function itemStatusClasses(status: MallResearchItemStatus): string {
 
 // ── Batch Item Row ────────────────────────────────────────────────────────────
 
+// ── Bot output summary sub-component ─────────────────────────────────────────
+
+function BotOutputSection({
+  label,
+  data,
+}: {
+  label: string;
+  data: Record<string, unknown> | undefined;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  if (!data) return null;
+
+  const recommendation = (data.recommendation ?? data.recommended_action ?? data.dedup_recommendation) as string | undefined;
+  const riskLevel      = (data.risk_level ?? data.overall_risk) as string | undefined;
+  const trustLevel     = (data.trust_level) as string | undefined;
+  const confidence     = (data.confidence_score) as number | undefined;
+  const safeToProc     = (data.safe_to_proceed) as boolean | undefined;
+  const isRestricted   = data.is_restricted as boolean | undefined;
+  const reasoning      = (data.reasoning ?? data.reasoning_summary) as string | string[] | undefined;
+  const summary        = (data.extraction_summary ?? data.summary_for_admin ?? data.admin_note ?? data.plan_summary) as string | undefined;
+
+  const reasoningText = Array.isArray(reasoning)
+    ? reasoning.slice(0, 2).join(" · ")
+    : reasoning?.slice(0, 160);
+
+  const riskColor = !riskLevel ? "" :
+    riskLevel === "low"      ? "text-green-700" :
+    riskLevel === "medium"   ? "text-yellow-700" :
+    riskLevel === "critical" ? "text-red-700" : "text-orange-700";
+
+  return (
+    <div className="rounded border bg-muted/30 text-[11px]">
+      <button
+        className="flex w-full items-center justify-between px-2.5 py-1.5 text-left hover:bg-muted/50 transition-colors"
+        onClick={() => setExpanded((v) => !v)}
+      >
+        <span className="font-semibold">{label}</span>
+        <div className="flex items-center gap-2">
+          {isRestricted && <span className="rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-800">BLOCKED</span>}
+          {riskLevel && <span className={cn("text-[10px]", riskColor)}>{riskLevel}</span>}
+          {trustLevel && <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] text-blue-800">{trustLevel}</span>}
+          {confidence !== undefined && <span className="text-muted-foreground">{confidence}%</span>}
+          {safeToProc === true  && <span className="rounded bg-green-100 px-1 py-0.5 text-[10px] text-green-800">safe</span>}
+          {safeToProc === false && <span className="rounded bg-orange-100 px-1 py-0.5 text-[10px] text-orange-800">review</span>}
+          {recommendation && <span className="text-muted-foreground italic truncate max-w-[100px]">{recommendation}</span>}
+          {expanded ? <ChevronUp className="h-3 w-3 text-muted-foreground" /> : <ChevronDown className="h-3 w-3 text-muted-foreground" />}
+        </div>
+      </button>
+      {expanded && (
+        <div className="border-t px-2.5 py-2 space-y-1.5">
+          {summary && <p className="text-muted-foreground">{summary}</p>}
+          {reasoningText && <p className="text-muted-foreground">{reasoningText}</p>}
+          <details className="mt-1">
+            <summary className="cursor-pointer text-[10px] text-muted-foreground hover:text-foreground">Raw JSON</summary>
+            <pre className="mt-1 max-h-48 overflow-auto rounded bg-muted p-2 text-[10px] leading-relaxed">
+              {JSON.stringify(data, null, 2)}
+            </pre>
+          </details>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── BatchItemRow ──────────────────────────────────────────────────────────────
+
 function BatchItemRow({
-  item,
+  item: initialItem,
+  token,
   onReview,
 }: {
   item: MallResearchBatchItem;
+  token: string;
   onReview: (itemId: string, status: MallResearchItemStatus, notes: string) => Promise<void>;
 }) {
   const [open,    setOpen]    = useState(false);
+  const [item,    setItem]    = useState<MallResearchBatchItem>(initialItem);
   const [notes,   setNotes]   = useState(item.admin_notes ?? "");
   const [saving,  setSaving]  = useState(false);
+
+  // Bot action state — track which bot is currently running
+  const [running, setRunning] = useState<string | null>(null);
+  const [botError, setBotError] = useState<string | null>(null);
+
+  // hints live view — keep in sync with item.bot_hints_used
+  const hints = (item.bot_hints_used ?? {}) as Record<string, unknown>;
+  const pipeline = hints.pipeline as Record<string, unknown> | undefined;
+  const stepsCompleted = (pipeline?.steps_completed ?? []) as string[];
+
+  async function runBot(
+    label: string,
+    fn: (itemId: string, token: string) => Promise<PipelineBotResult>
+  ) {
+    setRunning(label);
+    setBotError(null);
+    try {
+      const result = await fn(item.id, token);
+      // Merge returned bot_hints_used into local item state
+      setItem((prev) => ({
+        ...prev,
+        bot_hints_used: result.bot_hints_used,
+      }));
+    } catch (e) {
+      setBotError(String(e));
+    } finally {
+      setRunning(null);
+    }
+  }
 
   async function handleReview(status: MallResearchItemStatus) {
     setSaving(true);
@@ -2955,6 +3064,13 @@ function BatchItemRow({
       setOpen(false);
     }
   }
+
+  const anyRunning = running !== null;
+
+  // Derive suggested action from Admin Review bot output
+  const adminReview = hints.admin_review as Record<string, unknown> | undefined;
+  const suggestedAction = adminReview?.recommended_actions as Array<{ priority: string; action_label: string; description: string }> | undefined;
+  const topAction = suggestedAction?.find((a) => a.priority === "critical" || a.priority === "high") ?? suggestedAction?.[0];
 
   return (
     <div className="rounded-lg border bg-card text-xs">
@@ -2969,14 +3085,17 @@ function BatchItemRow({
         )}>
           {ITEM_STATUS_LABELS[item.status]}
         </span>
-        <span className={cn(
-          "mt-0.5 shrink-0 rounded border px-1.5 py-0.5 text-[10px] text-muted-foreground"
-        )}>
+        <span className="mt-0.5 shrink-0 rounded border px-1.5 py-0.5 text-[10px] text-muted-foreground">
           {RESEARCH_FINDING_TYPES.find((t) => t.value === item.finding_type)?.label ?? item.finding_type}
         </span>
+        {stepsCompleted.length > 0 && (
+          <span className="mt-0.5 shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary">
+            {stepsCompleted.length} bot{stepsCompleted.length !== 1 ? "s" : ""}
+          </span>
+        )}
         <span className="flex-1 truncate text-foreground/80">
           {item.raw_text
-            ? item.raw_text.slice(0, 120)
+            ? item.raw_text.slice(0, 100)
             : item.source_url ?? item.source_name ?? "(no text)"}
         </span>
         <ChevronRight className={cn("h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform", open && "rotate-90")} />
@@ -2984,7 +3103,8 @@ function BatchItemRow({
 
       {/* Expanded detail */}
       {open && (
-        <div className="border-t px-3 py-3 space-y-3">
+        <div className="border-t px-3 py-3 space-y-4">
+          {/* Raw text + source */}
           {item.raw_text && (
             <div>
               <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">Raw text</p>
@@ -3011,27 +3131,103 @@ function BatchItemRow({
             </div>
           )}
 
-          {/* Bot hints hint strip */}
-          <div className="flex flex-wrap gap-2 rounded bg-muted/50 px-3 py-2">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground self-center">Bot hints:</span>
-            {[
-              { label: "Source Research",   hint: "Run Source Research Bot with the source URL above" },
-              { label: "Find & Extract",    hint: "Run Finding Extractor Bot with the raw text above" },
-              { label: "Check Duplicates",  hint: "Run Duplicate Detection Bot with the shop/product name" },
-              { label: "Data Guardian",     hint: "Run Data Guardian to score trust level" },
-            ].map((b) => (
-              <span
-                key={b.label}
-                title={b.hint}
-                className="cursor-help rounded border bg-card px-2 py-0.5 text-[10px] text-foreground/70 hover:bg-primary/5"
-              >
-                {b.label}
-              </span>
-            ))}
+          {/* Advisory banner */}
+          <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
+            <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+            <span>
+              <strong>Bot outputs are advisory.</strong> They do not update live mall data.
+              Only admin review/apply workflows can change live shops, products, or mall_nodes.
+            </span>
           </div>
 
-          {/* Admin notes + action buttons */}
+          {/* Bot Action buttons */}
           <div className="space-y-2">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Bot Actions</p>
+            <div className="flex flex-wrap gap-2">
+              {[
+                { key: "source",    label: "Source",    runLabel: "Running Source…",    fn: runResearchItemSourceResearch,    hasOutput: !!hints.source_research },
+                { key: "extract",   label: "Extract",   runLabel: "Extracting…",         fn: runResearchItemFindingExtractor,  hasOutput: !!hints.finding_extractor },
+                { key: "guardian",  label: "Guardian",  runLabel: "Reviewing…",          fn: runResearchItemDataGuardian,      hasOutput: !!hints.data_guardian },
+                { key: "duplicate", label: "Duplicate", runLabel: "Checking…",           fn: runResearchItemDuplicateCheck,    hasOutput: !!hints.duplicate_detection },
+                { key: "review",    label: "Review",    runLabel: "Reviewing…",          fn: runResearchItemAdminReview,       hasOutput: !!hints.admin_review },
+              ].map(({ key, label, runLabel, fn, hasOutput }) => (
+                <button
+                  key={key}
+                  disabled={anyRunning}
+                  onClick={() => runBot(key, fn)}
+                  className={cn(
+                    "flex items-center gap-1 rounded border px-2.5 py-1 transition-colors disabled:opacity-50",
+                    hasOutput
+                      ? "border-primary/40 bg-primary/5 text-primary hover:bg-primary/10"
+                      : "bg-card text-foreground/70 hover:bg-muted"
+                  )}
+                >
+                  {running === key
+                    ? <><Loader2 className="h-3 w-3 animate-spin" />{runLabel}</>
+                    : <>{hasOutput ? <CheckCircle className="h-3 w-3" /> : <Bot className="h-3 w-3" />}{label}</>
+                  }
+                </button>
+              ))}
+              <button
+                disabled={anyRunning}
+                onClick={() => runBot("pipeline", runResearchItemFullPipeline)}
+                className={cn(
+                  "flex items-center gap-1 rounded border border-primary/30 bg-primary/10 px-2.5 py-1 font-medium text-primary transition-colors hover:bg-primary/20 disabled:opacity-50"
+                )}
+              >
+                {running === "pipeline"
+                  ? <><Loader2 className="h-3 w-3 animate-spin" />Running Pipeline…</>
+                  : <><Zap className="h-3 w-3" />Run Full Pipeline</>
+                }
+              </button>
+            </div>
+            {botError && (
+              <p className="text-[11px] text-destructive">{botError}</p>
+            )}
+          </div>
+
+          {/* Suggested action from Admin Review bot */}
+          {topAction && (
+            <div className={cn(
+              "flex items-start gap-2 rounded-lg border px-3 py-2 text-[11px]",
+              topAction.priority === "critical" ? "border-red-200 bg-red-50 text-red-900" :
+              topAction.priority === "high"     ? "border-orange-200 bg-orange-50 text-orange-900" :
+              "border-blue-200 bg-blue-50 text-blue-900"
+            )}>
+              <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+              <div>
+                <p className="font-semibold">Bot suggestion: {topAction.action_label}</p>
+                <p className="mt-0.5 text-[10px] opacity-80">{topAction.description}</p>
+                <p className="mt-1 text-[10px] italic opacity-70">
+                  This is advisory only. Use the Accept/Reject/Flag buttons below to make your decision.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Bot outputs (compact, expandable) */}
+          {(hints.source_research || hints.finding_extractor || hints.data_guardian || hints.duplicate_detection || hints.admin_review) && (
+            <div className="space-y-1.5">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Bot Outputs</p>
+              <BotOutputSection label="Source Research"    data={hints.source_research as Record<string, unknown> | undefined} />
+              <BotOutputSection label="Finding Extractor"  data={hints.finding_extractor as Record<string, unknown> | undefined} />
+              <BotOutputSection label="Data Guardian"      data={hints.data_guardian as Record<string, unknown> | undefined} />
+              <BotOutputSection label="Duplicate Detection" data={hints.duplicate_detection as Record<string, unknown> | undefined} />
+              <BotOutputSection label="Admin Recommendation" data={hints.admin_review as Record<string, unknown> | undefined} />
+              {pipeline && (
+                <p className="text-[10px] text-muted-foreground">
+                  Pipeline last run: {new Date(pipeline.last_run_at as string).toLocaleString("en-ZA")}
+                  {(pipeline.warnings as string[] | undefined)?.length
+                    ? ` · ${(pipeline.warnings as string[]).length} warning(s)`
+                    : ""}
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Admin notes + review action buttons */}
+          <div className="space-y-2 border-t pt-3">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Admin Decision</p>
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
@@ -3312,6 +3508,7 @@ function BatchDetailView({
               <BatchItemRow
                 key={item.id}
                 item={item}
+                token={token}
                 onReview={handleReviewItem}
               />
             ))

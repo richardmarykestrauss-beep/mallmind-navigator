@@ -1,6 +1,6 @@
 # MallMind Mall Research Batch Workflow
 
-Sprint 9E · MallMind Navigator
+Sprint 9E/9F · MallMind Navigator
 
 ---
 
@@ -248,9 +248,126 @@ The admin is always the final decision-maker.
 
 ---
 
+---
+
+## One-Click Bot Pipeline (Sprint 9F)
+
+Each batch item now has direct bot action buttons — no need to copy-paste text between Research Batches and the Bot Suite tab.
+
+### What each button does
+
+| Button | Bot | What it uses from the item |
+|--------|-----|---------------------------|
+| **Source** | Source Research Bot | `source_url`, `source_name`, `raw_text` (as description) |
+| **Extract** | Finding Extractor Bot | `raw_text`, `finding_type` as hint |
+| **Guardian** | Data Guardian | `raw_text`, `source_url`, `finding_type`, `batch.mall_id`, `extracted_data`, source_research result |
+| **Duplicate** | Duplicate Detection Bot | Shop/product name from extractor output or `extracted_data`, `batch.mall_id` |
+| **Review** | Admin Review Assistant | All previously run bot outputs in `bot_hints_used` |
+| **Run Full Pipeline** | All 5 bots in sequence | Everything above, step by step |
+
+### Why outputs are saved to `bot_hints_used`
+
+`bot_hints_used` is a JSONB staging field on each batch item. It is the only field that bot pipeline writes touch — no `shops`, `products`, or `mall_nodes` are touched. Storing outputs here lets the admin:
+- Re-open a batch item days later and see prior bot analysis
+- Run individual bots in any order
+- Pass all outputs to Admin Review Assistant for a synthesised recommendation
+- Keep a full audit trail of bot reasoning
+
+### Storage format
+
+```json
+{
+  "source_research":     { ... SourceResearchResult ... },
+  "finding_extractor":   { ... FindingExtractorResult ... },
+  "data_guardian":       { ... DataGuardianResult ... },
+  "duplicate_detection": { ... DuplicateDetectionResult ... },
+  "admin_review":        { ... AdminReviewAssistantResult ... },
+  "pipeline": {
+    "last_run_at": "2026-05-13T10:00:00.000Z",
+    "steps_completed": ["source_research", "finding_extractor", "data_guardian", "duplicate_detection", "admin_review"],
+    "warnings": []
+  }
+}
+```
+
+### Why live data is not updated automatically
+
+1. Bot outputs are advisory — deterministic rules applied to unverified text.
+2. Trust level must be `admin_verified` (rank 4/7) or higher before even a patch *plan* can be generated.
+3. Even a patch plan requires a separate, explicit admin apply action to write to `shops`/`products`.
+4. Item status is never changed by a bot run — the admin clicks Accept/Reject/Flag manually.
+
+### Suggested workflow for a new mall (e.g. Mall@Reds)
+
+1. Create a batch: "Mall@Reds — June 2026 survey"
+2. For each shop/price finding, add a batch item with raw text + source URL
+3. For each item, click **Run Full Pipeline**
+4. Check the "Bot Outputs" panel:
+   - **Source Research**: is the source trusted? Is it blocked by policy?
+   - **Finding Extractor**: did it extract the right shop name, floor, unit?
+   - **Data Guardian**: what trust level and confidence score did it assign?
+   - **Duplicate Detection**: is there already a Game / Woolworths entry for this mall?
+   - **Admin Recommendation**: what's the synthesised action?
+5. Read the "Bot suggestion" banner for the top recommended action
+6. Make your decision — click Accept, Reject, or Flag
+7. When a batch item is accepted with sufficient trust, use the Bot Suite → Live Data Apply Planner to generate a patch plan
+8. Apply patch manually via direct DB access or a future Apply workflow
+
+### Example — Mall@Reds Game item
+
+**Raw text:**
+> Game is listed as Shop G01 on Ground Floor. Category Electronics.
+
+**Expected bot outputs after pipeline:**
+- Source Research: `source_category: unknown`, `risk_level: medium` (no source URL)
+- Finding Extractor: extracts `shop_name: Game`, `floor: Ground Floor`, `unit_code: G01`
+- Data Guardian: `trust_level: user_submitted` (no official source), `confidence_score: ~30`
+- Duplicate Detection: finds existing Game shop if `mall_id` is set, returns `link_to_existing` recommendation
+- Admin Review: `overall_risk: medium`, suggests "Needs admin cross-check — duplicate candidate found"
+
+**Admin decision:** Review the duplicate candidate. If it's the same Game shop, reject this item (already exists). If it's a new location, accept and run Apply Planner.
+
+### How to interpret bot recommendations
+
+| Recommendation | Meaning |
+|----------------|---------|
+| `proceed` | Source is trusted — safe to continue |
+| `proceed_with_caution` | Semi-official source — cross-check recommended |
+| `needs_admin_review` | Low-trust or ambiguous — human must decide |
+| `reject` | Policy block or no data — do not use |
+| `create_new` | No duplicate found — safe to create a new record |
+| `link_to_existing` | Match found — verify and link to existing record |
+| `approve_for_admin_review` | Guardian says trust is sufficient for admin to decide |
+
+### What to do after Admin Review Assistant recommends an action
+
+The Admin Review Assistant shows a **suggestion banner** in the item row. It is advisory only.
+
+- If it says "Accept" → verify the extracted data looks correct, then click **Accept**
+- If it says "Reject" or "BLOCKED" → click **Reject** and add a note
+- If it says "needs_more_info" → click **Flag** and note what's missing
+- Never click Accept just because the bot said so — always read the raw text and extractor output
+
+---
+
+## Troubleshooting
+
+| Problem | Solution |
+|---------|---------|
+| `Cannot add items to an archived batch` | Change batch status to `open` or `in_progress` first |
+| Item stays `pending` after review | Only the first transition from `pending` to a reviewed state records `reviewed_by` and `reviewed_at` |
+| `item_count` seems stale | The count is updated fire-and-forget — refresh the batch detail to get the accurate item list count |
+| Batch not visible in list | Check the status filter — it may be filtering to a specific status |
+| Bot action buttons unresponsive | Ensure the backend URL is configured (`VITE_GOOGLE_BACKEND_URL`) and you are logged in as admin |
+| Pipeline halted at source_research | Source URL matched a restricted pattern (Google Maps etc.) — use mall's official website |
+| Finding Extractor extracts nothing | Raw text may be too short or contain no structured signals — add more detail |
+| Duplicate bot returns no candidates | Check that `batch.mall_id` is set and the item's shop name is spelled correctly |
+| Admin Review returns no actions | Run at least one other bot first — Admin Review synthesises prior bot outputs |
+
+---
+
 ## Roadmap
 
-- **Sprint 10:** One-click "Run all bots" on a pending batch item — sends raw_text + source_url through the full bot pipeline and saves results to `bot_hints_used`
-- **Sprint 11:** "Apply to live data" button on accepted items with `trust_level >= admin_verified` — calls Live Data Apply Planner then admin confirm → actual `UPDATE`
-- **Sprint 12:** Bulk import — paste a list of raw text observations → auto-creates one item per line
+- **Sprint 10:** "Apply to live data" button on accepted items with `trust_level >= admin_verified` — calls Live Data Apply Planner then admin confirm → actual `UPDATE`
+- **Sprint 11:** Bulk import — paste a list of raw text observations → auto-creates one item per line
 - **Sprint 13:** Mall comparison batches — compare findings across multiple batches for the same mall over time
