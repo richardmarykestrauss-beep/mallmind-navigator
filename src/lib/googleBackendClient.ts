@@ -402,6 +402,66 @@ export interface ReviewMallDataFindingRequest {
   confidence?: number | null;
 }
 
+// ── Data Guardian types ───────────────────────────────────────────────────────
+
+export interface DataGuardianInput {
+  mall_id?: string;
+  source_type?: string;
+  finding_type?: string;
+  submitted_by_type?: "user" | "admin" | "retailer" | "mall" | "system";
+  raw_text?: string;
+  source_url?: string;
+  evidence_types?: string[];
+  structured_data?: Record<string, unknown>;
+  observed_at?: string;
+  has_photo?: boolean;
+  has_receipt?: boolean;
+  has_official_source?: boolean;
+  has_retailer_confirmation?: boolean;
+  has_mall_confirmation?: boolean;
+  has_physical_verification?: boolean;
+}
+
+export type DataGuardianRecommendedAction =
+  | "create_finding"
+  | "needs_more_info"
+  | "reject"
+  | "approve_for_admin_review"
+  | "apply_to_existing_record";
+
+export type DataGuardianTrustLevel =
+  | "demo"
+  | "user_submitted"
+  | "evidence_submitted"
+  | "source_matched"
+  | "admin_verified"
+  | "physically_verified"
+  | "retailer_verified"
+  | "mall_verified";
+
+export type DataGuardianFindingType =
+  | "shop"
+  | "product"
+  | "price"
+  | "trading_hours"
+  | "floor_layout"
+  | "route_hint"
+  | "promotion"
+  | "other";
+
+export interface DataGuardianResult {
+  recommended_action: DataGuardianRecommendedAction;
+  finding_type: DataGuardianFindingType;
+  trust_level: DataGuardianTrustLevel;
+  confidence_score: number;
+  safe_badge: string;
+  reasoning_summary: string;
+  missing_evidence: string[];
+  structured_data: Record<string, unknown>;
+  admin_note: string;
+  must_not_update_live_data: boolean;
+}
+
 // ── Internal HTTP helpers ─────────────────────────────────────────────────────
 
 async function post<T>(path: string, body: unknown): Promise<T> {
@@ -426,6 +486,31 @@ async function post<T>(path: string, body: unknown): Promise<T> {
     throw new Error(message);
   }
 
+  return res.json() as Promise<T>;
+}
+
+async function postAuthWithResponse<T>(
+  path: string,
+  body: unknown,
+  accessToken: string
+): Promise<T> {
+  const url = `${BASE_URL}${path}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    let message = `Google backend error ${res.status} on ${path}`;
+    try {
+      const err = (await res.json()) as { error?: string };
+      if (err.error) message = err.error;
+    } catch { /* ignore */ }
+    throw new Error(message);
+  }
   return res.json() as Promise<T>;
 }
 
@@ -776,4 +861,28 @@ export async function reviewMallDataFinding(
     throw new Error(message);
   }
   return res.json() as Promise<{ ok: boolean; action: string; new_status: string }>;
+}
+
+// ── Data Guardian public API ──────────────────────────────────────────────────
+
+/**
+ * POST /admin/data-guardian/review
+ *
+ * Deterministic trust scoring for a mall data submission.
+ * Returns a structured review result with trust level, confidence score,
+ * safe badge wording, missing evidence list, and recommended action.
+ *
+ * Does NOT write to shops, products, or mall_nodes.
+ * Requires admin bearer token.
+ */
+export async function reviewDataSubmission(
+  payload: DataGuardianInput,
+  accessToken: string
+): Promise<DataGuardianResult> {
+  if (!BASE_URL) throw new Error("VITE_GOOGLE_BACKEND_URL is not configured");
+  return postAuthWithResponse<DataGuardianResult>(
+    "/admin/data-guardian/review",
+    payload,
+    accessToken
+  );
 }

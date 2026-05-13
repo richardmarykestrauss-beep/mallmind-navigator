@@ -40,6 +40,9 @@ import {
   Plus,
   ExternalLink,
   X,
+  Bot,
+  ShieldAlert,
+  ListChecks,
 } from "lucide-react";
 import {
   verifyProductPrice,
@@ -52,6 +55,7 @@ import {
   getMallDataFindings,
   createMallDataFinding,
   reviewMallDataFinding,
+  reviewDataSubmission,
   isGoogleBackendConfigured,
   type PriceVerificationMethod,
   type HealthCheckResult,
@@ -62,6 +66,10 @@ import {
   type MallDataSourceType,
   type MallDataFindingType,
   type MallDataFindingStatus,
+  type DataGuardianInput,
+  type DataGuardianResult,
+  type DataGuardianTrustLevel,
+  type DataGuardianRecommendedAction,
 } from "@/lib/googleBackendClient";
 import { cn } from "@/lib/utils";
 
@@ -1251,6 +1259,424 @@ function PriceCorrectionsQueue() {
   );
 }
 
+// ── DataGuardian ──────────────────────────────────────────────────────────────
+
+const GUARDIAN_FINDING_TYPES = [
+  { value: "shop",          label: "Shop" },
+  { value: "product",       label: "Product" },
+  { value: "price",         label: "Price" },
+  { value: "trading_hours", label: "Trading Hours" },
+  { value: "floor_layout",  label: "Floor Layout" },
+  { value: "route_hint",    label: "Route Hint" },
+  { value: "promotion",     label: "Promotion" },
+  { value: "other",         label: "Other" },
+];
+
+const GUARDIAN_SOURCE_TYPES = [
+  { value: "official_website",  label: "Official Website" },
+  { value: "retail_directory",  label: "Retail Directory" },
+  { value: "public_flyer",      label: "Public Flyer" },
+  { value: "manual_survey",     label: "Manual Survey" },
+  { value: "press_release",     label: "Press Release" },
+  { value: "social_media",      label: "Social Media" },
+  { value: "other",             label: "Other" },
+];
+
+const GUARDIAN_SUBMITTER_TYPES: {
+  value: DataGuardianInput["submitted_by_type"];
+  label: string;
+}[] = [
+  { value: "user",      label: "User (shopper)" },
+  { value: "admin",     label: "Admin" },
+  { value: "retailer",  label: "Retailer" },
+  { value: "mall",      label: "Mall management" },
+  { value: "system",    label: "System" },
+];
+
+/** Colour classes for each trust level. */
+function trustBadgeClass(trust: DataGuardianTrustLevel): string {
+  switch (trust) {
+    case "mall_verified":      return "bg-primary/15 text-primary";
+    case "retailer_verified":  return "bg-emerald-100 text-emerald-800";
+    case "physically_verified": return "bg-emerald-100 text-emerald-700";
+    case "admin_verified":     return "bg-blue-100 text-blue-700";
+    case "source_matched":     return "bg-sky-100 text-sky-700";
+    case "evidence_submitted": return "bg-amber-100 text-amber-700";
+    case "user_submitted":     return "bg-orange-100 text-orange-700";
+    default:                   return "bg-muted text-muted-foreground";
+  }
+}
+
+/** Colour classes for recommended action. */
+function actionBadgeClass(action: DataGuardianRecommendedAction): string {
+  switch (action) {
+    case "apply_to_existing_record":  return "bg-primary/15 text-primary";
+    case "approve_for_admin_review":  return "bg-emerald-100 text-emerald-700";
+    case "create_finding":            return "bg-blue-100 text-blue-700";
+    case "needs_more_info":           return "bg-amber-100 text-amber-700";
+    case "reject":                    return "bg-red-100 text-red-700";
+  }
+}
+
+function actionLabel(action: DataGuardianRecommendedAction): string {
+  switch (action) {
+    case "apply_to_existing_record":  return "Apply to existing record";
+    case "approve_for_admin_review":  return "Approve for admin review";
+    case "create_finding":            return "Create finding";
+    case "needs_more_info":           return "Needs more information";
+    case "reject":                    return "Reject";
+  }
+}
+
+function ConfidenceBar({ score }: { score: number }) {
+  const color =
+    score >= 85 ? "bg-emerald-500" :
+    score >= 65 ? "bg-blue-500"    :
+    score >= 45 ? "bg-amber-500"   :
+                  "bg-red-400";
+  return (
+    <div className="flex items-center gap-2">
+      <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
+        <div
+          className={cn("h-full rounded-full transition-all", color)}
+          style={{ width: `${score}%` }}
+        />
+      </div>
+      <span className="shrink-0 text-xs font-semibold w-8 text-right">{score}%</span>
+    </div>
+  );
+}
+
+function DataGuardian() {
+  const { session } = useAuth();
+
+  // ── Form state ─────────────────────────────────────────────────────────────
+  const [findingType,   setFindingType]   = useState("shop");
+  const [submitterType, setSubmitterType] = useState<DataGuardianInput["submitted_by_type"]>("user");
+  const [sourceType,    setSourceType]    = useState("other");
+  const [rawText,       setRawText]       = useState("");
+  const [structuredJson, setStructuredJson] = useState("{}");
+  const [observedAt,    setObservedAt]    = useState("");
+
+  // Checkboxes
+  const [hasPhoto,          setHasPhoto]          = useState(false);
+  const [hasReceipt,        setHasReceipt]        = useState(false);
+  const [hasOfficialSource, setHasOfficialSource] = useState(false);
+  const [retailerConfirmed, setRetailerConfirmed] = useState(false);
+  const [mallConfirmed,     setMallConfirmed]     = useState(false);
+  const [physicallyVerified, setPhysicallyVerified] = useState(false);
+
+  // ── Result state ───────────────────────────────────────────────────────────
+  const [result,   setResult]   = useState<DataGuardianResult | null>(null);
+  const [loading,  setLoading]  = useState(false);
+  const [error,    setError]    = useState<string | null>(null);
+
+  async function handleReview() {
+    if (!session?.access_token) {
+      setError("No active session. Please sign in again.");
+      return;
+    }
+
+    // Validate JSON
+    let parsedData: Record<string, unknown> = {};
+    try {
+      parsedData = JSON.parse(structuredJson || "{}");
+    } catch {
+      setError("Structured data must be valid JSON.");
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    setResult(null);
+
+    const payload: DataGuardianInput = {
+      finding_type:             findingType,
+      submitted_by_type:        submitterType,
+      source_type:              sourceType,
+      raw_text:                 rawText.trim() || undefined,
+      structured_data:          parsedData,
+      observed_at:              observedAt || undefined,
+      has_photo:                hasPhoto,
+      has_receipt:              hasReceipt,
+      has_official_source:      hasOfficialSource,
+      has_retailer_confirmation: retailerConfirmed,
+      has_mall_confirmation:    mallConfirmed,
+      has_physical_verification: physicallyVerified,
+    };
+
+    try {
+      const res = await reviewDataSubmission(payload, session.access_token);
+      setResult(res);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Review failed. Check backend connection.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function handleReset() {
+    setResult(null);
+    setError(null);
+  }
+
+  return (
+    <div className="space-y-3">
+      {/* ── Form ─────────────────────────────────────────────────────────── */}
+      <Card>
+        <CardContent className="space-y-3 pt-4 pb-4">
+
+          {/* Row 1: Finding type + Submitted by */}
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-[10px] text-muted-foreground">Finding type</label>
+              <Select value={findingType} onValueChange={setFindingType}>
+                <SelectTrigger className="mt-0.5 h-8 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {GUARDIAN_FINDING_TYPES.map((t) => (
+                    <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-[10px] text-muted-foreground">Submitted by</label>
+              <Select
+                value={submitterType}
+                onValueChange={(v) => setSubmitterType(v as DataGuardianInput["submitted_by_type"])}
+              >
+                <SelectTrigger className="mt-0.5 h-8 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {GUARDIAN_SUBMITTER_TYPES.map((t) => (
+                    <SelectItem key={t.value} value={t.value!}>{t.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          {/* Row 2: Source type + Observed date */}
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-[10px] text-muted-foreground">Source type</label>
+              <Select value={sourceType} onValueChange={setSourceType}>
+                <SelectTrigger className="mt-0.5 h-8 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {GUARDIAN_SOURCE_TYPES.map((s) => (
+                    <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-[10px] text-muted-foreground">Observed date</label>
+              <Input
+                type="date"
+                value={observedAt}
+                onChange={(e) => setObservedAt(e.target.value)}
+                className="mt-0.5 h-8 text-xs"
+              />
+            </div>
+          </div>
+
+          {/* Raw text */}
+          <div>
+            <label className="text-[10px] text-muted-foreground">Raw text / description</label>
+            <textarea
+              value={rawText}
+              onChange={(e) => setRawText(e.target.value)}
+              placeholder="Paste raw submission text, e.g. 'Pep Home opened near Clicks on Ground Floor'"
+              rows={2}
+              className="mt-0.5 w-full rounded-md border border-input bg-background px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring resize-none"
+            />
+          </div>
+
+          {/* Structured data JSON */}
+          <div>
+            <label className="text-[10px] text-muted-foreground">Structured data (JSON)</label>
+            <textarea
+              value={structuredJson}
+              onChange={(e) => setStructuredJson(e.target.value)}
+              placeholder={'{ "name": "Pep Home", "floor": "G", "price": 299 }'}
+              rows={3}
+              className="mt-0.5 w-full rounded-md border border-input bg-background px-3 py-2 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-ring resize-none"
+            />
+          </div>
+
+          {/* Evidence checkboxes */}
+          <div>
+            <p className="text-[10px] text-muted-foreground mb-1.5">Evidence available</p>
+            <div className="grid grid-cols-2 gap-1.5">
+              {[
+                { state: hasPhoto,           setter: setHasPhoto,           label: "Has photo" },
+                { state: hasReceipt,         setter: setHasReceipt,         label: "Has receipt" },
+                { state: hasOfficialSource,  setter: setHasOfficialSource,  label: "Official source" },
+                { state: retailerConfirmed,  setter: setRetailerConfirmed,  label: "Retailer confirmed" },
+                { state: mallConfirmed,      setter: setMallConfirmed,      label: "Mall confirmed" },
+                { state: physicallyVerified, setter: setPhysicallyVerified, label: "Physically verified" },
+              ].map(({ state, setter, label }) => (
+                <label key={label} className="flex items-center gap-2 cursor-pointer group">
+                  <input
+                    type="checkbox"
+                    checked={state}
+                    onChange={(e) => setter(e.target.checked)}
+                    className="h-3.5 w-3.5 rounded border-border accent-primary"
+                  />
+                  <span className={cn(
+                    "text-xs transition-colors",
+                    state ? "text-foreground font-medium" : "text-muted-foreground group-hover:text-foreground"
+                  )}>
+                    {label}
+                  </span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {error && (
+            <div className="flex items-center gap-2 rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">
+              <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
+
+          <Button
+            onClick={handleReview}
+            disabled={loading}
+            size="sm"
+            className="w-full"
+          >
+            {loading ? (
+              <><Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />Reviewing…</>
+            ) : (
+              <><Bot className="mr-2 h-3.5 w-3.5" />Review Submission</>
+            )}
+          </Button>
+        </CardContent>
+      </Card>
+
+      {/* ── Result ───────────────────────────────────────────────────────── */}
+      {result && (
+        <div className="space-y-3">
+          {/* must_not_update_live_data banner */}
+          {result.must_not_update_live_data ? (
+            <div className="flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/8 px-3 py-2.5 text-xs text-destructive">
+              <ShieldAlert className="h-4 w-4 mt-0.5 shrink-0" />
+              <div>
+                <p className="font-semibold">Must not update live data</p>
+                <p className="mt-0.5 text-destructive/80">
+                  This submission's trust level is insufficient to modify live shops, products, or routes.
+                  It must become a finding and be explicitly applied by an admin.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-start gap-2 rounded-xl border border-amber-400/40 bg-amber-500/8 px-3 py-2.5 text-xs text-amber-700">
+              <ShieldAlert className="h-4 w-4 mt-0.5 shrink-0" />
+              <div>
+                <p className="font-semibold">Live update possible — but admin apply required</p>
+                <p className="mt-0.5 text-amber-700/80">
+                  Trust level is sufficient, but an explicit admin apply action is still required.
+                  No automatic updates occur.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Core result card */}
+          <Card>
+            <CardContent className="pt-3 pb-4 space-y-3">
+              {/* Action + trust row */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className={cn(
+                  "rounded-full px-2.5 py-1 text-xs font-semibold",
+                  actionBadgeClass(result.recommended_action)
+                )}>
+                  {actionLabel(result.recommended_action)}
+                </span>
+                <span className={cn(
+                  "rounded-full px-2.5 py-1 text-xs font-medium",
+                  trustBadgeClass(result.trust_level)
+                )}>
+                  {result.trust_level.replace(/_/g, " ")}
+                </span>
+                <span className="text-[10px] text-muted-foreground capitalize">
+                  {result.finding_type.replace(/_/g, " ")}
+                </span>
+              </div>
+
+              {/* Confidence bar */}
+              <div>
+                <p className="text-[10px] text-muted-foreground mb-1">Confidence score</p>
+                <ConfidenceBar score={result.confidence_score} />
+              </div>
+
+              {/* Safe badge */}
+              <div className="rounded-lg border border-border bg-muted/30 px-3 py-2">
+                <p className="text-[10px] text-muted-foreground mb-0.5">Safe badge wording</p>
+                <p className="text-xs font-semibold">{result.safe_badge}</p>
+              </div>
+
+              {/* Missing evidence */}
+              {result.missing_evidence.length > 0 && (
+                <div>
+                  <p className="flex items-center gap-1.5 text-[10px] text-amber-600 font-semibold mb-1.5">
+                    <ListChecks className="h-3 w-3" />
+                    Missing evidence ({result.missing_evidence.length})
+                  </p>
+                  <ul className="space-y-1">
+                    {result.missing_evidence.map((item, i) => (
+                      <li key={i} className="flex items-start gap-1.5 text-xs text-muted-foreground">
+                        <span className="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" />
+                        {item}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {result.missing_evidence.length === 0 && (
+                <div className="flex items-center gap-1.5 text-xs text-emerald-600">
+                  <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+                  All required evidence fields present
+                </div>
+              )}
+
+              {/* Reasoning summary */}
+              <div>
+                <p className="text-[10px] text-muted-foreground mb-0.5">Reasoning</p>
+                <p className="text-xs text-foreground/80 leading-relaxed">
+                  {result.reasoning_summary}
+                </p>
+              </div>
+
+              {/* Admin note */}
+              <div className="rounded-lg border border-border bg-muted/30 px-3 py-2">
+                <p className="text-[10px] text-muted-foreground mb-0.5">Admin note</p>
+                <p className="text-xs text-foreground/70 leading-relaxed">{result.admin_note}</p>
+              </div>
+            </CardContent>
+          </Card>
+
+          <button
+            onClick={handleReset}
+            className="flex w-full items-center justify-center gap-1.5 h-8 rounded-xl border border-dashed border-border text-xs text-muted-foreground hover:text-foreground transition-all"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            Review another submission
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── MallDataCompiler ──────────────────────────────────────────────────────────
 
 type DataTab        = "sources" | "findings";
@@ -2115,6 +2541,21 @@ function AdminDashboardContent() {
                 Price Correction Reports
               </h2>
               <PriceCorrectionsQueue />
+            </section>
+          )}
+
+          {/* ── Data Guardian ── */}
+          {isGoogleBackendConfigured() && (
+            <section>
+              <h2 className="mb-1 flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                <Bot className="h-4 w-4" />
+                Data Guardian
+              </h2>
+              <p className="mb-3 text-xs text-muted-foreground/70">
+                Deterministic trust scoring for any data submission.
+                No live data is updated — findings only.
+              </p>
+              <DataGuardian />
             </section>
           )}
 
