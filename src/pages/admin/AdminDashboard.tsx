@@ -3338,7 +3338,7 @@ function MallResearchBatches({ token }: { token: string }) {
   const [createError, setCreateError] = useState<string | null>(null);
 
   // Filter
-  const [statusFilter, setStatusFilter] = useState<"" | MallResearchBatchStatus>("");
+  const [statusFilter, setStatusFilter] = useState<"all" | MallResearchBatchStatus>("all");
 
   async function loadBatches() {
     setLoading(true);
@@ -3346,7 +3346,7 @@ function MallResearchBatches({ token }: { token: string }) {
     try {
       const result = await getMallResearchBatches(
         token,
-        statusFilter ? { status: statusFilter as MallResearchBatchStatus } : undefined
+        statusFilter !== "all" ? { status: statusFilter as MallResearchBatchStatus } : undefined
       );
       setBatches(result.batches);
       setTotal(result.total);
@@ -3441,12 +3441,12 @@ function MallResearchBatches({ token }: { token: string }) {
             Batches ({total})
           </h3>
           <div className="flex items-center gap-2">
-            <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as "" | MallResearchBatchStatus)}>
+            <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as "all" | MallResearchBatchStatus)}>
               <SelectTrigger className="h-7 w-32 text-xs">
                 <SelectValue placeholder="All statuses" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="" className="text-xs">All statuses</SelectItem>
+                <SelectItem value="all" className="text-xs">All statuses</SelectItem>
                 {(["open", "in_progress", "complete", "archived"] as MallResearchBatchStatus[]).map((s) => (
                   <SelectItem key={s} value={s} className="text-xs">{BATCH_STATUS_LABELS[s]}</SelectItem>
                 ))}
