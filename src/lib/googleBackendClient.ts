@@ -315,6 +315,93 @@ export interface VerifyProductPriceRequest {
   verified_by: string;
 }
 
+// ── Mall Data Compiler types ──────────────────────────────────────────────────
+
+export type MallDataSourceType =
+  | "official_website"
+  | "retail_directory"
+  | "public_flyer"
+  | "manual_survey"
+  | "press_release"
+  | "social_media"
+  | "other";
+
+export type MallDataFindingType =
+  | "shop"
+  | "product"
+  | "mall_hours"
+  | "shop_hours"
+  | "floor_layout"
+  | "promotion"
+  | "other";
+
+export type MallDataFindingStatus = "pending" | "approved" | "rejected" | "needs_more_info";
+
+export interface MallDataSource {
+  id: string;
+  created_at: string;
+  updated_at: string;
+  mall_id: string;
+  label: string;
+  source_type: MallDataSourceType;
+  source_url: string | null;
+  notes: string | null;
+  created_by: string | null;
+  is_active: boolean;
+  /** Joined mall name */
+  malls?: { id: string; name: string } | null;
+}
+
+export interface MallDataFinding {
+  id: string;
+  created_at: string;
+  updated_at: string;
+  source_id: string;
+  mall_id: string;
+  finding_type: MallDataFindingType;
+  shop_id: string | null;
+  product_id: string | null;
+  data: Record<string, unknown>;
+  raw_snippet: string | null;
+  status: MallDataFindingStatus;
+  admin_note: string | null;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  created_by: string | null;
+  confidence: number | null;
+  /** Joined source fields */
+  mall_research_sources?: {
+    label: string;
+    source_type: string;
+    source_url: string | null;
+  } | null;
+}
+
+export interface CreateMallDataSourceRequest {
+  mall_id: string;
+  label: string;
+  source_type?: MallDataSourceType;
+  source_url?: string | null;
+  notes?: string | null;
+}
+
+export interface CreateMallDataFindingRequest {
+  source_id: string;
+  mall_id: string;
+  finding_type?: MallDataFindingType;
+  shop_id?: string | null;
+  product_id?: string | null;
+  data?: Record<string, unknown>;
+  raw_snippet?: string | null;
+  confidence?: number | null;
+}
+
+export interface ReviewMallDataFindingRequest {
+  action: "approve" | "reject" | "needs_more_info";
+  admin_note?: string | null;
+  confidence?: number | null;
+}
+
 // ── Internal HTTP helpers ─────────────────────────────────────────────────────
 
 async function post<T>(path: string, body: unknown): Promise<T> {
@@ -339,6 +426,23 @@ async function post<T>(path: string, body: unknown): Promise<T> {
     throw new Error(message);
   }
 
+  return res.json() as Promise<T>;
+}
+
+async function getAuthenticated<T>(path: string, accessToken: string): Promise<T> {
+  const url = `${BASE_URL}${path}`;
+  const res = await fetch(url, {
+    method: "GET",
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    let message = `Google backend error ${res.status} on ${path}`;
+    try {
+      const err = (await res.json()) as { error?: string };
+      if (err.error) message = err.error;
+    } catch { /* ignore */ }
+    throw new Error(message);
+  }
   return res.json() as Promise<T>;
 }
 
@@ -530,4 +634,146 @@ export async function reviewPriceCorrection(
     throw new Error(message);
   }
   return res.json() as Promise<{ ok: boolean; action: string }>;
+}
+
+// ── Mall Data Compiler public API ─────────────────────────────────────────────
+
+/**
+ * GET /admin/mall-data/sources
+ *
+ * List research sources, optionally filtered by mall_id.
+ * Requires admin bearer token.
+ */
+export async function getMallDataSources(
+  accessToken: string,
+  filters?: { mall_id?: string; active?: boolean }
+): Promise<{ sources: MallDataSource[] }> {
+  if (!BASE_URL) throw new Error("VITE_GOOGLE_BACKEND_URL is not configured");
+  const params = new URLSearchParams();
+  if (filters?.mall_id) params.set("mall_id", filters.mall_id);
+  if (filters?.active === false) params.set("active", "false");
+  const qs = params.toString() ? `?${params.toString()}` : "";
+  return getAuthenticated<{ sources: MallDataSource[] }>(
+    `/admin/mall-data/sources${qs}`,
+    accessToken
+  );
+}
+
+/**
+ * POST /admin/mall-data/sources
+ *
+ * Create a new research source.
+ * Requires admin bearer token.
+ */
+export async function createMallDataSource(
+  payload: CreateMallDataSourceRequest,
+  accessToken: string
+): Promise<{ ok: boolean; source_id: string }> {
+  if (!BASE_URL) throw new Error("VITE_GOOGLE_BACKEND_URL is not configured");
+  const res = await fetch(`${BASE_URL}/admin/mall-data/sources`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    let message = `Create source error ${res.status}`;
+    try {
+      const err = (await res.json()) as { error?: string };
+      if (err.error) message = err.error;
+    } catch { /* ignore */ }
+    throw new Error(message);
+  }
+  return res.json() as Promise<{ ok: boolean; source_id: string }>;
+}
+
+/**
+ * GET /admin/mall-data/findings
+ *
+ * List findings, optionally filtered by source_id, mall_id, status, finding_type.
+ * Requires admin bearer token.
+ */
+export async function getMallDataFindings(
+  accessToken: string,
+  filters?: {
+    source_id?:    string;
+    mall_id?:      string;
+    status?:       MallDataFindingStatus;
+    finding_type?: MallDataFindingType;
+  }
+): Promise<{ findings: MallDataFinding[] }> {
+  if (!BASE_URL) throw new Error("VITE_GOOGLE_BACKEND_URL is not configured");
+  const params = new URLSearchParams();
+  if (filters?.source_id)    params.set("source_id",    filters.source_id);
+  if (filters?.mall_id)      params.set("mall_id",      filters.mall_id);
+  if (filters?.status)       params.set("status",       filters.status);
+  if (filters?.finding_type) params.set("finding_type", filters.finding_type);
+  const qs = params.toString() ? `?${params.toString()}` : "";
+  return getAuthenticated<{ findings: MallDataFinding[] }>(
+    `/admin/mall-data/findings${qs}`,
+    accessToken
+  );
+}
+
+/**
+ * POST /admin/mall-data/findings
+ *
+ * Log a new finding against a research source.
+ * Requires admin bearer token.
+ */
+export async function createMallDataFinding(
+  payload: CreateMallDataFindingRequest,
+  accessToken: string
+): Promise<{ ok: boolean; finding_id: string }> {
+  if (!BASE_URL) throw new Error("VITE_GOOGLE_BACKEND_URL is not configured");
+  const res = await fetch(`${BASE_URL}/admin/mall-data/findings`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    let message = `Create finding error ${res.status}`;
+    try {
+      const err = (await res.json()) as { error?: string };
+      if (err.error) message = err.error;
+    } catch { /* ignore */ }
+    throw new Error(message);
+  }
+  return res.json() as Promise<{ ok: boolean; finding_id: string }>;
+}
+
+/**
+ * POST /admin/mall-data/findings/:id/review
+ *
+ * Approve, reject, or flag a finding for more information.
+ * Requires admin bearer token.
+ */
+export async function reviewMallDataFinding(
+  findingId: string,
+  payload: ReviewMallDataFindingRequest,
+  accessToken: string
+): Promise<{ ok: boolean; action: string; new_status: string }> {
+  if (!BASE_URL) throw new Error("VITE_GOOGLE_BACKEND_URL is not configured");
+  const res = await fetch(`${BASE_URL}/admin/mall-data/findings/${findingId}/review`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    let message = `Review finding error ${res.status}`;
+    try {
+      const err = (await res.json()) as { error?: string };
+      if (err.error) message = err.error;
+    } catch { /* ignore */ }
+    throw new Error(message);
+  }
+  return res.json() as Promise<{ ok: boolean; action: string; new_status: string }>;
 }

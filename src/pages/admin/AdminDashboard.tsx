@@ -35,6 +35,11 @@ import {
   Search,
   TrendingUp,
   Inbox,
+  Database,
+  Globe,
+  Plus,
+  ExternalLink,
+  X,
 } from "lucide-react";
 import {
   verifyProductPrice,
@@ -42,15 +47,45 @@ import {
   getAdminStats,
   getAdminPriceCorrections,
   reviewPriceCorrection,
+  getMallDataSources,
+  createMallDataSource,
+  getMallDataFindings,
+  createMallDataFinding,
+  reviewMallDataFinding,
   isGoogleBackendConfigured,
   type PriceVerificationMethod,
   type HealthCheckResult,
   type AnalyticsSummary,
   type PriceCorrectionReport,
+  type MallDataSource,
+  type MallDataFinding,
+  type MallDataSourceType,
+  type MallDataFindingType,
+  type MallDataFindingStatus,
 } from "@/lib/googleBackendClient";
 import { cn } from "@/lib/utils";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
+
+const SOURCE_TYPES: { value: MallDataSourceType; label: string }[] = [
+  { value: "official_website",  label: "Official Website" },
+  { value: "retail_directory",  label: "Retail Directory" },
+  { value: "public_flyer",      label: "Public Flyer / Catalogue" },
+  { value: "manual_survey",     label: "Manual Survey" },
+  { value: "press_release",     label: "Press Release" },
+  { value: "social_media",      label: "Social Media" },
+  { value: "other",             label: "Other" },
+];
+
+const FINDING_TYPES: { value: MallDataFindingType; label: string }[] = [
+  { value: "shop",         label: "Shop" },
+  { value: "product",      label: "Product" },
+  { value: "mall_hours",   label: "Mall Hours" },
+  { value: "shop_hours",   label: "Shop Hours" },
+  { value: "floor_layout", label: "Floor Layout" },
+  { value: "promotion",    label: "Promotion" },
+  { value: "other",        label: "Other" },
+];
 
 const VERIFICATION_METHODS: { value: PriceVerificationMethod; label: string }[] = [
   { value: "website",               label: "Website" },
@@ -1216,6 +1251,663 @@ function PriceCorrectionsQueue() {
   );
 }
 
+// ── MallDataCompiler ──────────────────────────────────────────────────────────
+
+type DataTab        = "sources" | "findings";
+type FindingsFilter = "pending" | "approved" | "rejected" | "needs_more_info";
+
+const FINDINGS_FILTER_LABEL: Record<FindingsFilter, string> = {
+  pending:        "Pending",
+  approved:       "Approved",
+  rejected:       "Rejected",
+  needs_more_info: "Need Info",
+};
+
+const FINDING_STATUS_BADGE: Record<string, string> = {
+  pending:        "bg-muted text-muted-foreground",
+  approved:       "bg-emerald-100 text-emerald-700",
+  rejected:       "bg-red-100 text-red-700",
+  needs_more_info: "bg-amber-100 text-amber-700",
+};
+
+/** Single finding card with inline review flow. */
+function FindingCard({
+  finding,
+  accessToken,
+  showReview,
+  onActioned,
+}: {
+  finding:     MallDataFinding;
+  accessToken: string;
+  showReview:  boolean;
+  onActioned:  () => void;
+}) {
+  type ReviewAction = "approve" | "reject" | "needs_more_info";
+  const [reviewAction,  setReviewAction]  = useState<ReviewAction | null>(null);
+  const [reviewNote,    setReviewNote]    = useState("");
+  const [reviewing,     setReviewing]     = useState(false);
+  const [reviewErr,     setReviewErr]     = useState<string | null>(null);
+  const [reviewSuccess, setReviewSuccess] = useState<string | null>(null);
+
+  async function handleReview() {
+    if (!reviewAction) return;
+    setReviewing(true);
+    setReviewErr(null);
+    try {
+      await reviewMallDataFinding(
+        finding.id,
+        { action: reviewAction, admin_note: reviewNote.trim() || null },
+        accessToken
+      );
+      setReviewSuccess(reviewAction);
+      setReviewAction(null);
+      setTimeout(onActioned, 600);
+    } catch (e) {
+      setReviewErr(e instanceof Error ? e.message : "Review failed.");
+      setReviewing(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardContent className="pt-3 pb-3 space-y-2">
+        {/* Header */}
+        <div className="flex items-start gap-2">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-xs font-semibold capitalize">
+                {finding.finding_type.replace(/_/g, " ")}
+              </span>
+              <span className={cn(
+                "rounded-full px-2 py-0.5 text-[10px] font-medium",
+                FINDING_STATUS_BADGE[finding.status] ?? FINDING_STATUS_BADGE.pending
+              )}>
+                {finding.status}
+              </span>
+            </div>
+            {finding.mall_research_sources?.label && (
+              <p className="text-[10px] text-muted-foreground mt-0.5 truncate">
+                {finding.mall_research_sources.label}
+              </p>
+            )}
+          </div>
+          {finding.confidence != null && (
+            <span className="shrink-0 text-[10px] text-muted-foreground/60">
+              {finding.confidence}% conf.
+            </span>
+          )}
+        </div>
+
+        {/* Data JSON preview */}
+        <pre className="rounded-md bg-muted/50 p-2 text-[10px] font-mono overflow-x-auto whitespace-pre-wrap break-all max-h-24 text-foreground/80">
+          {JSON.stringify(finding.data, null, 2)}
+        </pre>
+
+        {finding.raw_snippet && (
+          <p className="text-[10px] text-muted-foreground/70 italic line-clamp-2">
+            "{finding.raw_snippet}"
+          </p>
+        )}
+
+        {finding.admin_note && (
+          <p className="text-[10px] text-muted-foreground">
+            Admin note:{" "}
+            <span className="text-foreground italic">"{finding.admin_note}"</span>
+          </p>
+        )}
+
+        {/* Review success */}
+        {reviewSuccess && (
+          <div className="flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs text-emerald-700">
+            <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+            {reviewSuccess === "approve"
+              ? "Finding approved."
+              : reviewSuccess === "reject"
+                ? "Finding rejected."
+                : "Flagged for more information."}
+          </div>
+        )}
+
+        {/* Review UI — pending only */}
+        {showReview && !reviewSuccess && (
+          reviewAction ? (
+            <div className="space-y-2 rounded-lg border border-border bg-muted/30 p-2.5">
+              <Input
+                value={reviewNote}
+                onChange={(e) => setReviewNote(e.target.value)}
+                placeholder="Admin note (optional)"
+                className="h-8 text-xs"
+              />
+              {reviewErr && (
+                <div className="flex items-center gap-1.5 text-xs text-destructive">
+                  <AlertCircle className="h-3 w-3 shrink-0" />{reviewErr}
+                </div>
+              )}
+              <div className="flex gap-2">
+                <button
+                  onClick={handleReview}
+                  disabled={reviewing}
+                  className={cn(
+                    "flex flex-1 items-center justify-center gap-1 h-7 rounded-lg text-xs font-semibold transition-all disabled:opacity-50",
+                    reviewAction === "approve"
+                      ? "bg-emerald-600 hover:bg-emerald-700 text-white"
+                      : reviewAction === "reject"
+                        ? "bg-destructive hover:bg-destructive/90 text-white"
+                        : "bg-amber-500 hover:bg-amber-600 text-white"
+                  )}
+                >
+                  {reviewing
+                    ? <><Loader2 className="h-3 w-3 animate-spin" />…</>
+                    : reviewAction === "approve"
+                      ? "Approve"
+                      : reviewAction === "reject"
+                        ? "Reject"
+                        : "Need More Info"}
+                </button>
+                <button
+                  onClick={() => { setReviewAction(null); setReviewErr(null); }}
+                  disabled={reviewing}
+                  className="h-7 px-2.5 rounded-lg border border-border text-xs text-muted-foreground hover:text-foreground transition-all disabled:opacity-40"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex gap-1.5">
+              <button
+                onClick={() => setReviewAction("approve")}
+                className="flex-1 h-7 rounded-lg bg-emerald-600 text-white text-[10px] font-semibold hover:bg-emerald-700 active:scale-[0.98] transition-all"
+              >
+                Approve
+              </button>
+              <button
+                onClick={() => setReviewAction("needs_more_info")}
+                className="flex-1 h-7 rounded-lg border border-amber-400 bg-amber-50 text-amber-700 text-[10px] font-semibold hover:bg-amber-100 active:scale-[0.98] transition-all"
+              >
+                Need Info
+              </button>
+              <button
+                onClick={() => setReviewAction("reject")}
+                className="flex-1 h-7 rounded-lg border border-destructive/40 bg-destructive/5 text-destructive text-[10px] font-semibold hover:bg-destructive/10 active:scale-[0.98] transition-all"
+              >
+                Reject
+              </button>
+            </div>
+          )
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function MallDataCompiler() {
+  const { session } = useAuth();
+  const [tab, setTab] = useState<DataTab>("sources");
+
+  // ── Malls (for dropdowns) ─────────────────────────────────────────────────
+  const [malls, setMalls] = useState<Array<{ id: string; name: string }>>([]);
+  useEffect(() => {
+    supabase.from("malls").select("id, name").order("name")
+      .then(({ data }) => setMalls((data ?? []) as Array<{ id: string; name: string }>));
+  }, []);
+
+  // ── Shared mall filter ────────────────────────────────────────────────────
+  const [mallFilter, setMallFilter] = useState("all");
+
+  // ── Sources state ─────────────────────────────────────────────────────────
+  const [sources,        setSources]        = useState<MallDataSource[]>([]);
+  const [sourcesLoading, setSourcesLoading] = useState(false);
+  const [sourcesError,   setSourcesError]   = useState<string | null>(null);
+  const [sourcesKey,     setSourcesKey]     = useState(0);
+
+  // Add source form
+  const [showAddSrc,  setShowAddSrc]  = useState(false);
+  const [srcMallId,   setSrcMallId]   = useState("");
+  const [srcLabel,    setSrcLabel]    = useState("");
+  const [srcType,     setSrcType]     = useState<MallDataSourceType>("official_website");
+  const [srcUrl,      setSrcUrl]      = useState("");
+  const [srcNotes,    setSrcNotes]    = useState("");
+  const [addingSrc,   setAddingSrc]   = useState(false);
+  const [addSrcErr,   setAddSrcErr]   = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!session?.access_token) return;
+    setSourcesLoading(true);
+    setSourcesError(null);
+    getMallDataSources(
+      session.access_token,
+      mallFilter !== "all" ? { mall_id: mallFilter } : undefined
+    )
+      .then(({ sources: data }) => setSources(data))
+      .catch((e) => setSourcesError(e instanceof Error ? e.message : String(e)))
+      .finally(() => setSourcesLoading(false));
+  }, [session?.access_token, sourcesKey, mallFilter]);
+
+  async function handleAddSource() {
+    if (!session?.access_token) return;
+    if (!srcMallId) { setAddSrcErr("Select a mall."); return; }
+    if (!srcLabel.trim()) { setAddSrcErr("Label is required."); return; }
+    setAddingSrc(true);
+    setAddSrcErr(null);
+    try {
+      await createMallDataSource(
+        {
+          mall_id:     srcMallId,
+          label:       srcLabel.trim(),
+          source_type: srcType,
+          source_url:  srcUrl.trim() || null,
+          notes:       srcNotes.trim() || null,
+        },
+        session.access_token
+      );
+      setSrcMallId(""); setSrcLabel(""); setSrcType("official_website");
+      setSrcUrl(""); setSrcNotes("");
+      setShowAddSrc(false);
+      setSourcesKey((k) => k + 1);
+    } catch (e) {
+      setAddSrcErr(e instanceof Error ? e.message : "Failed to create source.");
+    } finally {
+      setAddingSrc(false);
+    }
+  }
+
+  // ── Findings state ────────────────────────────────────────────────────────
+  const [findings,        setFindings]        = useState<MallDataFinding[]>([]);
+  const [findingsLoading, setFindingsLoading] = useState(false);
+  const [findingsError,   setFindingsError]   = useState<string | null>(null);
+  const [findingsKey,     setFindingsKey]     = useState(0);
+  const [findingsStatus,  setFindingsStatus]  = useState<FindingsFilter>("pending");
+
+  // Add finding form
+  const [showAddFinding, setShowAddFinding] = useState(false);
+  const [fndSourceId,    setFndSourceId]    = useState("");
+  const [fndMallId,      setFndMallId]      = useState("");
+  const [fndType,        setFndType]        = useState<MallDataFindingType>("shop");
+  const [fndDataJson,    setFndDataJson]    = useState("{}");
+  const [fndSnippet,     setFndSnippet]     = useState("");
+  const [fndConfidence,  setFndConfidence]  = useState("80");
+  const [addingFnd,      setAddingFnd]      = useState(false);
+  const [addFndErr,      setAddFndErr]      = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!session?.access_token) return;
+    setFindingsLoading(true);
+    setFindingsError(null);
+    getMallDataFindings(session.access_token, {
+      status:   findingsStatus as MallDataFindingStatus,
+      ...(mallFilter !== "all" ? { mall_id: mallFilter } : {}),
+    })
+      .then(({ findings: data }) => setFindings(data))
+      .catch((e) => setFindingsError(e instanceof Error ? e.message : String(e)))
+      .finally(() => setFindingsLoading(false));
+  }, [session?.access_token, findingsKey, findingsStatus, mallFilter]);
+
+  async function handleAddFinding() {
+    if (!session?.access_token) return;
+    if (!fndSourceId) { setAddFndErr("Select a source."); return; }
+    let parsed: Record<string, unknown> = {};
+    try { parsed = JSON.parse(fndDataJson); } catch {
+      setAddFndErr("Data must be valid JSON."); return;
+    }
+    const resolvedMallId =
+      (fndMallId || sources.find((s) => s.id === fndSourceId)?.mall_id) ?? "";
+    if (!resolvedMallId) { setAddFndErr("Could not determine mall_id from source."); return; }
+
+    setAddingFnd(true);
+    setAddFndErr(null);
+    const conf = parseInt(fndConfidence, 10);
+    try {
+      await createMallDataFinding(
+        {
+          source_id:    fndSourceId,
+          mall_id:      resolvedMallId,
+          finding_type: fndType,
+          data:         parsed,
+          raw_snippet:  fndSnippet.trim() || null,
+          confidence:   isNaN(conf) ? null : conf,
+        },
+        session.access_token
+      );
+      setFndSourceId(""); setFndMallId(""); setFndType("shop");
+      setFndDataJson("{}"); setFndSnippet(""); setFndConfidence("80");
+      setShowAddFinding(false);
+      setFindingsStatus("pending");
+      setFindingsKey((k) => k + 1);
+    } catch (e) {
+      setAddFndErr(e instanceof Error ? e.message : "Failed to log finding.");
+    } finally {
+      setAddingFnd(false);
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      {/* Tab toggle */}
+      <div className="flex gap-1 rounded-xl border border-border bg-muted/30 p-1">
+        {(["sources", "findings"] as const).map((t) => (
+          <button
+            key={t}
+            onClick={() => setTab(t)}
+            className={cn(
+              "flex-1 rounded-lg py-1.5 text-xs font-medium transition-all",
+              tab === t
+                ? "bg-background shadow-sm text-foreground"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            {t === "sources"
+              ? `Sources (${sources.length})`
+              : `Findings (${findings.length})`}
+          </button>
+        ))}
+      </div>
+
+      {/* Shared mall filter */}
+      <Select value={mallFilter} onValueChange={setMallFilter}>
+        <SelectTrigger className="h-8 text-xs">
+          <SelectValue placeholder="All malls" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">All malls</SelectItem>
+          {malls.map((m) => (
+            <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
+      {/* ── Sources tab ──────────────────────────────────────────────────── */}
+      {tab === "sources" && (
+        <div className="space-y-3">
+          {/* Add source toggle */}
+          <button
+            onClick={() => setShowAddSrc((v) => !v)}
+            className="flex w-full items-center justify-center gap-1.5 h-8 rounded-xl border border-dashed border-primary/40 text-xs font-medium text-primary/70 hover:border-primary hover:text-primary transition-all"
+          >
+            {showAddSrc
+              ? <><X className="h-3.5 w-3.5" />Cancel</>
+              : <><Plus className="h-3.5 w-3.5" />Add Research Source</>}
+          </button>
+
+          {showAddSrc && (
+            <Card>
+              <CardContent className="space-y-2 pt-3 pb-3">
+                <p className="text-xs font-semibold text-muted-foreground">New Research Source</p>
+
+                <Select value={srcMallId} onValueChange={setSrcMallId}>
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue placeholder="Select mall" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {malls.map((m) => (
+                      <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                <Input
+                  value={srcLabel}
+                  onChange={(e) => setSrcLabel(e.target.value)}
+                  placeholder="Label, e.g. Sandton City website – May 2026"
+                  className="h-8 text-xs"
+                />
+
+                <Select value={srcType} onValueChange={(v) => setSrcType(v as MallDataSourceType)}>
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {SOURCE_TYPES.map((s) => (
+                      <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                <Input
+                  value={srcUrl}
+                  onChange={(e) => setSrcUrl(e.target.value)}
+                  placeholder="URL (optional)"
+                  className="h-8 text-xs"
+                />
+
+                <Input
+                  value={srcNotes}
+                  onChange={(e) => setSrcNotes(e.target.value)}
+                  placeholder="Notes (optional)"
+                  className="h-8 text-xs"
+                />
+
+                {addSrcErr && (
+                  <div className="flex items-center gap-1.5 rounded-md bg-destructive/10 px-2.5 py-1.5 text-xs text-destructive">
+                    <AlertCircle className="h-3 w-3 shrink-0" />{addSrcErr}
+                  </div>
+                )}
+
+                <Button size="sm" onClick={handleAddSource} disabled={addingSrc} className="w-full h-8 text-xs">
+                  {addingSrc
+                    ? <><Loader2 className="mr-1.5 h-3 w-3 animate-spin" />Saving…</>
+                    : <><Database className="mr-1.5 h-3 w-3" />Save Source</>}
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+
+          {sourcesLoading && (
+            <div className="flex justify-center py-6">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          )}
+
+          {sourcesError && (
+            <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+              {sourcesError}
+            </div>
+          )}
+
+          {!sourcesLoading && !sourcesError && sources.length === 0 && (
+            <div className="flex flex-col items-center gap-2 py-8 text-center">
+              <Database className="h-8 w-8 text-muted-foreground/30" />
+              <p className="text-sm text-muted-foreground">No research sources yet.</p>
+              <p className="text-xs text-muted-foreground/60">Add a source to start logging findings.</p>
+            </div>
+          )}
+
+          {!sourcesLoading && sources.map((src) => (
+            <Card key={src.id}>
+              <CardContent className="pt-3 pb-3 space-y-1.5">
+                <div className="flex items-start gap-2">
+                  <Globe className="h-3.5 w-3.5 mt-0.5 shrink-0 text-muted-foreground" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold leading-tight truncate">{src.label}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {(src.malls as { name: string } | null)?.name ?? src.mall_id}
+                    </p>
+                  </div>
+                  <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground capitalize">
+                    {src.source_type.replace(/_/g, " ")}
+                  </span>
+                </div>
+                {src.source_url && (
+                  <a
+                    href={src.source_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1 text-[10px] text-primary/70 hover:text-primary truncate"
+                  >
+                    <ExternalLink className="h-3 w-3 shrink-0" />
+                    {src.source_url}
+                  </a>
+                )}
+                {src.notes && (
+                  <p className="text-[10px] text-muted-foreground/70 italic">{src.notes}</p>
+                )}
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {/* ── Findings tab ─────────────────────────────────────────────────── */}
+      {tab === "findings" && (
+        <div className="space-y-3">
+          {/* Status sub-tabs */}
+          <div className="flex gap-1 rounded-xl border border-border bg-muted/30 p-1">
+            {(["pending", "approved", "rejected", "needs_more_info"] as FindingsFilter[]).map((s) => (
+              <button
+                key={s}
+                onClick={() => setFindingsStatus(s)}
+                className={cn(
+                  "flex-1 rounded-lg py-1 text-[10px] font-medium transition-all",
+                  findingsStatus === s
+                    ? "bg-background shadow-sm text-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                {FINDINGS_FILTER_LABEL[s]}
+              </button>
+            ))}
+          </div>
+
+          {/* Add finding toggle */}
+          <button
+            onClick={() => setShowAddFinding((v) => !v)}
+            className="flex w-full items-center justify-center gap-1.5 h-8 rounded-xl border border-dashed border-primary/40 text-xs font-medium text-primary/70 hover:border-primary hover:text-primary transition-all"
+          >
+            {showAddFinding
+              ? <><X className="h-3.5 w-3.5" />Cancel</>
+              : <><Plus className="h-3.5 w-3.5" />Log New Finding</>}
+          </button>
+
+          {showAddFinding && (
+            <Card>
+              <CardContent className="space-y-2 pt-3 pb-3">
+                <p className="text-xs font-semibold text-muted-foreground">New Finding</p>
+
+                <Select
+                  value={fndSourceId}
+                  onValueChange={(id) => {
+                    setFndSourceId(id);
+                    const src = sources.find((s) => s.id === id);
+                    if (src) setFndMallId(src.mall_id);
+                  }}
+                >
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue placeholder="Select source" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sources.map((s) => (
+                      <SelectItem key={s.id} value={s.id}>
+                        {s.label}
+                        {(s.malls as { name: string } | null)?.name
+                          ? ` · ${(s.malls as { name: string }).name}`
+                          : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                {sources.length === 0 && (
+                  <p className="text-[10px] text-amber-600">
+                    No sources available — add a source first.
+                  </p>
+                )}
+
+                <Select value={fndType} onValueChange={(v) => setFndType(v as MallDataFindingType)}>
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {FINDING_TYPES.map((f) => (
+                      <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                <div>
+                  <label className="text-[10px] text-muted-foreground">Data (JSON)</label>
+                  <textarea
+                    value={fndDataJson}
+                    onChange={(e) => setFndDataJson(e.target.value)}
+                    placeholder={'{ "name": "Game", "floor": "G", "unit": "G14" }'}
+                    rows={3}
+                    className="mt-0.5 w-full rounded-md border border-input bg-background px-3 py-2 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-ring resize-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[10px] text-muted-foreground">Raw snippet (optional)</label>
+                  <textarea
+                    value={fndSnippet}
+                    onChange={(e) => setFndSnippet(e.target.value)}
+                    placeholder="Paste the original text this finding came from…"
+                    rows={2}
+                    className="mt-0.5 w-full rounded-md border border-input bg-background px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring resize-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[10px] text-muted-foreground">Confidence (0–100)</label>
+                  <Input
+                    type="number"
+                    min="0"
+                    max="100"
+                    value={fndConfidence}
+                    onChange={(e) => setFndConfidence(e.target.value)}
+                    className="mt-0.5 h-8 text-xs"
+                  />
+                </div>
+
+                {addFndErr && (
+                  <div className="flex items-center gap-1.5 rounded-md bg-destructive/10 px-2.5 py-1.5 text-xs text-destructive">
+                    <AlertCircle className="h-3 w-3 shrink-0" />{addFndErr}
+                  </div>
+                )}
+
+                <Button size="sm" onClick={handleAddFinding} disabled={addingFnd} className="w-full h-8 text-xs">
+                  {addingFnd
+                    ? <><Loader2 className="mr-1.5 h-3 w-3 animate-spin" />Saving…</>
+                    : <><Plus className="mr-1.5 h-3 w-3" />Log Finding</>}
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+
+          {findingsLoading && (
+            <div className="flex justify-center py-6">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          )}
+
+          {findingsError && (
+            <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+              {findingsError}
+            </div>
+          )}
+
+          {!findingsLoading && !findingsError && findings.length === 0 && (
+            <div className="flex flex-col items-center gap-2 py-8 text-center">
+              <Inbox className="h-8 w-8 text-muted-foreground/30" />
+              <p className="text-sm text-muted-foreground">
+                No {FINDINGS_FILTER_LABEL[findingsStatus].toLowerCase()} findings.
+              </p>
+            </div>
+          )}
+
+          {!findingsLoading && findings.map((f) => (
+            <FindingCard
+              key={f.id}
+              finding={f}
+              accessToken={session?.access_token ?? ""}
+              showReview={findingsStatus === "pending"}
+              onActioned={() => setFindingsKey((k) => k + 1)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 function AdminDashboardContent() {
@@ -1423,6 +2115,17 @@ function AdminDashboardContent() {
                 Price Correction Reports
               </h2>
               <PriceCorrectionsQueue />
+            </section>
+          )}
+
+          {/* ── Mall Data Compiler ── */}
+          {isGoogleBackendConfigured() && (
+            <section>
+              <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                <Database className="h-4 w-4" />
+                Mall Data Compiler
+              </h2>
+              <MallDataCompiler />
             </section>
           )}
 
