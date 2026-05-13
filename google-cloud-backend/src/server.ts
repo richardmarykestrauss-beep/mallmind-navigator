@@ -15,6 +15,7 @@ import priceCorrectionsRouter    from "./routes/priceCorrections.js";
 import mallDataCompilerRouter    from "./routes/mallDataCompiler.js";
 import dataGuardianRouter        from "./routes/dataGuardian.js";
 import dataBotsRouter            from "./routes/dataBots.js";
+import mallResearchBatchesRouter from "./routes/mallResearchBatches.js";
 
 // ── Validate required environment variables at startup ────────────────────────
 const REQUIRED_ENV = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"];
@@ -60,10 +61,11 @@ app.use("/recommend-products",  recommendProductsRouter);
 app.use("/build-route",         buildRouteRouter);
 app.use("/assistant",           assistantRouter);
 app.use("/admin-stats",         adminStatsRouter);
-app.use("/admin/mall-data",      mallDataCompilerRouter);
-app.use("/admin/data-guardian",  dataGuardianRouter);
-app.use("/admin/data-bots",      dataBotsRouter);
-app.use("/admin",               adminVerifyProductRouter);
+app.use("/admin/mall-data",       mallDataCompilerRouter);
+app.use("/admin/data-guardian",   dataGuardianRouter);
+app.use("/admin/data-bots",       dataBotsRouter);
+app.use("/admin/mall-research",   mallResearchBatchesRouter);
+app.use("/admin",                 adminVerifyProductRouter);
 app.use("/analytics",           analyticsEventRouter);
 app.use("/price-corrections",   priceCorrectionsRouter);
 
@@ -87,7 +89,7 @@ app.listen(PORT, () => {
   console.log(`[startup] Environment: ${process.env.NODE_ENV ?? "development"}`);
   console.log(`[startup] Supabase URL: ${process.env.SUPABASE_URL}`);
   console.log(`[startup] Gemini AI: ${process.env.GEMINI_API_KEY ? "configured" : "NOT configured"}`);
-  console.log(`[startup] Routes: GET /health | POST /detect-active-mall | POST /recommend-products | POST /build-route | POST /assistant | GET /admin-stats | POST /admin/verify-product-price | POST /analytics/event | POST /price-corrections/report | GET+POST /price-corrections/admin | GET+POST /admin/mall-data/sources | GET+POST /admin/mall-data/findings | POST /admin/mall-data/findings/:id/review | POST /admin/data-guardian/review | POST /admin/data-bots/source-research | POST /admin/data-bots/extract-finding | POST /admin/data-bots/detect-duplicates | POST /admin/data-bots/review-assistant | POST /admin/data-bots/plan-apply`);
+  console.log(`[startup] Routes: GET /health | POST /detect-active-mall | POST /recommend-products | POST /build-route | POST /assistant | GET /admin-stats | POST /admin/verify-product-price | POST /analytics/event | POST /price-corrections/report | GET+POST /price-corrections/admin | GET+POST /admin/mall-data/sources | GET+POST /admin/mall-data/findings | POST /admin/mall-data/findings/:id/review | POST /admin/data-guardian/review | POST /admin/data-bots/source-research | POST /admin/data-bots/extract-finding | POST /admin/data-bots/detect-duplicates | POST /admin/data-bots/review-assistant | POST /admin/data-bots/plan-apply | GET+POST /admin/mall-research/batches | GET /admin/mall-research/batches/:id | POST /admin/mall-research/batches/:id/items | PATCH /admin/mall-research/batches/:id/items/:itemId | PATCH /admin/mall-research/batches/:id/status`);
 });
 
 export default app;

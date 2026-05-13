@@ -531,6 +531,31 @@ async function getAuthenticated<T>(path: string, accessToken: string): Promise<T
   return res.json() as Promise<T>;
 }
 
+async function patchAuthWithResponse<T>(
+  path: string,
+  body: unknown,
+  accessToken: string
+): Promise<T> {
+  const url = `${BASE_URL}${path}`;
+  const res = await fetch(url, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    let message = `Google backend error ${res.status} on PATCH ${path}`;
+    try {
+      const err = (await res.json()) as { error?: string };
+      if (err.error) message = err.error;
+    } catch { /* ignore */ }
+    throw new Error(message);
+  }
+  return res.json() as Promise<T>;
+}
+
 async function postAuthenticated(
   path: string,
   body: unknown,
@@ -1126,6 +1151,193 @@ export async function runLiveDataApplyPlanner(
   return postAuthWithResponse<LiveDataApplyPlannerResult>(
     "/admin/data-bots/plan-apply",
     payload,
+    accessToken
+  );
+}
+
+// ── Mall Research Batch Workflow types ────────────────────────────────────────
+// Sprint 9E
+
+export type MallResearchBatchStatus = "open" | "in_progress" | "complete" | "archived";
+export type MallResearchItemStatus  = "pending" | "reviewed" | "accepted" | "rejected" | "flagged";
+export type MallResearchFindingType =
+  | "shop"
+  | "product"
+  | "trading_hours"
+  | "floor_layout"
+  | "promotion"
+  | "other";
+
+export interface MallResearchBatch {
+  id:             string;
+  mall_id:        string | null;
+  mall_name:      string | null;
+  title:          string;
+  description:    string | null;
+  status:         MallResearchBatchStatus;
+  notes:          string | null;
+  item_count:     number;
+  reviewed_count: number;
+  created_by:     string | null;
+  created_at:     string;
+  updated_at:     string;
+}
+
+export interface MallResearchBatchItem {
+  id:              string;
+  batch_id:        string;
+  sequence_number: number | null;
+  finding_type:    MallResearchFindingType;
+  raw_text:        string | null;
+  source_url:      string | null;
+  source_name:     string | null;
+  status:          MallResearchItemStatus;
+  admin_notes:     string | null;
+  bot_hints_used:  Record<string, unknown>;
+  extracted_data:  Record<string, unknown>;
+  reviewed_by:     string | null;
+  reviewed_at:     string | null;
+  created_at:      string;
+  updated_at:      string;
+}
+
+export interface MallResearchBatchWithItems extends MallResearchBatch {
+  items: MallResearchBatchItem[];
+}
+
+export interface CreateMallResearchBatchInput {
+  mall_id?:     string;
+  title:        string;
+  description?: string;
+  notes?:       string;
+}
+
+export interface CreateMallResearchBatchItemInput {
+  finding_type?:    MallResearchFindingType;
+  raw_text?:        string;
+  source_url?:      string;
+  source_name?:     string;
+  sequence_number?: number;
+}
+
+export interface ReviewMallResearchBatchItemInput {
+  status?:         MallResearchItemStatus;
+  admin_notes?:    string;
+  extracted_data?: Record<string, unknown>;
+  bot_hints_used?: Record<string, unknown>;
+}
+
+// ── Mall Research Batch Workflow public API ───────────────────────────────────
+
+/**
+ * GET /admin/mall-research/batches
+ *
+ * List all research batches, newest first.
+ * Optional filters: mall_id, status.
+ * Requires admin bearer token.
+ */
+export async function getMallResearchBatches(
+  accessToken: string,
+  filters?: { mall_id?: string; status?: MallResearchBatchStatus }
+): Promise<{ batches: MallResearchBatch[]; total: number }> {
+  if (!BASE_URL) throw new Error("VITE_GOOGLE_BACKEND_URL is not configured");
+  const params = new URLSearchParams();
+  if (filters?.mall_id) params.set("mall_id", filters.mall_id);
+  if (filters?.status)  params.set("status",  filters.status);
+  const qs   = params.toString();
+  const path = `/admin/mall-research/batches${qs ? `?${qs}` : ""}`;
+  return getAuthenticated<{ batches: MallResearchBatch[]; total: number }>(path, accessToken);
+}
+
+/**
+ * POST /admin/mall-research/batches
+ *
+ * Create a new research batch for a mall.
+ * Requires admin bearer token.
+ */
+export async function createMallResearchBatch(
+  payload: CreateMallResearchBatchInput,
+  accessToken: string
+): Promise<MallResearchBatch> {
+  if (!BASE_URL) throw new Error("VITE_GOOGLE_BACKEND_URL is not configured");
+  return postAuthWithResponse<MallResearchBatch>(
+    "/admin/mall-research/batches",
+    payload,
+    accessToken
+  );
+}
+
+/**
+ * GET /admin/mall-research/batches/:id
+ *
+ * Fetch a single batch with all its items.
+ * Requires admin bearer token.
+ */
+export async function getMallResearchBatch(
+  batchId: string,
+  accessToken: string
+): Promise<MallResearchBatchWithItems> {
+  if (!BASE_URL) throw new Error("VITE_GOOGLE_BACKEND_URL is not configured");
+  return getAuthenticated<MallResearchBatchWithItems>(
+    `/admin/mall-research/batches/${batchId}`,
+    accessToken
+  );
+}
+
+/**
+ * POST /admin/mall-research/batches/:id/items
+ *
+ * Add a new finding item to a batch.
+ * Requires admin bearer token.
+ */
+export async function createMallResearchBatchItem(
+  batchId: string,
+  payload: CreateMallResearchBatchItemInput,
+  accessToken: string
+): Promise<MallResearchBatchItem> {
+  if (!BASE_URL) throw new Error("VITE_GOOGLE_BACKEND_URL is not configured");
+  return postAuthWithResponse<MallResearchBatchItem>(
+    `/admin/mall-research/batches/${batchId}/items`,
+    payload,
+    accessToken
+  );
+}
+
+/**
+ * PATCH /admin/mall-research/batches/:id/items/:itemId
+ *
+ * Update an item's review status, notes, extracted data, or bot hints.
+ * Requires admin bearer token.
+ */
+export async function reviewMallResearchBatchItem(
+  batchId: string,
+  itemId: string,
+  payload: ReviewMallResearchBatchItemInput,
+  accessToken: string
+): Promise<MallResearchBatchItem> {
+  if (!BASE_URL) throw new Error("VITE_GOOGLE_BACKEND_URL is not configured");
+  return patchAuthWithResponse<MallResearchBatchItem>(
+    `/admin/mall-research/batches/${batchId}/items/${itemId}`,
+    payload,
+    accessToken
+  );
+}
+
+/**
+ * PATCH /admin/mall-research/batches/:id/status
+ *
+ * Transition a batch to a new status (open → in_progress → complete / archived).
+ * Requires admin bearer token.
+ */
+export async function updateMallResearchBatchStatus(
+  batchId: string,
+  status: MallResearchBatchStatus,
+  accessToken: string
+): Promise<MallResearchBatch> {
+  if (!BASE_URL) throw new Error("VITE_GOOGLE_BACKEND_URL is not configured");
+  return patchAuthWithResponse<MallResearchBatch>(
+    `/admin/mall-research/batches/${batchId}/status`,
+    { status },
     accessToken
   );
 }

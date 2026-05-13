@@ -46,6 +46,17 @@ import {
   Copy,
   Layers,
   Pencil,
+  ClipboardList,
+  FolderOpen,
+  FolderPlus,
+  ChevronRight,
+  Tag,
+  FileText,
+  Link,
+  CheckCircle,
+  XCircle,
+  Flag,
+  RotateCcw,
 } from "lucide-react";
 import {
   verifyProductPrice,
@@ -64,6 +75,12 @@ import {
   runDuplicateDetection,
   runAdminReviewAssistant,
   runLiveDataApplyPlanner,
+  getMallResearchBatches,
+  createMallResearchBatch,
+  getMallResearchBatch,
+  createMallResearchBatchItem,
+  reviewMallResearchBatchItem,
+  updateMallResearchBatchStatus,
   isGoogleBackendConfigured,
   type PriceVerificationMethod,
   type HealthCheckResult,
@@ -83,6 +100,12 @@ import {
   type DuplicateDetectionResult,
   type AdminReviewAssistantResult,
   type LiveDataApplyPlannerResult,
+  type MallResearchBatch,
+  type MallResearchBatchWithItems,
+  type MallResearchBatchItem,
+  type MallResearchBatchStatus,
+  type MallResearchItemStatus,
+  type MallResearchFindingType,
 } from "@/lib/googleBackendClient";
 import { cn } from "@/lib/utils";
 
@@ -2865,6 +2888,624 @@ function DataIntelligenceBots() {
   );
 }
 
+// ── Mall Research Batch Workflow ──────────────────────────────────────────────
+
+const RESEARCH_FINDING_TYPES: { value: MallResearchFindingType; label: string }[] = [
+  { value: "shop",          label: "Shop" },
+  { value: "product",       label: "Product" },
+  { value: "trading_hours", label: "Trading Hours" },
+  { value: "floor_layout",  label: "Floor Layout" },
+  { value: "promotion",     label: "Promotion" },
+  { value: "other",         label: "Other" },
+];
+
+const BATCH_STATUS_LABELS: Record<MallResearchBatchStatus, string> = {
+  open:        "Open",
+  in_progress: "In Progress",
+  complete:    "Complete",
+  archived:    "Archived",
+};
+
+const ITEM_STATUS_LABELS: Record<MallResearchItemStatus, string> = {
+  pending:  "Pending",
+  reviewed: "Reviewed",
+  accepted: "Accepted",
+  rejected: "Rejected",
+  flagged:  "Flagged",
+};
+
+function batchStatusClasses(status: MallResearchBatchStatus): string {
+  switch (status) {
+    case "open":        return "bg-blue-100 text-blue-800";
+    case "in_progress": return "bg-yellow-100 text-yellow-800";
+    case "complete":    return "bg-green-100 text-green-800";
+    case "archived":    return "bg-muted text-muted-foreground";
+  }
+}
+
+function itemStatusClasses(status: MallResearchItemStatus): string {
+  switch (status) {
+    case "pending":  return "bg-yellow-100 text-yellow-800";
+    case "reviewed": return "bg-blue-100 text-blue-800";
+    case "accepted": return "bg-green-100 text-green-800";
+    case "rejected": return "bg-red-100 text-red-800";
+    case "flagged":  return "bg-orange-100 text-orange-800";
+  }
+}
+
+// ── Batch Item Row ────────────────────────────────────────────────────────────
+
+function BatchItemRow({
+  item,
+  onReview,
+}: {
+  item: MallResearchBatchItem;
+  onReview: (itemId: string, status: MallResearchItemStatus, notes: string) => Promise<void>;
+}) {
+  const [open,    setOpen]    = useState(false);
+  const [notes,   setNotes]   = useState(item.admin_notes ?? "");
+  const [saving,  setSaving]  = useState(false);
+
+  async function handleReview(status: MallResearchItemStatus) {
+    setSaving(true);
+    try {
+      await onReview(item.id, status, notes);
+    } finally {
+      setSaving(false);
+      setOpen(false);
+    }
+  }
+
+  return (
+    <div className="rounded-lg border bg-card text-xs">
+      {/* Row header — always visible */}
+      <button
+        className="flex w-full items-start gap-3 px-3 py-2.5 text-left hover:bg-muted/40 transition-colors rounded-lg"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span className={cn(
+          "mt-0.5 shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium",
+          itemStatusClasses(item.status)
+        )}>
+          {ITEM_STATUS_LABELS[item.status]}
+        </span>
+        <span className={cn(
+          "mt-0.5 shrink-0 rounded border px-1.5 py-0.5 text-[10px] text-muted-foreground"
+        )}>
+          {RESEARCH_FINDING_TYPES.find((t) => t.value === item.finding_type)?.label ?? item.finding_type}
+        </span>
+        <span className="flex-1 truncate text-foreground/80">
+          {item.raw_text
+            ? item.raw_text.slice(0, 120)
+            : item.source_url ?? item.source_name ?? "(no text)"}
+        </span>
+        <ChevronRight className={cn("h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform", open && "rotate-90")} />
+      </button>
+
+      {/* Expanded detail */}
+      {open && (
+        <div className="border-t px-3 py-3 space-y-3">
+          {item.raw_text && (
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">Raw text</p>
+              <p className="whitespace-pre-wrap text-foreground/90 leading-relaxed">{item.raw_text}</p>
+            </div>
+          )}
+          {(item.source_url || item.source_name) && (
+            <div className="flex flex-wrap gap-4">
+              {item.source_name && (
+                <span className="flex items-center gap-1 text-muted-foreground">
+                  <Tag className="h-3 w-3" />{item.source_name}
+                </span>
+              )}
+              {item.source_url && (
+                <a
+                  href={item.source_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1 text-primary hover:underline"
+                >
+                  <Link className="h-3 w-3" />{item.source_url.slice(0, 60)}
+                </a>
+              )}
+            </div>
+          )}
+
+          {/* Bot hints hint strip */}
+          <div className="flex flex-wrap gap-2 rounded bg-muted/50 px-3 py-2">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground self-center">Bot hints:</span>
+            {[
+              { label: "Source Research",   hint: "Run Source Research Bot with the source URL above" },
+              { label: "Find & Extract",    hint: "Run Finding Extractor Bot with the raw text above" },
+              { label: "Check Duplicates",  hint: "Run Duplicate Detection Bot with the shop/product name" },
+              { label: "Data Guardian",     hint: "Run Data Guardian to score trust level" },
+            ].map((b) => (
+              <span
+                key={b.label}
+                title={b.hint}
+                className="cursor-help rounded border bg-card px-2 py-0.5 text-[10px] text-foreground/70 hover:bg-primary/5"
+              >
+                {b.label}
+              </span>
+            ))}
+          </div>
+
+          {/* Admin notes + action buttons */}
+          <div className="space-y-2">
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Admin notes (optional)…"
+              rows={2}
+              className="w-full rounded border bg-background px-2 py-1.5 text-xs resize-none focus:outline-none focus:ring-1 focus:ring-primary/40"
+            />
+            <div className="flex flex-wrap gap-2">
+              <button
+                disabled={saving}
+                onClick={() => handleReview("accepted")}
+                className="flex items-center gap-1 rounded bg-green-600 px-2.5 py-1 text-white hover:bg-green-700 disabled:opacity-50"
+              >
+                <CheckCircle className="h-3 w-3" /> Accept
+              </button>
+              <button
+                disabled={saving}
+                onClick={() => handleReview("rejected")}
+                className="flex items-center gap-1 rounded bg-red-600 px-2.5 py-1 text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                <XCircle className="h-3 w-3" /> Reject
+              </button>
+              <button
+                disabled={saving}
+                onClick={() => handleReview("flagged")}
+                className="flex items-center gap-1 rounded bg-orange-500 px-2.5 py-1 text-white hover:bg-orange-600 disabled:opacity-50"
+              >
+                <Flag className="h-3 w-3" /> Flag
+              </button>
+              <button
+                disabled={saving}
+                onClick={() => handleReview("reviewed")}
+                className="flex items-center gap-1 rounded border bg-card px-2.5 py-1 text-foreground/80 hover:bg-muted disabled:opacity-50"
+              >
+                <RotateCcw className="h-3 w-3" /> Mark Reviewed
+              </button>
+              {saving && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground self-center" />}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Batch Detail View ─────────────────────────────────────────────────────────
+
+function BatchDetailView({
+  batchId,
+  token,
+  onBack,
+}: {
+  batchId: string;
+  token: string;
+  onBack: () => void;
+}) {
+  const [batch,   setBatch]   = useState<MallResearchBatchWithItems | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error,   setError]   = useState<string | null>(null);
+
+  // Add item form
+  const [newText,    setNewText]    = useState("");
+  const [newSource,  setNewSource]  = useState("");
+  const [newType,    setNewType]    = useState<MallResearchFindingType>("other");
+  const [addingItem, setAddingItem] = useState(false);
+  const [addError,   setAddError]   = useState<string | null>(null);
+
+  // Status change
+  const [updatingStatus, setUpdatingStatus] = useState(false);
+
+  async function load() {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await getMallResearchBatch(batchId, token);
+      setBatch(data);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { void load(); }, [batchId]);
+
+  async function handleAddItem() {
+    if (!newText.trim() && !newSource.trim()) return;
+    setAddingItem(true);
+    setAddError(null);
+    try {
+      await createMallResearchBatchItem(batchId, {
+        finding_type: newType,
+        raw_text:     newText.trim() || undefined,
+        source_url:   newSource.trim() || undefined,
+      }, token);
+      setNewText("");
+      setNewSource("");
+      setNewType("other");
+      await load();
+    } catch (e) {
+      setAddError(String(e));
+    } finally {
+      setAddingItem(false);
+    }
+  }
+
+  async function handleReviewItem(itemId: string, status: MallResearchItemStatus, notes: string) {
+    await reviewMallResearchBatchItem(batchId, itemId, { status, admin_notes: notes }, token);
+    await load();
+  }
+
+  async function handleStatusChange(status: MallResearchBatchStatus) {
+    setUpdatingStatus(true);
+    try {
+      await updateMallResearchBatchStatus(batchId, status, token);
+      await load();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setUpdatingStatus(false);
+    }
+  }
+
+  if (loading) return (
+    <div className="flex justify-center py-16">
+      <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+    </div>
+  );
+  if (error) return (
+    <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-xs text-destructive">
+      {error}
+    </div>
+  );
+  if (!batch) return null;
+
+  const pendingCount  = batch.items.filter((i) => i.status === "pending").length;
+  const acceptedCount = batch.items.filter((i) => i.status === "accepted").length;
+  const rejectedCount = batch.items.filter((i) => i.status === "rejected").length;
+
+  return (
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex items-start justify-between gap-4">
+        <div className="space-y-1">
+          <button
+            onClick={onBack}
+            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+          >
+            ← Back to batches
+          </button>
+          <h3 className="font-semibold text-sm">{batch.title}</h3>
+          {batch.mall_name && (
+            <p className="text-xs text-muted-foreground">{batch.mall_name}</p>
+          )}
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <span className={cn("rounded px-2 py-0.5 text-[10px] font-medium", batchStatusClasses(batch.status))}>
+            {BATCH_STATUS_LABELS[batch.status]}
+          </span>
+          {updatingStatus && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+        </div>
+      </div>
+
+      {/* Stats + status actions */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {[
+          { label: "Total items", value: batch.items.length, color: "" },
+          { label: "Pending",     value: pendingCount,       color: "text-yellow-600" },
+          { label: "Accepted",    value: acceptedCount,      color: "text-green-600" },
+          { label: "Rejected",    value: rejectedCount,      color: "text-red-600" },
+        ].map(({ label, value, color }) => (
+          <Card key={label} className="p-0">
+            <CardContent className="flex flex-col gap-0.5 p-3">
+              <span className="text-[10px] text-muted-foreground">{label}</span>
+              <span className={cn("text-xl font-bold tabular-nums", color)}>{value}</span>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      {/* Status transitions */}
+      <div className="flex flex-wrap gap-2 text-xs">
+        <span className="text-muted-foreground self-center">Move batch to:</span>
+        {(["open", "in_progress", "complete", "archived"] as MallResearchBatchStatus[])
+          .filter((s) => s !== batch.status)
+          .map((s) => (
+            <button
+              key={s}
+              disabled={updatingStatus}
+              onClick={() => handleStatusChange(s)}
+              className="rounded border bg-card px-2.5 py-1 hover:bg-muted disabled:opacity-50"
+            >
+              {BATCH_STATUS_LABELS[s]}
+            </button>
+          ))}
+      </div>
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:items-start">
+        {/* Add item form */}
+        <Card>
+          <CardHeader className="pb-2 pt-3 px-4">
+            <CardTitle className="text-xs font-semibold flex items-center gap-1.5">
+              <FolderPlus className="h-3.5 w-3.5" /> Add Finding
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="px-4 pb-4 space-y-3">
+            <div className="space-y-1">
+              <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Finding type</label>
+              <Select value={newType} onValueChange={(v) => setNewType(v as MallResearchFindingType)}>
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {RESEARCH_FINDING_TYPES.map((t) => (
+                    <SelectItem key={t.value} value={t.value} className="text-xs">{t.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Raw text / observation</label>
+              <textarea
+                value={newText}
+                onChange={(e) => setNewText(e.target.value)}
+                placeholder="e.g. Game at Sandton City Ground Floor unit G12 is selling the Samsung 65″ TV for R12,999 on special"
+                rows={3}
+                className="w-full rounded border bg-background px-2 py-1.5 text-xs resize-none focus:outline-none focus:ring-1 focus:ring-primary/40"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Source URL (optional)</label>
+              <Input
+                value={newSource}
+                onChange={(e) => setNewSource(e.target.value)}
+                placeholder="https://sandtoncity.com/stores/game"
+                className="h-8 text-xs"
+              />
+            </div>
+            {addError && (
+              <p className="text-xs text-destructive">{addError}</p>
+            )}
+            <Button
+              size="sm"
+              className="h-8 text-xs w-full"
+              disabled={addingItem || (!newText.trim() && !newSource.trim())}
+              onClick={handleAddItem}
+            >
+              {addingItem ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Plus className="h-3.5 w-3.5 mr-1" />}
+              Add Finding
+            </Button>
+
+            {/* Bot integration hints */}
+            <div className="rounded-lg border bg-muted/30 px-3 py-2.5 space-y-1.5 text-[11px]">
+              <p className="font-semibold text-muted-foreground">After adding an item, run these bots:</p>
+              <ol className="space-y-1 list-decimal list-inside text-muted-foreground">
+                <li><span className="text-foreground font-medium">Source Research Bot</span> — paste the source URL → validates it isn't Google Maps / Yelp</li>
+                <li><span className="text-foreground font-medium">Finding Extractor Bot</span> — paste the raw text → extracts prices, unit codes, hours</li>
+                <li><span className="text-foreground font-medium">Duplicate Detection Bot</span> — enter the shop/product name → checks for existing DB entries</li>
+                <li><span className="text-foreground font-medium">Data Guardian</span> — score trust level before committing to live data</li>
+              </ol>
+              <p className="text-muted-foreground mt-1">All bots are in the <strong className="text-foreground">Bot Suite</strong> tab.</p>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Items list */}
+        <div className="space-y-2">
+          <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+            Findings ({batch.items.length})
+          </h4>
+          {batch.items.length === 0 ? (
+            <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed py-10 text-center">
+              <FileText className="h-7 w-7 text-muted-foreground/30" />
+              <p className="text-xs text-muted-foreground">No findings yet. Add one using the form.</p>
+            </div>
+          ) : (
+            batch.items.map((item) => (
+              <BatchItemRow
+                key={item.id}
+                item={item}
+                onReview={handleReviewItem}
+              />
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Mall Research Batches Root ────────────────────────────────────────────────
+
+function MallResearchBatches({ token }: { token: string }) {
+  const [batches,     setBatches]     = useState<MallResearchBatch[]>([]);
+  const [total,       setTotal]       = useState(0);
+  const [loading,     setLoading]     = useState(true);
+  const [error,       setError]       = useState<string | null>(null);
+  const [selectedId,  setSelectedId]  = useState<string | null>(null);
+
+  // Create form
+  const [createTitle, setCreateTitle] = useState("");
+  const [createDesc,  setCreateDesc]  = useState("");
+  const [creating,    setCreating]    = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+
+  // Filter
+  const [statusFilter, setStatusFilter] = useState<"" | MallResearchBatchStatus>("");
+
+  async function loadBatches() {
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await getMallResearchBatches(
+        token,
+        statusFilter ? { status: statusFilter as MallResearchBatchStatus } : undefined
+      );
+      setBatches(result.batches);
+      setTotal(result.total);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { void loadBatches(); }, [statusFilter]);
+
+  async function handleCreate() {
+    if (!createTitle.trim()) return;
+    setCreating(true);
+    setCreateError(null);
+    try {
+      const batch = await createMallResearchBatch({ title: createTitle.trim(), description: createDesc.trim() || undefined }, token);
+      setCreateTitle("");
+      setCreateDesc("");
+      setBatches((prev) => [batch, ...prev]);
+      setTotal((t) => t + 1);
+    } catch (e) {
+      setCreateError(String(e));
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  // Batch detail view
+  if (selectedId) {
+    return (
+      <BatchDetailView
+        batchId={selectedId}
+        token={token}
+        onBack={() => { setSelectedId(null); void loadBatches(); }}
+      />
+    );
+  }
+
+  return (
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:items-start">
+      {/* Create new batch */}
+      <Card>
+        <CardHeader className="pb-2 pt-3 px-4">
+          <CardTitle className="text-xs font-semibold flex items-center gap-1.5">
+            <FolderPlus className="h-3.5 w-3.5" /> New Research Batch
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="px-4 pb-4 space-y-3">
+          <p className="text-[11px] text-muted-foreground">
+            Create a batch to group all data findings for one mall research session.
+            Batches do not write to shops, products, or mall_nodes automatically —
+            they are a staging workspace only.
+          </p>
+          <div className="space-y-1">
+            <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Title *</label>
+            <Input
+              value={createTitle}
+              onChange={(e) => setCreateTitle(e.target.value)}
+              placeholder="e.g. Sandton City — May 2026 survey"
+              className="h-8 text-xs"
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Description (optional)</label>
+            <textarea
+              value={createDesc}
+              onChange={(e) => setCreateDesc(e.target.value)}
+              placeholder="What are you researching in this batch?"
+              rows={2}
+              className="w-full rounded border bg-background px-2 py-1.5 text-xs resize-none focus:outline-none focus:ring-1 focus:ring-primary/40"
+            />
+          </div>
+          {createError && <p className="text-xs text-destructive">{createError}</p>}
+          <Button
+            size="sm"
+            className="h-8 text-xs w-full"
+            disabled={creating || !createTitle.trim()}
+            onClick={handleCreate}
+          >
+            {creating ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <FolderPlus className="h-3.5 w-3.5 mr-1" />}
+            Create Batch
+          </Button>
+        </CardContent>
+      </Card>
+
+      {/* Batch list */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+            Batches ({total})
+          </h3>
+          <div className="flex items-center gap-2">
+            <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as "" | MallResearchBatchStatus)}>
+              <SelectTrigger className="h-7 w-32 text-xs">
+                <SelectValue placeholder="All statuses" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="" className="text-xs">All statuses</SelectItem>
+                {(["open", "in_progress", "complete", "archived"] as MallResearchBatchStatus[]).map((s) => (
+                  <SelectItem key={s} value={s} className="text-xs">{BATCH_STATUS_LABELS[s]}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={loadBatches}>
+              <RefreshCw className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </div>
+
+        {loading && (
+          <div className="flex justify-center py-10">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          </div>
+        )}
+        {error && (
+          <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive">
+            {error}
+          </div>
+        )}
+        {!loading && !error && batches.length === 0 && (
+          <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed py-10 text-center">
+            <FolderOpen className="h-7 w-7 text-muted-foreground/30" />
+            <p className="text-xs text-muted-foreground">No batches yet. Create one using the form.</p>
+          </div>
+        )}
+        {!loading && batches.map((b) => (
+          <button
+            key={b.id}
+            onClick={() => setSelectedId(b.id)}
+            className="w-full rounded-lg border bg-card px-3 py-2.5 text-left hover:border-primary/40 hover:bg-primary/5 transition-colors"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="space-y-0.5 min-w-0">
+                <p className="text-xs font-medium truncate">{b.title}</p>
+                {b.mall_name && (
+                  <p className="text-[10px] text-muted-foreground">{b.mall_name}</p>
+                )}
+                {b.description && (
+                  <p className="text-[10px] text-muted-foreground line-clamp-1">{b.description}</p>
+                )}
+              </div>
+              <div className="flex flex-col items-end gap-1 shrink-0">
+                <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-medium", batchStatusClasses(b.status))}>
+                  {BATCH_STATUS_LABELS[b.status]}
+                </span>
+                <span className="text-[10px] text-muted-foreground">
+                  {b.item_count} item{b.item_count !== 1 ? "s" : ""} · {b.reviewed_count} reviewed
+                </span>
+              </div>
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 type AdminTab =
@@ -2874,7 +3515,8 @@ type AdminTab =
   | "price-trust"
   | "mall-data"
   | "guardian"
-  | "bots";
+  | "bots"
+  | "research";
 
 interface AdminTabDef {
   id:               AdminTab;
@@ -2884,13 +3526,14 @@ interface AdminTabDef {
 }
 
 const ADMIN_TABS: AdminTabDef[] = [
-  { id: "overview",    label: "Overview",      icon: <BarChart3   className="h-3.5 w-3.5" /> },
-  { id: "diagnostics", label: "Diagnostics",   icon: <Activity    className="h-3.5 w-3.5" /> },
-  { id: "analytics",   label: "Analytics",     icon: <TrendingUp  className="h-3.5 w-3.5" />, requiresBackend: true },
-  { id: "price-trust", label: "Price Trust",   icon: <ShieldCheck className="h-3.5 w-3.5" /> },
-  { id: "mall-data",   label: "Mall Data",     icon: <Database    className="h-3.5 w-3.5" />, requiresBackend: true },
-  { id: "guardian",    label: "Data Guardian", icon: <Bot         className="h-3.5 w-3.5" />, requiresBackend: true },
-  { id: "bots",        label: "Bot Suite",     icon: <Cpu         className="h-3.5 w-3.5" />, requiresBackend: true },
+  { id: "overview",    label: "Overview",        icon: <BarChart3      className="h-3.5 w-3.5" /> },
+  { id: "diagnostics", label: "Diagnostics",     icon: <Activity       className="h-3.5 w-3.5" /> },
+  { id: "analytics",   label: "Analytics",       icon: <TrendingUp     className="h-3.5 w-3.5" />, requiresBackend: true },
+  { id: "price-trust", label: "Price Trust",     icon: <ShieldCheck    className="h-3.5 w-3.5" /> },
+  { id: "mall-data",   label: "Mall Data",       icon: <Database       className="h-3.5 w-3.5" />, requiresBackend: true },
+  { id: "guardian",    label: "Data Guardian",   icon: <Bot            className="h-3.5 w-3.5" />, requiresBackend: true },
+  { id: "bots",        label: "Bot Suite",       icon: <Cpu            className="h-3.5 w-3.5" />, requiresBackend: true },
+  { id: "research",    label: "Research Batches",icon: <ClipboardList  className="h-3.5 w-3.5" />, requiresBackend: true },
 ];
 
 function AdminDashboardContent() {
@@ -2953,7 +3596,7 @@ function AdminDashboardContent() {
   const visibleTabs = ADMIN_TABS.filter((t) => !t.requiresBackend || backendOk);
 
   const needsBackend = (tab: AdminTab) =>
-    ["analytics", "mall-data", "guardian", "bots"].includes(tab);
+    ["analytics", "mall-data", "guardian", "bots", "research"].includes(tab);
 
   return (
     <div className="min-h-screen bg-background">
@@ -3099,12 +3742,13 @@ function AdminDashboardContent() {
                     </h2>
                     <div className="grid grid-cols-2 gap-3 text-xs">
                       {([
-                        { label: "Diagnostics",    tab: "diagnostics" as AdminTab, desc: "Test backend connection",      icon: <Activity    className="h-3.5 w-3.5 text-muted-foreground" /> },
-                        { label: "Analytics",      tab: "analytics"   as AdminTab, desc: "Usage events & search trends", icon: <TrendingUp  className="h-3.5 w-3.5 text-muted-foreground" />, backend: true },
-                        { label: "Price Trust",    tab: "price-trust" as AdminTab, desc: "Verify & correct prices",      icon: <ShieldCheck className="h-3.5 w-3.5 text-muted-foreground" /> },
-                        { label: "Mall Data",      tab: "mall-data"   as AdminTab, desc: "Sources & findings",           icon: <Database    className="h-3.5 w-3.5 text-muted-foreground" />, backend: true },
-                        { label: "Data Guardian",  tab: "guardian"    as AdminTab, desc: "Trust scoring",                icon: <Bot         className="h-3.5 w-3.5 text-muted-foreground" />, backend: true },
-                        { label: "Bot Suite",      tab: "bots"        as AdminTab, desc: "Intelligence bots",            icon: <Cpu         className="h-3.5 w-3.5 text-muted-foreground" />, backend: true },
+                        { label: "Diagnostics",       tab: "diagnostics" as AdminTab, desc: "Test backend connection",      icon: <Activity       className="h-3.5 w-3.5 text-muted-foreground" /> },
+                        { label: "Analytics",         tab: "analytics"   as AdminTab, desc: "Usage events & search trends", icon: <TrendingUp     className="h-3.5 w-3.5 text-muted-foreground" />, backend: true },
+                        { label: "Price Trust",       tab: "price-trust" as AdminTab, desc: "Verify & correct prices",      icon: <ShieldCheck    className="h-3.5 w-3.5 text-muted-foreground" /> },
+                        { label: "Mall Data",         tab: "mall-data"   as AdminTab, desc: "Sources & findings",           icon: <Database       className="h-3.5 w-3.5 text-muted-foreground" />, backend: true },
+                        { label: "Data Guardian",     tab: "guardian"    as AdminTab, desc: "Trust scoring",                icon: <Bot            className="h-3.5 w-3.5 text-muted-foreground" />, backend: true },
+                        { label: "Bot Suite",         tab: "bots"        as AdminTab, desc: "Intelligence bots",            icon: <Cpu            className="h-3.5 w-3.5 text-muted-foreground" />, backend: true },
+                        { label: "Research Batches",  tab: "research"    as AdminTab, desc: "Per-mall research workflow",   icon: <ClipboardList  className="h-3.5 w-3.5 text-muted-foreground" />, backend: true },
                       ] as const).map((item) => {
                         const disabled = "backend" in item && item.backend && !backendOk;
                         return (
@@ -3290,6 +3934,21 @@ function AdminDashboardContent() {
               </p>
             </div>
             <DataIntelligenceBots />
+          </div>
+        )}
+
+        {/* ── Research Batches ─────────────────────────────────────────────── */}
+        {activeTab === "research" && backendOk && session?.access_token && (
+          <div className="space-y-4">
+            <div>
+              <h2 className="text-sm font-semibold">Mall Research Batch Workflow</h2>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Controlled workspace for per-mall data collection. Group findings by mall, review each item,
+                and run Data Intelligence Bots before committing anything to live data. No automatic writes
+                to shops, products, or mall_nodes.
+              </p>
+            </div>
+            <MallResearchBatches token={session.access_token} />
           </div>
         )}
 
