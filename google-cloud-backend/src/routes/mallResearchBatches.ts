@@ -28,6 +28,8 @@ import type { FindingExtractorResult }   from "../services/dataBots/findingExtra
 import type { DuplicateDetectionResult } from "../services/dataBots/duplicateDetectionBot.js";
 import type { AdminReviewAssistantResult } from "../services/dataBots/adminReviewAssistantBot.js";
 import type { DataGuardianResult }       from "../services/dataGuardianService.js";
+// Sprint 9G: Data Trust Policy engine
+import type { TrustPolicyResult }        from "../services/dataTrustPolicy.js";
 
 const router = Router();
 
@@ -619,11 +621,14 @@ function buildDuplicateInput(
 }
 
 function buildReviewInput(hints: Record<string, unknown>) {
+  // Sprint 9G: pass policy_result from the guardian result if present
+  const guardianResult = hints.data_guardian as DataGuardianResult | undefined;
   return {
-    guardian_result:  (hints.data_guardian as DataGuardianResult | undefined)          ?? undefined,
-    source_result:    (hints.source_research as SourceResearchResult | undefined)       ?? undefined,
-    duplicate_result: (hints.duplicate_detection as DuplicateDetectionResult | undefined) ?? undefined,
-    extractor_result: (hints.finding_extractor as FindingExtractorResult | undefined)   ?? undefined,
+    guardian_result:  guardianResult ?? undefined,
+    source_result:    (hints.source_research as SourceResearchResult | undefined)          ?? undefined,
+    duplicate_result: (hints.duplicate_detection as DuplicateDetectionResult | undefined)  ?? undefined,
+    extractor_result: (hints.finding_extractor as FindingExtractorResult | undefined)      ?? undefined,
+    policy_result:    (hints.policy_result as TrustPolicyResult | undefined)               ?? guardianResult?.policy_result ?? undefined,
   };
 }
 
@@ -716,12 +721,18 @@ router.post("/items/:itemId/run-data-guardian", async (req: Request, res: Respon
       existingHints.source_research as SourceResearchResult | undefined,
     );
     const botResult = reviewMallDataSubmission(botInput);
-    const hints     = await saveBotHint(itemId, "data_guardian", botResult);
+    let hints       = await saveBotHint(itemId, "data_guardian", botResult);
+
+    // Sprint 9G: save policy_result separately for quick UI access
+    if (botResult.policy_result) {
+      hints = await saveBotHint(itemId, "policy_result", botResult.policy_result);
+    }
 
     fireAuditLog(admin.user.id, "bot_data_guardian_run", {
       item_id:          itemId,
       trust_level:      botResult.trust_level,
       confidence_score: botResult.confidence_score,
+      trust_state:      botResult.policy_result?.trust_state,
     });
 
     return res.json({ item_id: itemId, data_guardian: botResult, bot_hints_used: hints });
@@ -896,6 +907,12 @@ router.post("/items/:itemId/run-full-pipeline", async (req: Request, res: Respon
       const guardianResult = reviewMallDataSubmission(guardianInput);
       hints = await saveBotHint(itemId, "data_guardian", guardianResult);
       stepsCompleted.push("data_guardian");
+
+      // Sprint 9G: also save the policy_result from guardian separately for quick access
+      if (guardianResult.policy_result) {
+        hints = await saveBotHint(itemId, "policy_result", guardianResult.policy_result);
+        stepsCompleted.push("policy_result");
+      }
     } catch (e) {
       warnings.push(`data_guardian failed: ${String(e)}`);
       await saveBotHint(itemId, "data_guardian_error", { error: String(e) });

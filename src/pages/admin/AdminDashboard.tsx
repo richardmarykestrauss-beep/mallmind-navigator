@@ -3010,6 +3010,149 @@ function BotOutputSection({
   );
 }
 
+// ── Truth Status block (Sprint 9G) ───────────────────────────────────────────
+
+type TrustPolicyResult = {
+  trust_state:            string;
+  trust_level:            string;
+  confidence_score:       number;
+  evidence_strength:      string;
+  source_quality:         string;
+  freshness_state:        string;
+  conflict_risk:          string;
+  manual_review_priority: string;
+  safe_badge:             string;
+  allowed_next_actions:   string[];
+  blocked_actions:        string[];
+  reasoning_summary:      string;
+  missing_evidence:       string[];
+  must_not_update_live_data: boolean;
+};
+
+function TrustStatusBlock({ policy }: { policy: TrustPolicyResult }) {
+  const [expanded, setExpanded] = useState(false);
+
+  const stateColor = (state: string) => {
+    switch (state) {
+      case "mall_verified":
+      case "retailer_verified":
+      case "physically_verified":
+      case "admin_verified":       return "bg-green-100 text-green-800 border-green-200";
+      case "community_supported":
+      case "source_matched":       return "bg-blue-100 text-blue-800 border-blue-200";
+      case "evidence_submitted":
+      case "reported":             return "bg-yellow-100 text-yellow-800 border-yellow-200";
+      case "stale":                return "bg-orange-100 text-orange-800 border-orange-200";
+      case "disputed":             return "bg-red-100 text-red-800 border-red-200";
+      case "rejected":             return "bg-red-200 text-red-900 border-red-300";
+      default:                     return "bg-muted text-muted-foreground border-border";
+    }
+  };
+
+  const priorityColor = (p: string) => {
+    switch (p) {
+      case "urgent": return "text-red-700";
+      case "high":   return "text-orange-700";
+      case "medium": return "text-yellow-700";
+      case "low":    return "text-blue-600";
+      default:       return "text-muted-foreground";
+    }
+  };
+
+  const freshnessColor = (f: string) => {
+    switch (f) {
+      case "fresh":   return "text-green-700";
+      case "aging":   return "text-yellow-700";
+      case "stale":   return "text-red-700";
+      default:        return "text-muted-foreground";
+    }
+  };
+
+  return (
+    <div className="rounded border bg-muted/30 text-[11px]">
+      <button
+        className="flex w-full items-center justify-between px-2.5 py-1.5 text-left hover:bg-muted/50 transition-colors"
+        onClick={() => setExpanded((v) => !v)}
+      >
+        <span className="font-semibold">Truth Status</span>
+        <div className="flex items-center gap-1.5 flex-wrap justify-end">
+          <span className={cn("rounded border px-1.5 py-0.5 text-[10px] font-medium", stateColor(policy.trust_state))}>
+            {policy.trust_state.replace(/_/g, " ")}
+          </span>
+          <span className="text-muted-foreground">{policy.confidence_score}%</span>
+          {policy.conflict_risk !== "none" && (
+            <span className="rounded bg-red-100 px-1 py-0.5 text-[10px] text-red-800">
+              conflict: {policy.conflict_risk}
+            </span>
+          )}
+          {policy.freshness_state !== "fresh" && policy.freshness_state !== "unknown" && (
+            <span className={cn("text-[10px]", freshnessColor(policy.freshness_state))}>
+              {policy.freshness_state}
+            </span>
+          )}
+          {policy.manual_review_priority !== "none" && (
+            <span className={cn("text-[10px] font-medium", priorityColor(policy.manual_review_priority))}>
+              review: {policy.manual_review_priority}
+            </span>
+          )}
+          {expanded ? <ChevronUp className="h-3 w-3 text-muted-foreground" /> : <ChevronDown className="h-3 w-3 text-muted-foreground" />}
+        </div>
+      </button>
+      {expanded && (
+        <div className="border-t px-2.5 py-2 space-y-2">
+          {/* Safe badge */}
+          <p className="italic text-muted-foreground">&ldquo;{policy.safe_badge}&rdquo;</p>
+
+          {/* Grid of classifications */}
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+            <span className="text-muted-foreground">Evidence</span>
+            <span className="font-medium">{policy.evidence_strength}</span>
+            <span className="text-muted-foreground">Source quality</span>
+            <span className="font-medium">{policy.source_quality}</span>
+            <span className="text-muted-foreground">Freshness</span>
+            <span className={cn("font-medium", freshnessColor(policy.freshness_state))}>{policy.freshness_state}</span>
+            <span className="text-muted-foreground">Conflict risk</span>
+            <span className={cn("font-medium", policy.conflict_risk !== "none" ? "text-red-700" : "text-green-700")}>{policy.conflict_risk}</span>
+            <span className="text-muted-foreground">Must not update live</span>
+            <span className={cn("font-medium", policy.must_not_update_live_data ? "text-orange-700" : "text-green-700")}>
+              {policy.must_not_update_live_data ? "Yes — blocked" : "No — eligible"}
+            </span>
+          </div>
+
+          {/* Reasoning */}
+          <p className="text-muted-foreground">{policy.reasoning_summary}</p>
+
+          {/* Missing evidence */}
+          {policy.missing_evidence.length > 0 && (
+            <div>
+              <p className="font-medium text-yellow-700 mb-0.5">To elevate trust:</p>
+              <ul className="list-disc list-inside space-y-0.5 text-muted-foreground">
+                {policy.missing_evidence.map((m, i) => <li key={i}>{m}</li>)}
+              </ul>
+            </div>
+          )}
+
+          {/* Blocked actions */}
+          {policy.blocked_actions.length > 0 && (
+            <div>
+              <p className="font-medium text-red-700 mb-0.5">Blocked actions:</p>
+              <p className="text-muted-foreground">{policy.blocked_actions.join(", ")}</p>
+            </div>
+          )}
+
+          {/* Allowed actions */}
+          {policy.allowed_next_actions.length > 0 && (
+            <div>
+              <p className="font-medium text-green-700 mb-0.5">Allowed actions:</p>
+              <p className="text-muted-foreground">{policy.allowed_next_actions.join(", ")}</p>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── BatchItemRow ──────────────────────────────────────────────────────────────
 
 function BatchItemRow({
@@ -3206,9 +3349,12 @@ function BatchItemRow({
           )}
 
           {/* Bot outputs (compact, expandable) */}
-          {(hints.source_research || hints.finding_extractor || hints.data_guardian || hints.duplicate_detection || hints.admin_review) && (
+          {(hints.source_research || hints.finding_extractor || hints.data_guardian || hints.duplicate_detection || hints.admin_review || hints.policy_result) && (
             <div className="space-y-1.5">
               <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Bot Outputs</p>
+              {hints.policy_result && (
+                <TrustStatusBlock policy={hints.policy_result as TrustPolicyResult} />
+              )}
               <BotOutputSection label="Source Research"    data={hints.source_research as Record<string, unknown> | undefined} />
               <BotOutputSection label="Finding Extractor"  data={hints.finding_extractor as Record<string, unknown> | undefined} />
               <BotOutputSection label="Data Guardian"      data={hints.data_guardian as Record<string, unknown> | undefined} />

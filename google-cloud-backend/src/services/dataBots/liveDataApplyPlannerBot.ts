@@ -11,6 +11,7 @@
  */
 
 import type { BotOutputBase, LiveDataActionSafety } from "./types.js";
+import type { TrustState } from "../dataTrustPolicy.js";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -31,6 +32,13 @@ export interface LiveDataApplyPlannerInput {
   structured_data: Record<string, unknown>;
   target_record_id?: string;  // Existing DB record to patch, if known
   mall_id?: string;
+  /**
+   * Sprint 9G: 12-state trust state from the Data Trust Policy engine.
+   * If provided, states stale / disputed / rejected / raw / reported /
+   * evidence_submitted / source_matched block plan generation regardless
+   * of the trust_level value.
+   */
+  trust_state?: TrustState | string;
 }
 
 export interface LiveDataApplyPlannerResult extends BotOutputBase {
@@ -151,6 +159,40 @@ export function runLiveDataApplyPlannerBot(
 ): LiveDataApplyPlannerResult {
   const now   = new Date().toISOString();
   const table = targetTable(input.finding_type);
+
+  // ── Gate: policy trust_state (Sprint 9G) ─────────────────────────────────
+  // States that are ALWAYS blocked regardless of trust_level value:
+  const POLICY_BLOCKED_STATES = new Set<string>([
+    "stale", "disputed", "rejected",
+    "raw", "reported", "evidence_submitted", "source_matched", "community_supported",
+  ]);
+
+  if (input.trust_state && POLICY_BLOCKED_STATES.has(input.trust_state)) {
+    const blockReason =
+      `Trust state "${input.trust_state}" is not eligible for a live data apply plan. ` +
+      `Required: admin_verified, physically_verified, retailer_verified, or mall_verified. ` +
+      (input.trust_state === "stale"    ? "Data has expired its freshness window — re-verify first." :
+       input.trust_state === "disputed" ? "Conflicting reports must be resolved before applying." :
+       input.trust_state === "rejected" ? "This submission was rejected." :
+       "Elevate trust level before generating a patch plan.");
+
+    return {
+      bot_name:                  "LiveDataApplyPlannerBot",
+      processed_at:              now,
+      risk_level:                input.trust_state === "disputed" ? "critical" : "high",
+      recommendation:            "reject",
+      live_data_action_safety:   input.trust_state === "disputed" ? "blocked_by_policy" : "do_not_apply",
+      must_not_update_live_data: true,
+      reasoning:                 [blockReason],
+      target_table:              table,
+      target_record_id:          input.target_record_id,
+      proposed_patches:          [],
+      fields_skipped:            Object.keys(input.structured_data),
+      plan_summary:              `BLOCKED — ${blockReason}`,
+      plan_blocked:              true,
+      block_reason:              blockReason,
+    };
+  }
 
   // ── Gate: minimum trust level ────────────────────────────────────────────
   if (trustRank(input.trust_level) < 4) {

@@ -1,6 +1,6 @@
 # MallMind Mall Research Batch Workflow
 
-Sprint 9E/9F · MallMind Navigator
+Sprint 9E/9F/9G · MallMind Navigator
 
 ---
 
@@ -280,15 +280,18 @@ Each batch item now has direct bot action buttons — no need to copy-paste text
   "source_research":     { ... SourceResearchResult ... },
   "finding_extractor":   { ... FindingExtractorResult ... },
   "data_guardian":       { ... DataGuardianResult ... },
+  "policy_result":       { ... TrustPolicyResult ... },
   "duplicate_detection": { ... DuplicateDetectionResult ... },
   "admin_review":        { ... AdminReviewAssistantResult ... },
   "pipeline": {
     "last_run_at": "2026-05-13T10:00:00.000Z",
-    "steps_completed": ["source_research", "finding_extractor", "data_guardian", "duplicate_detection", "admin_review"],
+    "steps_completed": ["source_research", "finding_extractor", "data_guardian", "policy_result", "duplicate_detection", "admin_review"],
     "warnings": []
   }
 }
 ```
+
+`policy_result` is saved separately after the Data Guardian runs so the Truth Status block in the UI can render without inspecting the full guardian output. It contains the 12-state `trust_state`, `evidence_strength`, `source_quality`, `freshness_state`, `conflict_risk`, `manual_review_priority`, `safe_badge`, `allowed_next_actions`, `blocked_actions`, and `must_not_update_live_data`.
 
 ### Why live data is not updated automatically
 

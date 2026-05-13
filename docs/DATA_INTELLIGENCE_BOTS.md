@@ -1,6 +1,6 @@
 # MallMind Data Intelligence Bot Suite
 
-Sprint 9C · MallMind Navigator
+Sprint 9C / 9G · MallMind Navigator
 
 ---
 
@@ -370,6 +370,38 @@ The Bot Suite tab remains fully functional and useful for:
 - **Live Data Apply Planner** — generate a patch plan from any structured data, not just batch items
 
 The Research Batch integration is the **production workflow** (input derived from real batch items, outputs saved back). The Bot Suite tab is the **sandbox** (freeform input, no persistence).
+
+---
+
+---
+
+## Data Trust Policy Engine (Sprint 9G)
+
+A central deterministic policy engine (`dataTrustPolicy.ts`) now underpins all five bots.
+
+### What it adds
+
+- **12 trust states:** `raw → reported → evidence_submitted → source_matched → community_supported → admin_verified → physically_verified → retailer_verified → mall_verified → stale → disputed → rejected`
+- **Freshness rules:** prices stale after 7 days; promotions at expiry; shop/layout after 90 days
+- **Conflict/dispute gate:** any conflicting reports → `trust_state: disputed` → `must_not_update_live_data: true`
+- **Restricted source gate:** Google Maps, Yelp, etc. → `trust_state: rejected`
+- **Safe badge wording** — the only approved source for user-visible trust labels
+- **Allowed / blocked actions** per trust state
+
+### Integration
+
+| Bot | How it uses the engine |
+|-----|----------------------|
+| Data Guardian | Calls `evaluateDataTrust()` — attaches `policy_result` to its output |
+| Admin Review Assistant | Accepts optional `policy_result` — uses `trust_state`, `conflict_risk`, `manual_review_priority` for additional actions |
+| Live Data Apply Planner | New policy trust_state gate — blocks `stale`, `disputed`, `rejected`, `raw`, `reported`, `evidence_submitted`, `source_matched`, `community_supported` regardless of trust_level |
+| Research Batch pipeline | Saves `policy_result` to `bot_hints_used` after Data Guardian runs |
+
+### UI — Truth Status block
+
+Each Research Batch item shows a **Truth Status** panel (collapsed by default) once the Data Guardian has run. It shows trust state, confidence, conflict risk, freshness, safe badge, blocked/allowed actions, and what evidence would elevate trust.
+
+See [DATA_TRUST_POLICY.md](DATA_TRUST_POLICY.md) for the full specification.
 
 ---
 

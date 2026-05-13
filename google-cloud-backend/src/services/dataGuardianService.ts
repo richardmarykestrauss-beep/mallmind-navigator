@@ -10,6 +10,11 @@
 // It scores a submission and returns a structured review recommendation.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import {
+  evaluateDataTrust,
+  type TrustPolicyResult,
+} from "./dataTrustPolicy.js";
+
 // ── FORBIDDEN WORDING GUARD ───────────────────────────────────────────────────
 // The following terms MUST NOT appear in safe_badge or user-visible output
 // unless the trust_level explicitly supports them (see SAFE_BADGES below).
@@ -86,6 +91,13 @@ export interface DataGuardianResult {
    *  false = trust is high enough that an admin COULD apply it, but only via
    *  an explicit admin apply action — never automatically. */
   must_not_update_live_data: boolean;
+  /**
+   * Full trust policy evaluation from the central Data Trust Policy engine.
+   * Includes trust_state (12-state), evidence_strength, source_quality,
+   * freshness_state, conflict_risk, manual_review_priority, allowed/blocked actions.
+   * Sprint 9G.
+   */
+  policy_result?: TrustPolicyResult;
 }
 
 // ── Trust level ordering ──────────────────────────────────────────────────────
@@ -683,6 +695,23 @@ export function reviewMallDataSubmission(
     trustLevel, confidence, missingEvidence, recommendedAction
   );
 
+  // Step 10 (Sprint 9G): Run the central Data Trust Policy engine
+  const policyResult = evaluateDataTrust({
+    finding_type:               input.finding_type,
+    source_type:                input.source_type,
+    submitted_by_type:          input.submitted_by_type,
+    has_photo:                  input.has_photo,
+    has_receipt:                input.has_receipt,
+    has_official_source:        input.has_official_source,
+    has_retailer_confirmation:  input.has_retailer_confirmation,
+    has_mall_confirmation:      input.has_mall_confirmation,
+    has_physical_verification:  input.has_physical_verification,
+    source_url:                 input.source_url,
+    observed_at:                input.observed_at,
+    confidence_score:           confidence,
+    structured_data:            input.structured_data,
+  });
+
   return {
     recommended_action:     recommendedAction,
     finding_type:           findingType,
@@ -694,5 +723,6 @@ export function reviewMallDataSubmission(
     structured_data:        input.structured_data ?? {},
     admin_note:             adminNote,
     must_not_update_live_data: mustNotUpdateLiveData,
+    policy_result:          policyResult,
   };
 }

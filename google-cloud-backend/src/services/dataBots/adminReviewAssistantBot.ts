@@ -14,6 +14,7 @@ import type { DataGuardianResult }      from "../dataGuardianService.js";
 import type { SourceResearchResult }    from "./sourceResearchBot.js";
 import type { DuplicateDetectionResult } from "./duplicateDetectionBot.js";
 import type { FindingExtractorResult }  from "./findingExtractorBot.js";
+import type { TrustPolicyResult }       from "../dataTrustPolicy.js";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -30,6 +31,8 @@ export interface AdminReviewAssistantInput {
   source_result?:      SourceResearchResult;
   duplicate_result?:   DuplicateDetectionResult;
   extractor_result?:   FindingExtractorResult;
+  /** Sprint 9G: policy engine result — used for conflict_risk, trust_state, blocked_actions */
+  policy_result?:      TrustPolicyResult;
 }
 
 export interface AdminReviewAssistantResult extends BotOutputBase {
@@ -38,8 +41,12 @@ export interface AdminReviewAssistantResult extends BotOutputBase {
   summary_for_admin:     string;
   confidence_score:      number;
   trust_level?:          string;
+  /** Sprint 9G: 12-state trust state from the policy engine */
+  trust_state?:          string;
   safe_to_proceed:       boolean;
   blocker_reasons:       string[];
+  /** Sprint 9G: policy engine result passed through for UI display */
+  policy_result?:        TrustPolicyResult;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -62,11 +69,56 @@ export function runAdminReviewAssistantBot(
 ): AdminReviewAssistantResult {
   const now = new Date().toISOString();
 
-  const { guardian_result, source_result, duplicate_result, extractor_result } = input;
+  const { guardian_result, source_result, duplicate_result, extractor_result, policy_result } = input;
 
   const actions:         AdminReviewAction[] = [];
   const blockerReasons:  string[]            = [];
   const reasoning:       string[]            = [];
+
+  // ── 0. Policy engine signals (Sprint 9G) ──────────────────────────────────
+  if (policy_result) {
+    reasoning.push(
+      `Policy engine: trust_state=${policy_result.trust_state}, ` +
+      `conflict_risk=${policy_result.conflict_risk}, ` +
+      `freshness=${policy_result.freshness_state}, ` +
+      `manual_review_priority=${policy_result.manual_review_priority}.`
+    );
+
+    // Dispute → critical block
+    if (policy_result.trust_state === "disputed") {
+      blockerReasons.push(`Data is disputed — ${policy_result.conflict_risk} conflict risk. Resolve before proceeding.`);
+      actions.push({
+        priority:     "critical",
+        action_label: "Resolve data dispute before proceeding",
+        description:  `Conflicting reports exist (conflict risk: ${policy_result.conflict_risk}). Data must not be applied to live records until the dispute is resolved.`,
+      });
+    }
+
+    // Stale data warning
+    if (policy_result.trust_state === "stale" || policy_result.freshness_state === "stale") {
+      actions.push({
+        priority:     "high",
+        action_label: "Re-verify — data is stale",
+        description:  `${policy_result.safe_badge}. Data has exceeded its freshness window. Collect a new observation before applying.`,
+      });
+    }
+
+    // Urgent review priority from policy engine
+    if (policy_result.manual_review_priority === "urgent" && policy_result.trust_state !== "disputed") {
+      actions.push({
+        priority:     "high",
+        action_label: "Urgent admin review required",
+        description:  policy_result.reasoning_summary,
+      });
+    }
+
+    // Blocked actions list from policy engine
+    if (policy_result.blocked_actions.includes("apply_to_live_data") &&
+        policy_result.trust_state !== "disputed" &&
+        policy_result.trust_state !== "stale") {
+      reasoning.push(`Policy engine blocks live data apply — trust state '${policy_result.trust_state}' is below admin_verified.`);
+    }
+  }
 
   // ── 1. Source restriction check ───────────────────────────────────────────
   if (source_result?.is_restricted) {
@@ -247,7 +299,9 @@ export function runAdminReviewAssistantBot(
     summary_for_admin:         summaryForAdmin,
     confidence_score:          confidenceScore,
     trust_level:               trustLevel,
+    trust_state:               policy_result?.trust_state,
     safe_to_proceed:           safeToProceed,
     blocker_reasons:           blockerReasons,
+    policy_result,
   };
 }
