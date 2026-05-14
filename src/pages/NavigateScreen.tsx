@@ -243,21 +243,21 @@ const NavigateScreen = () => {
       </div>
 
       {/* Stats bar */}
-      <div className="mx-5 mt-3 grid grid-cols-3 gap-2 rounded-2xl border border-border bg-surface p-3">
+      <div className="mx-5 mt-3 grid grid-cols-3 gap-2 rounded-2xl border border-primary/20 bg-primary/5 backdrop-blur p-3">
         <div className="text-center">
           <Clock className="mx-auto h-4 w-4 text-primary mb-1" />
-          <p className="font-display font-bold text-base">{totalMinutes} min</p>
-          <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Walk</p>
+          <p className="font-display font-bold text-lg leading-none">{totalMinutes}</p>
+          <p className="text-[9px] text-muted-foreground uppercase tracking-wide mt-0.5">min walk</p>
         </div>
-        <div className="text-center border-x border-border">
+        <div className="text-center border-x border-primary/15">
           <Footprints className="mx-auto h-4 w-4 text-secondary mb-1" />
-          <p className="font-display font-bold text-base">{Math.round(totalMeters)}m</p>
-          <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Distance</p>
+          <p className="font-display font-bold text-lg leading-none">{Math.round(totalMeters)}</p>
+          <p className="text-[9px] text-muted-foreground uppercase tracking-wide mt-0.5">metres</p>
         </div>
         <div className="text-center">
           <MapPin className="mx-auto h-4 w-4 text-primary mb-1" />
-          <p className="font-display font-bold text-base">{doneCount}/{stopCount}</p>
-          <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Done</p>
+          <p className="font-display font-bold text-lg leading-none">{doneCount}<span className="text-muted-foreground/50 text-sm">/{stopCount}</span></p>
+          <p className="text-[9px] text-muted-foreground uppercase tracking-wide mt-0.5">done</p>
         </div>
       </div>
 

@@ -3,20 +3,67 @@ import { Home, Navigation, Sparkles, ListChecks, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const items = [
-  { to: "/", label: "Home", icon: Home },
-  { to: "/navigate", label: "Navigate", icon: Navigation },
-  { to: "/assistant", label: "AI", icon: Sparkles, highlight: true },
-  { to: "/list", label: "My List", icon: ListChecks },
-  { to: "/profile", label: "Profile", icon: User },
+  { to: "/",          label: "Home",     icon: Home,       highlight: false },
+  { to: "/navigate",  label: "Navigate", icon: Navigation, highlight: false },
+  { to: "/assistant", label: "AI",       icon: Sparkles,   highlight: true  },
+  { to: "/list",      label: "My List",  icon: ListChecks, highlight: false },
+  { to: "/profile",   label: "Profile",  icon: User,       highlight: false },
 ];
 
 const BottomNav = () => {
   const location = useLocation();
   return (
-    <nav className="absolute bottom-0 left-0 right-0 z-30 px-3 pb-3 pt-2">
-      <div className="flex items-center justify-around rounded-2xl border border-border bg-surface/80 backdrop-blur-xl px-2 py-2 shadow-[var(--shadow-card)]">
+    <nav className="absolute bottom-0 left-0 right-0 z-30 px-3 pb-3 pt-0">
+      {/* items-end so the protruding AI button rises above the bar naturally */}
+      <div className="flex items-end justify-around rounded-2xl border border-border bg-surface/80 backdrop-blur-xl px-2 py-2 shadow-[var(--shadow-card)]">
         {items.map(({ to, label, icon: Icon, highlight }) => {
           const active = location.pathname === to;
+
+          // ── Centre AI button — elevated glowing pill ──────────────────────
+          if (highlight) {
+            return (
+              <NavLink
+                key={to}
+                to={to}
+                className="relative flex flex-1 flex-col items-center gap-1 pb-0.5"
+              >
+                {/* Protruding button — -mt-5 lifts it above the nav bar */}
+                <div
+                  className={cn(
+                    "relative flex h-12 w-12 items-center justify-center rounded-2xl border-2 -mt-5 transition-all duration-300",
+                    active
+                      ? [
+                          "bg-gradient-to-br from-secondary to-primary",
+                          "border-secondary/60",
+                          "shadow-[0_0_28px_hsl(111_100%_54%/0.55),0_0_48px_hsl(190_100%_50%/0.25)]",
+                        ]
+                      : [
+                          "bg-gradient-to-br from-secondary/80 to-primary/80",
+                          "border-secondary/40",
+                          "shadow-[0_0_16px_hsl(111_100%_54%/0.35),0_0_32px_hsl(190_100%_50%/0.15)]",
+                          "hover:shadow-[0_0_20px_hsl(111_100%_54%/0.45)]",
+                        ]
+                  )}
+                >
+                  {/* Active pulse ring */}
+                  {active && (
+                    <span className="absolute inset-0 rounded-2xl animate-ping bg-secondary/20 pointer-events-none" />
+                  )}
+                  <Icon className="relative h-5 w-5 text-background" strokeWidth={2.5} />
+                </div>
+                <span
+                  className={cn(
+                    "text-[10px] font-semibold tracking-wide transition-colors",
+                    active ? "text-secondary" : "text-secondary/70"
+                  )}
+                >
+                  {label}
+                </span>
+              </NavLink>
+            );
+          }
+
+          // ── Regular nav item ───────────────────────────────────────────────
           return (
             <NavLink
               key={to}
@@ -27,12 +74,8 @@ const BottomNav = () => {
                 className={cn(
                   "flex h-9 w-9 items-center justify-center rounded-xl transition-all duration-300",
                   active
-                    ? highlight
-                      ? "bg-secondary/20 text-secondary glow-secondary"
-                      : "bg-primary/15 text-primary glow-primary"
-                    : highlight
-                      ? "bg-secondary/10 text-secondary border border-secondary/20"
-                      : "text-muted-foreground hover:text-foreground"
+                    ? "bg-primary/15 text-primary glow-primary"
+                    : "text-muted-foreground hover:text-foreground"
                 )}
               >
                 <Icon className="h-[18px] w-[18px]" strokeWidth={2.2} />
@@ -40,9 +83,7 @@ const BottomNav = () => {
               <span
                 className={cn(
                   "text-[10px] font-medium tracking-wide transition-colors",
-                  active
-                    ? highlight ? "text-secondary" : "text-primary"
-                    : highlight ? "text-secondary/80" : "text-muted-foreground"
+                  active ? "text-primary" : "text-muted-foreground"
                 )}
               >
                 {label}

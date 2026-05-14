@@ -1090,20 +1090,28 @@ const AssistantPage = () => {
                 Choose a Mall First
               </Button>
             )}
-            <div className="w-full space-y-2">
-              <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground px-1">
+            <div className="w-full">
+              <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground px-1 mb-3">
                 Try asking
               </p>
-              {STARTERS.map((s) => (
-                <button
-                  key={s}
-                  onClick={() => sendMessage(s)}
-                  className="w-full flex items-center gap-2 rounded-xl border border-border bg-surface/60 px-4 py-3 text-sm text-left hover:border-primary/40 hover:bg-surface transition-all"
-                >
-                  <ShoppingBag className="h-4 w-4 text-primary shrink-0" />
-                  {s}
-                </button>
-              ))}
+              {/* Horizontal scrolling chip row */}
+              <div
+                className="overflow-x-auto -mx-4 px-4 pb-1"
+                style={{ scrollbarWidth: "none", msOverflowStyle: "none" } as React.CSSProperties}
+              >
+                <div className="flex gap-2 w-max">
+                  {STARTERS.map((s) => (
+                    <button
+                      key={s}
+                      onClick={() => sendMessage(s)}
+                      className="flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/8 px-4 py-2 text-xs font-medium text-primary/90 hover:bg-primary/15 hover:border-primary/50 whitespace-nowrap transition-all active:scale-95 shrink-0"
+                    >
+                      <Sparkles className="h-3 w-3 shrink-0 text-primary/70" />
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
         )}

@@ -89,12 +89,13 @@ const Rewards = () => {
       <ScreenHeader title="MallMind Rewards" subtitle="Level up by shopping smart" />
 
       {/* Level card */}
-      <div className="mx-5 rounded-3xl border border-border bg-gradient-surface p-5 relative overflow-hidden animate-fade-in">
-        <div className="absolute -top-10 -right-10 h-40 w-40 rounded-full bg-primary/10 blur-3xl" />
+      <div className="mx-5 rounded-3xl border border-primary/30 bg-gradient-surface p-5 relative overflow-hidden animate-fade-in shadow-[0_0_40px_hsl(190_100%_50%/0.08)]">
+        <div className="absolute -top-8 -right-8 h-40 w-40 rounded-full bg-primary/15 blur-3xl" />
+        <div className="absolute -bottom-8 -left-8 h-32 w-32 rounded-full bg-secondary/10 blur-2xl" />
         <div className="relative flex items-center gap-4">
-          <div className="relative flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-primary glow-primary">
+          <div className="relative flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-primary glow-primary animate-float">
             <Trophy className="h-8 w-8 text-primary-foreground" />
-            <span className="absolute -bottom-1 -right-1 flex h-6 w-6 items-center justify-center rounded-full bg-secondary text-[11px] font-bold text-secondary-foreground border-2 border-background">
+            <span className="absolute -bottom-1 -right-1 flex h-6 w-6 items-center justify-center rounded-full bg-secondary text-[11px] font-bold text-secondary-foreground border-2 border-background shadow-[0_0_8px_hsl(111_100%_54%/0.6)]">
               {level}
             </span>
           </div>
@@ -115,11 +116,14 @@ const Rewards = () => {
               <span className="font-semibold text-secondary">Max Level!</span>
             )}
           </div>
-          <div className="h-2.5 rounded-full bg-muted overflow-hidden">
+          <div className="h-3 rounded-full bg-muted/60 overflow-hidden border border-border/50">
             <div
-              className="h-full rounded-full bg-gradient-to-r from-primary to-secondary glow-primary transition-all duration-700"
+              className="h-full rounded-full bg-gradient-to-r from-primary via-primary to-secondary transition-all duration-700 relative overflow-hidden"
               style={{ width: `${pct}%` }}
-            />
+            >
+              {/* Shimmer effect */}
+              <div className="absolute inset-0 animate-shimmer bg-gradient-to-r from-transparent via-white/20 to-transparent -skew-x-12" />
+            </div>
           </div>
         </div>
       </div>

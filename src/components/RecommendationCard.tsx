@@ -105,11 +105,11 @@ export default function RecommendationCard({
     )}>
       {/* Best pick strip */}
       {isBestPick && (
-        <div className="flex items-center gap-1.5 px-3 py-1.5 bg-primary/15 text-[10px] font-bold uppercase tracking-wider text-primary">
-          <Star className="h-3 w-3 fill-primary" />
+        <div className="flex items-center gap-1.5 px-3 py-2 bg-gradient-to-r from-primary/20 via-primary/10 to-transparent border-b border-primary/20 text-[10px] font-bold uppercase tracking-wider text-primary">
+          <Star className="h-3 w-3 fill-primary shrink-0" />
           Best pick
           {p.is_cheapest && (
-            <span className="ml-auto font-normal normal-case tracking-normal">Cheapest in mall</span>
+            <span className="ml-auto font-normal normal-case tracking-normal text-primary/70">Cheapest in mall</span>
           )}
         </div>
       )}
@@ -244,16 +244,21 @@ export default function RecommendationCard({
           {/* Price */}
           <div className="text-right shrink-0">
             {hasDiscount && (
-              <p className="text-[10px] text-muted-foreground line-through">
+              <p className="text-xs text-muted-foreground line-through leading-none mb-0.5">
                 R{p.original_price!.toFixed(0)}
               </p>
             )}
             <p className={cn(
-              "font-display font-bold text-base",
+              "font-display font-bold text-2xl leading-none",
               hasDiscount ? "text-secondary" : "text-foreground"
             )}>
               R{p.price.toFixed(0)}
             </p>
+            {hasDiscount && savings && (
+              <p className="text-[10px] text-secondary/70 mt-0.5">
+                Save R{savings}
+              </p>
+            )}
           </div>
         </div>
 
