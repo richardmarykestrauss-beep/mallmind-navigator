@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useAuth } from "@/context/AuthContext";
 import AdminGuard from "./AdminGuard";
@@ -3003,6 +3003,29 @@ function BotOutputSection({
         <div className="border-t px-2.5 py-2 space-y-1.5">
           {summary && <p className="text-muted-foreground">{summary}</p>}
           {reasoningText && <p className="text-muted-foreground">{reasoningText}</p>}
+          {/* Finding Extractor: render extracted fields in a readable table */}
+          {Array.isArray(data.extracted_findings) && (data.extracted_findings as unknown[]).length > 0 && (
+            <div className="space-y-2">
+              {(data.extracted_findings as Array<{ finding_type: string; fields: Array<{ field: string; value: string; confidence?: number }> }>)
+                .map((finding, fi) => (
+                  <div key={fi} className="rounded border bg-background p-2 space-y-1">
+                    <p className="text-[10px] font-semibold uppercase text-primary tracking-wide">
+                      {finding.finding_type.replace(/_/g, " ")}
+                    </p>
+                    <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5">
+                      {finding.fields.map((fld, j) => (
+                        <React.Fragment key={j}>
+                          <span className="text-[10px] text-muted-foreground font-medium whitespace-nowrap">
+                            {fld.field.replace(/_/g, " ")}
+                          </span>
+                          <span className="text-[10px] font-semibold truncate">{fld.value}</span>
+                        </React.Fragment>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+            </div>
+          )}
           <details className="mt-1">
             <summary className="cursor-pointer text-[10px] text-muted-foreground hover:text-foreground">Raw JSON</summary>
             <pre className="mt-1 max-h-48 overflow-auto rounded bg-muted p-2 text-[10px] leading-relaxed">
@@ -3191,10 +3214,18 @@ function BatchItemRow({
     setBotError(null);
     try {
       const result = await fn(item.id, token);
-      // Merge returned bot_hints_used into local item state
+      // Merge returned bot_hints_used into local item state.
+      // If the Finding Extractor (or full pipeline) ran, also sync extracted_data
+      // and finding_type so the Evidence Summary reflects the fresh parse immediately.
       setItem((prev) => ({
         ...prev,
         bot_hints_used: result.bot_hints_used,
+        ...(result.extracted_data !== undefined
+          ? { extracted_data: result.extracted_data }
+          : {}),
+        ...(result.finding_type !== undefined && result.finding_type !== "unknown"
+          ? { finding_type: result.finding_type }
+          : {}),
       }));
     } catch (e) {
       setBotError(String(e));

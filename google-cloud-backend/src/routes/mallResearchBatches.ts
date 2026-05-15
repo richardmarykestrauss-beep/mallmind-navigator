@@ -525,11 +525,12 @@ async function saveBotHint(
   return merged;
 }
 
-/** Merge extracted_data from finding extractor into item.extracted_data. */
+/** Merge extracted_data from finding extractor into item.extracted_data.
+ *  Returns the merged record so callers can include it in their HTTP response. */
 async function mergeExtractedData(
   itemId: string,
   newData: Record<string, unknown>,
-): Promise<void> {
+): Promise<Record<string, unknown>> {
   const supabase = getSupabaseClient();
   const { data: current } = await supabase
     .from("mall_research_batch_items")
@@ -538,13 +539,16 @@ async function mergeExtractedData(
     .maybeSingle();
 
   const existing = ((current as unknown as Record<string, unknown>)?.extracted_data ?? {}) as Record<string, unknown>;
-  // Never blindly overwrite — merge with existing keys taking precedence for admin-set fields
-  const merged = { ...newData, ...existing, _extractor_ran_at: new Date().toISOString() };
+  // New extractor data wins — extractor re-runs intentionally replace stale parsed values.
+  // Existing keys that the extractor did NOT produce are preserved (e.g. admin-set notes).
+  const merged = { ...existing, ...newData, _extractor_ran_at: new Date().toISOString() };
 
   await supabase
     .from("mall_research_batch_items")
     .update({ extracted_data: merged })
     .eq("id", itemId);
+
+  return merged;
 }
 
 // ── Helper: build bot inputs from item + batch ────────────────────────────────
@@ -685,14 +689,32 @@ router.post("/items/:itemId/run-finding-extractor", async (req: Request, res: Re
     const botResult = runFindingExtractorBot(botInput);
     const hints     = await saveBotHint(itemId, "finding_extractor", botResult);
 
-    // Optionally merge first finding's fields into extracted_data as staging copy
+    // Merge first finding's fields into extracted_data (new data wins over stale data)
+    let mergedExtractedData: Record<string, unknown> = {};
+    let updatedFindingType: string | undefined;
+
     if (botResult.extracted_findings?.length) {
       const firstFinding = botResult.extracted_findings[0];
       const staged: Record<string, unknown> = {};
       for (const f of firstFinding.fields) {
         staged[f.field] = f.value;
       }
-      await mergeExtractedData(itemId, staged);
+      mergedExtractedData = await mergeExtractedData(itemId, staged);
+
+      // Update finding_type on the item if the extractor found a specific type
+      // and the current type is missing or "unknown" — extractor is authoritative.
+      const detectedType = firstFinding.finding_type;
+      const currentType  = (ctx.item.finding_type as string | undefined) ?? "unknown";
+      if (detectedType && detectedType !== "unknown" &&
+          (currentType === "unknown" || !currentType)) {
+        await getSupabaseClient()
+          .from("mall_research_batch_items")
+          .update({ finding_type: detectedType })
+          .eq("id", itemId);
+        updatedFindingType = detectedType;
+      } else {
+        updatedFindingType = currentType;
+      }
     }
 
     fireAuditLog(admin.user.id, "bot_finding_extractor_run", {
@@ -701,7 +723,13 @@ router.post("/items/:itemId/run-finding-extractor", async (req: Request, res: Re
       finding_types:     botResult.finding_types_detected,
     });
 
-    return res.json({ item_id: itemId, finding_extractor: botResult, bot_hints_used: hints });
+    return res.json({
+      item_id:         itemId,
+      finding_extractor: botResult,
+      bot_hints_used:  hints,
+      extracted_data:  mergedExtractedData,
+      finding_type:    updatedFindingType,
+    });
   } catch (err) {
     console.error("[mall-research/items/run-finding-extractor]", err);
     return res.status(500).json({ error: "Internal server error" });
@@ -882,6 +910,8 @@ router.post("/items/:itemId/run-full-pipeline", async (req: Request, res: Respon
 
     // ── Step 2: Finding Extractor ─────────────────────────────────────────────
     let extractorResult: FindingExtractorResult | undefined;
+    let pipelineExtractedData: Record<string, unknown> = {};
+    let pipelineFindingType: string | undefined = (ctx.item.finding_type as string | undefined) ?? "unknown";
     if (ctx.item.raw_text) {
       try {
         extractorResult = runFindingExtractorBot(buildExtractorInput(ctx.item));
@@ -889,11 +919,24 @@ router.post("/items/:itemId/run-full-pipeline", async (req: Request, res: Respon
         stepsCompleted.push("finding_extractor");
 
         if (extractorResult.extracted_findings?.length) {
+          const firstFinding = extractorResult.extracted_findings[0];
           const staged: Record<string, unknown> = {};
-          for (const f of extractorResult.extracted_findings[0].fields) {
+          for (const f of firstFinding.fields) {
             staged[f.field] = f.value;
           }
-          await mergeExtractedData(itemId, staged);
+          pipelineExtractedData = await mergeExtractedData(itemId, staged);
+
+          // Update finding_type if item has none / is "unknown"
+          const detectedType = firstFinding.finding_type;
+          const currentType  = (ctx.item.finding_type as string | undefined) ?? "unknown";
+          if (detectedType && detectedType !== "unknown" &&
+              (currentType === "unknown" || !currentType)) {
+            await getSupabaseClient()
+              .from("mall_research_batch_items")
+              .update({ finding_type: detectedType })
+              .eq("id", itemId);
+            pipelineFindingType = detectedType;
+          }
         }
       } catch (e) {
         warnings.push(`finding_extractor failed: ${String(e)}`);
@@ -966,6 +1009,8 @@ router.post("/items/:itemId/run-full-pipeline", async (req: Request, res: Respon
       steps_completed: stepsCompleted,
       warnings,
       bot_hints_used:  await refreshHints(),
+      extracted_data:  pipelineExtractedData,
+      finding_type:    pipelineFindingType,
     });
   } catch (err) {
     console.error("[mall-research/items/run-full-pipeline]", err);

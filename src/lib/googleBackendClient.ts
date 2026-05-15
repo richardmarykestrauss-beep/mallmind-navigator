@@ -1350,6 +1350,9 @@ export interface PipelineBotResult {
   steps_completed?: string[];
   warnings?:        string[];
   halted_at?:       string;
+  // Populated when Finding Extractor ran — carry back to sync local item state
+  extracted_data?:  Record<string, unknown>;
+  finding_type?:    string;
   // Individual bot outputs — whichever were run
   source_research?:     Record<string, unknown>;
   finding_extractor?:   Record<string, unknown>;
