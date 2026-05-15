@@ -92,7 +92,7 @@ const Home = () => {
     <MobileShell>
       {/* ── HERO GLASS CARD ─────────────────────────────────────── */}
       <div className="px-5 pt-7 animate-fade-in">
-        <div className="relative rounded-3xl border border-primary/20 bg-surface/50 backdrop-blur-xl overflow-hidden p-5 shadow-[0_0_40px_hsl(190_100%_50%/0.06)]">
+        <div className="relative rounded-3xl border border-primary/20 bg-surface/50 backdrop-blur-xl overflow-hidden p-5 premium-card-hero">
           {/* Glow orb behind card */}
           <div className="pointer-events-none absolute -top-12 -right-12 h-48 w-48 rounded-full bg-primary/12 blur-3xl" />
 
@@ -118,7 +118,7 @@ const Home = () => {
               <span className="text-primary text-glow-primary">Smarter.</span>
               <br />
               Navigate{" "}
-              <span className="text-secondary text-glow-secondary">Faster.</span>
+              <span className="text-violet-400 text-glow-violet">Faster.</span>
             </h1>
             {/* Trust strip */}
             <div className="mt-3 flex items-center gap-2 flex-wrap">
@@ -246,7 +246,7 @@ const Home = () => {
                 <Icon className={cn("h-5 w-5", iconClass)} />
               </div>
               <div>
-                <p className="font-display font-bold text-sm leading-tight">{label}</p>
+                <p className="font-display font-semibold text-sm leading-tight">{label}</p>
                 <p className="text-[10px] text-muted-foreground leading-relaxed mt-0.5">{desc}</p>
               </div>
             </button>

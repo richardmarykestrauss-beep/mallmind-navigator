@@ -17,7 +17,7 @@ export default function ThemePreviewGrid() {
       <div className="flex items-center justify-between mb-3">
         <div>
           <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Visual themes</p>
-          <p className="text-[10px] text-muted-foreground/60 mt-0.5">Unlock custom skins in v2.0</p>
+          <p className="text-[10px] text-muted-foreground/55 mt-0.5">Premium visual skins · unlock in v2.0</p>
         </div>
         <span className="flex items-center gap-1 rounded-full border border-primary/25 bg-primary/8 px-2.5 py-1 text-[10px] font-semibold text-primary">
           <Sparkles className="h-3 w-3" />
@@ -69,9 +69,9 @@ export default function ThemePreviewGrid() {
                   Active
                 </span>
               ) : (
-                <span className="flex items-center gap-0.5 text-[9px] text-muted-foreground/55 uppercase tracking-wide">
-                  <Lock className="h-2.5 w-2.5" />
-                  Coming soon
+                <span className="flex items-center gap-0.5 text-[9px] text-muted-foreground/50 uppercase tracking-wide">
+                  <Lock className="h-2.5 w-2.5 shrink-0" />
+                  v2.0
                 </span>
               )}
             </div>

@@ -985,7 +985,7 @@ const AssistantPage = () => {
   return (
     <MobileShell>
       {/* Header */}
-      <div className="shrink-0 border-b border-border/50">
+      <div className="shrink-0 border-b border-border/50 bg-background/60 backdrop-blur-xl">
         <div className="flex items-center justify-between px-5 pt-5 pb-3">
           <div className="flex items-center gap-3">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/15 border border-primary/30 glow-primary">
@@ -993,13 +993,18 @@ const AssistantPage = () => {
             </div>
             <div>
               <p className="font-display font-bold text-sm">MallMind AI</p>
-              <p className="text-[10px] text-muted-foreground">
-                {selectedMall
-                  ? dbSessionId
-                    ? `Active session · ${selectedMall.name}`
-                    : selectedMall.name
-                  : "Select a mall to start"}
-              </p>
+              <div className="flex items-center gap-1.5">
+                {dbSessionId && (
+                  <span className="h-1.5 w-1.5 rounded-full bg-secondary animate-pulse shrink-0" />
+                )}
+                <p className="text-[10px] text-muted-foreground">
+                  {selectedMall
+                    ? dbSessionId
+                      ? `Active session · ${selectedMall.name}`
+                      : selectedMall.name
+                    : "Select a mall to start"}
+                </p>
+              </div>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -1079,7 +1084,7 @@ const AssistantPage = () => {
               </div>
             </div>
             <div className="text-center">
-              <p className="font-display font-bold text-lg">Hey, I'm MallMind AI</p>
+              <p className="font-display font-semibold text-lg">Hey, I'm MallMind AI</p>
               <p className="text-sm text-muted-foreground mt-1 max-w-[260px] leading-relaxed">
                 Tell me what you're looking for and I'll find the best prices across all stores.
               </p>
@@ -1104,7 +1109,7 @@ const AssistantPage = () => {
                     <button
                       key={s}
                       onClick={() => sendMessage(s)}
-                      className="flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/8 px-4 py-2 text-xs font-medium text-primary/90 hover:bg-primary/15 hover:border-primary/50 whitespace-nowrap transition-all active:scale-95 shrink-0"
+                      className="flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/8 px-4 py-2 text-xs font-medium text-primary/90 hover:bg-primary/15 hover:border-primary/50 hover:shadow-[0_0_12px_hsl(190_100%_50%/0.2)] whitespace-nowrap transition-all active:scale-95 shrink-0"
                     >
                       <Sparkles className="h-3 w-3 shrink-0 text-primary/70" />
                       {s}
@@ -1400,7 +1405,7 @@ const AssistantPage = () => {
       </div>
 
       {/* Input bar */}
-      <div className="shrink-0 px-4 pb-24 pt-2 border-t border-border/50 bg-background/80 backdrop-blur">
+      <div className="shrink-0 px-4 pb-24 pt-2 border-t border-border/50 bg-background/90 backdrop-blur-xl">
 
         {/* Budget input row */}
         {showBudgetInput && (

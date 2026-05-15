@@ -92,11 +92,19 @@ const ShoppingList = () => {
             <Loader2 className="h-5 w-5 animate-spin" />
           </div>
         ) : items.length === 0 ? (
-          <div className="text-center py-20 animate-fade-in">
-            <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-3xl border border-dashed border-primary/40 bg-primary/5">
-              <ListChecks className="h-9 w-9 text-primary" />
+          <div className="text-center py-16 animate-fade-in flex flex-col items-center gap-4">
+            <div className="relative flex h-20 w-20 items-center justify-center">
+              <div className="absolute h-20 w-20 rounded-full bg-primary/10 blur-xl" />
+              <div className="relative flex h-16 w-16 items-center justify-center rounded-2xl border border-primary/25 bg-primary/8">
+                <ListChecks className="h-7 w-7 text-primary" />
+              </div>
             </div>
-            <p className="text-muted-foreground text-sm">Add items to start saving</p>
+            <div>
+              <p className="font-display font-semibold text-base">Your list is empty</p>
+              <p className="text-sm text-muted-foreground mt-1 max-w-[220px] leading-relaxed">
+                Add items above — then tap Find Everything to get prices and build your route.
+              </p>
+            </div>
           </div>
         ) : (
           items.map((item, i) => (

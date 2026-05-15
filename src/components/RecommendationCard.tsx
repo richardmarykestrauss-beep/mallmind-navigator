@@ -165,7 +165,7 @@ export default function RecommendationCard({
 
   return (
     <div className={cn(
-      "rounded-3xl border bg-surface/60 backdrop-blur overflow-hidden transition-all",
+      "rounded-3xl border bg-surface/60 backdrop-blur overflow-hidden transition-all premium-card",
       cardBorder
     )}>
 

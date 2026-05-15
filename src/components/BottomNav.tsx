@@ -33,28 +33,28 @@ const BottomNav = () => {
                     "relative flex h-12 w-12 items-center justify-center rounded-2xl border-2 -mt-5 transition-all duration-300",
                     active
                       ? [
-                          "bg-gradient-to-br from-secondary to-primary",
-                          "border-secondary/60",
-                          "shadow-[0_0_28px_hsl(111_100%_54%/0.55),0_0_48px_hsl(190_100%_50%/0.25)]",
+                          "bg-gradient-to-br from-primary to-violet-500",
+                          "border-primary/60",
+                          "shadow-[0_0_28px_hsl(190_100%_50%/0.5),0_0_48px_hsl(270_80%_60%/0.25)]",
                         ]
                       : [
-                          "bg-gradient-to-br from-secondary/80 to-primary/80",
-                          "border-secondary/40",
-                          "shadow-[0_0_16px_hsl(111_100%_54%/0.35),0_0_32px_hsl(190_100%_50%/0.15)]",
-                          "hover:shadow-[0_0_20px_hsl(111_100%_54%/0.45)]",
+                          "bg-gradient-to-br from-primary/80 to-violet-500/80",
+                          "border-primary/40",
+                          "shadow-[0_0_16px_hsl(190_100%_50%/0.3),0_0_32px_hsl(270_80%_60%/0.15)]",
+                          "hover:shadow-[0_0_20px_hsl(190_100%_50%/0.45)]",
                         ]
                   )}
                 >
                   {/* Active pulse ring */}
                   {active && (
-                    <span className="absolute inset-0 rounded-2xl animate-ping bg-secondary/20 pointer-events-none" />
+                    <span className="absolute inset-0 rounded-2xl animate-ping bg-primary/20 pointer-events-none" />
                   )}
                   <Icon className="relative h-5 w-5 text-background" strokeWidth={2.5} />
                 </div>
                 <span
                   className={cn(
                     "text-[10px] font-semibold tracking-wide transition-colors",
-                    active ? "text-secondary" : "text-secondary/70"
+                    active ? "text-primary" : "text-primary/70"
                   )}
                 >
                   {label}

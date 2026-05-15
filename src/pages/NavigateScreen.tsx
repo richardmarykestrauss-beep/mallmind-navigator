@@ -112,11 +112,14 @@ const NavigateScreen = () => {
       <MobileShell>
         <ScreenHeader title="Mall Map" subtitle="No active route" />
         <div className="flex flex-col items-center gap-5 px-5 pt-10 text-center animate-fade-in">
-          <div className="flex h-20 w-20 items-center justify-center rounded-3xl bg-muted/30 border border-border">
-            <RouteIcon className="h-9 w-9 text-muted-foreground" />
+          <div className="relative flex h-20 w-20 items-center justify-center">
+            <div className="absolute h-20 w-20 rounded-full bg-primary/12 blur-xl" />
+            <div className="relative flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10 border border-primary/25">
+              <RouteIcon className="h-7 w-7 text-primary" />
+            </div>
           </div>
           <div>
-            <p className="font-display font-bold text-lg">No Route Yet</p>
+            <p className="font-display font-semibold text-lg">No Route Yet</p>
             <p className="text-sm text-muted-foreground mt-1 max-w-[240px] leading-relaxed">
               Ask the AI to find products and guide you — it'll build your route automatically.
             </p>
