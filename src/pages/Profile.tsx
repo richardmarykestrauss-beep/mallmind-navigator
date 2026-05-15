@@ -5,6 +5,7 @@ import {
 } from "lucide-react";
 import MobileShell from "@/components/MobileShell";
 import ScreenHeader from "@/components/ScreenHeader";
+import ThemePreviewGrid from "@/components/ThemePreviewGrid";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/context/AuthContext";
 import { LEVEL_NAMES, xpForLevel, xpProgress } from "@/lib/levels";
@@ -132,6 +133,9 @@ const Profile = () => {
           <ChevronRight className="h-4 w-4 text-muted-foreground" />
         </button>
       </div>
+
+      {/* Theme preview grid */}
+      <ThemePreviewGrid />
 
       {/* Settings */}
       <div className="px-5 mt-6">

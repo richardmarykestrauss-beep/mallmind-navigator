@@ -173,7 +173,7 @@ const SearchPage = () => {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="What are you looking for?"
-            className="w-full h-12 pl-11 pr-10 rounded-2xl bg-surface border border-border text-sm focus:outline-none focus:border-primary/50 focus:shadow-[0_0_0_3px_hsl(190_100%_50%/0.15)] transition-all"
+            className="w-full h-12 pl-11 pr-10 rounded-2xl bg-surface/60 backdrop-blur border border-border/80 text-sm focus:outline-none focus:border-primary/50 focus:bg-surface focus:shadow-[0_0_0_3px_hsl(190_100%_50%/0.12)] transition-all"
             autoFocus
           />
           {query && (
@@ -186,23 +186,27 @@ const SearchPage = () => {
           )}
         </div>
 
-        {/* Suggestions */}
+        {/* Suggestions — horizontal scroll chips */}
         {!query && (
           <div>
-            <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground mb-2 px-1">
+            <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground mb-2.5 px-1">
               Popular searches
             </p>
-            <div className="flex flex-wrap gap-2">
-              {SUGGESTIONS.map((s) => (
-                <button
-                  key={s}
-                  onClick={() => setQuery(s)}
-                  className="flex items-center gap-1.5 rounded-full border border-border bg-surface/60 px-3 py-1.5 text-xs hover:border-primary/50 hover:text-primary transition-all"
-                >
-                  <Tag className="h-3 w-3" />
-                  {s}
-                </button>
-              ))}
+            <div
+              className="overflow-x-auto scrollbar-hide -mx-5 px-5 pb-1"
+            >
+              <div className="flex gap-2 w-max">
+                {SUGGESTIONS.map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => setQuery(s)}
+                    className="flex items-center gap-1.5 rounded-full border border-primary/25 bg-primary/8 px-4 py-2 text-xs font-medium text-primary/90 hover:bg-primary/15 hover:border-primary/40 whitespace-nowrap transition-all active:scale-95 shrink-0"
+                  >
+                    <Tag className="h-3 w-3 shrink-0" />
+                    {s}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         )}
@@ -243,17 +247,22 @@ const SearchPage = () => {
 
         {/* Product groups */}
         {!loading && groups.map((group) => (
-          <div key={group.name} className="rounded-3xl border border-border bg-surface/70 overflow-hidden animate-slide-up">
-            <div className="flex items-center gap-2 px-4 py-3 border-b border-border bg-muted/20">
-              <ShoppingBag className="h-4 w-4 text-primary" />
+          <div
+            key={group.name}
+            className="rounded-3xl border border-primary/15 bg-surface/60 backdrop-blur overflow-hidden animate-slide-up shadow-[0_4px_20px_hsl(0_0%_0%/0.2)]"
+          >
+            {/* Group header */}
+            <div className="flex items-center gap-2 px-4 py-3 border-b border-border/60 bg-gradient-to-r from-primary/8 to-transparent">
+              <ShoppingBag className="h-4 w-4 text-primary shrink-0" />
               <span className="font-display font-bold text-sm">{group.name}</span>
               {group.matches.length > 1 && (
-                <span className="ml-auto text-[10px] uppercase tracking-wider text-secondary bg-secondary/10 border border-secondary/30 rounded-full px-2 py-0.5">
-                  {group.matches.length} stores compare
+                <span className="ml-auto text-[9px] uppercase tracking-wider text-secondary bg-secondary/10 border border-secondary/25 rounded-full px-2.5 py-0.5 font-bold">
+                  {group.matches.length} stores
                 </span>
               )}
             </div>
-            <div className="divide-y divide-border">
+
+            <div className="divide-y divide-border/40">
               {group.matches.map((m, idx) => {
                 const isSelected = selectedShopIds.has(m.shop.id);
                 const isCheapest = idx === 0 && group.matches.length > 1;
@@ -262,76 +271,72 @@ const SearchPage = () => {
                     key={`${m.product.id}`}
                     className={cn(
                       "flex flex-col transition-all",
-                      isSelected ? "bg-primary/10" : "hover:bg-muted/30"
+                      isSelected
+                        ? "bg-primary/8 border-l-2 border-l-primary"
+                        : "hover:bg-muted/20"
                     )}
                   >
-                    {/* Main row — tapping selects the stop */}
+                    {/* Main tap row */}
                     <button
                       onClick={() => toggleShop(m.shop.id)}
-                      className="w-full flex items-center gap-3 px-4 py-3 text-left"
+                      className="w-full flex items-center gap-3 px-4 py-3.5 text-left"
                     >
                       {/* Store icon */}
                       <div className={cn(
-                        "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border",
+                        "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border transition-all",
                         isSelected
                           ? "bg-primary/20 border-primary/40 text-primary"
-                          : "bg-surface border-border text-muted-foreground"
+                          : "bg-surface/80 border-border text-muted-foreground"
                       )}>
                         <Store className="h-4 w-4" />
                       </div>
 
                       {/* Store + floor info */}
                       <div className="flex-1 min-w-0">
-                        <p className="font-medium text-sm truncate">{m.shop.name}</p>
-                        <p className="text-[11px] text-muted-foreground">
+                        <p className="font-semibold text-sm truncate">{m.shop.name}</p>
+                        <p className="text-[11px] text-muted-foreground mt-0.5">
                           Floor {m.shop.floor ?? "?"} · Unit {m.shop.unit_number ?? "—"}
                         </p>
                       </div>
 
                       {/* Price */}
-                      <div className="text-right shrink-0">
+                      <div className="text-right shrink-0 pl-2">
                         {m.product.is_on_special && m.product.original_price != null && (
-                          <p className="text-[10px] text-muted-foreground line-through">
+                          <p className="text-xs text-muted-foreground line-through leading-none mb-0.5">
                             R{m.product.original_price.toFixed(0)}
                           </p>
                         )}
                         <p className={cn(
-                          "font-display font-bold text-base",
+                          "font-display font-bold text-lg leading-none",
                           m.product.is_on_special ? "text-secondary" : "text-foreground"
                         )}>
                           R{m.effectivePrice.toFixed(0)}
                         </p>
-                        {isCheapest && (
-                          <span className="text-[9px] uppercase tracking-wider text-secondary">
-                            Cheapest
-                          </span>
-                        )}
-                        {(m.product.data_quality_status === "manually_verified" ||
-                          m.product.data_quality_status === "live_feed") && (
-                          <span className="text-[9px] text-emerald-500 font-medium">
-                            ✓ Verified
-                          </span>
-                        )}
-                        {(!m.product.data_quality_status ||
-                          m.product.data_quality_status === "demo") && (
-                          <span className="text-[9px] text-amber-500/70">
-                            Sample
-                          </span>
-                        )}
+                        <div className="flex items-center justify-end gap-1 mt-0.5">
+                          {isCheapest && (
+                            <span className="text-[9px] uppercase tracking-wide text-secondary font-bold">
+                              Cheapest
+                            </span>
+                          )}
+                          {(m.product.data_quality_status === "manually_verified" ||
+                            m.product.data_quality_status === "live_feed") && (
+                            <span className="text-[9px] text-emerald-400 font-semibold">✓</span>
+                          )}
+                        </div>
                       </div>
 
                       {/* Selected indicator */}
                       {isSelected
-                        ? <CheckCircle2 className="h-5 w-5 text-primary shrink-0" />
-                        : <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                        ? <CheckCircle2 className="h-5 w-5 text-primary shrink-0 ml-1" />
+                        : <ChevronRight className="h-4 w-4 text-muted-foreground/50 shrink-0 ml-1" />
                       }
                     </button>
 
                     {/* Price submit nudge + alert bell */}
-                    <div className="px-4 pb-2 flex items-center justify-between">
+                    <div className="px-4 pb-2.5 flex items-center justify-between">
                       <button
                         onClick={() => setPriceSubmit({ product: m.product, shop: m.shop })}
-                        className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-secondary transition-colors"
+                        className="flex items-center gap-1 text-[10px] text-muted-foreground/70 hover:text-secondary transition-colors"
                       >
                         <Zap className="h-3 w-3" />
                         Seen a different price? +50 XP

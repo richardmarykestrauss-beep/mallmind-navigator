@@ -160,17 +160,38 @@ const NavigateScreen = () => {
         }
       />
 
-      {/* Route source badge */}
-      {hasRealRoute && (
-        <div className="mx-5 mb-2">
-          <div className="flex items-center gap-1.5 rounded-xl border border-primary/30 bg-primary/8 px-3 py-1.5 w-fit">
-            <Navigation className="h-3 w-3 text-primary" />
-            <span className="text-[10px] text-primary font-semibold uppercase tracking-wider">
-              AI-Optimised Route · {activeRouteSteps.length} steps
-            </span>
+      {/* ── Route hero card ──────────────────────────────────────── */}
+      <div className="mx-5 mb-3">
+        <div className="relative rounded-2xl border border-primary/25 bg-primary/6 backdrop-blur overflow-hidden p-4">
+          <div className="pointer-events-none absolute -top-8 -right-8 h-32 w-32 rounded-full bg-primary/12 blur-3xl" />
+          <div className="relative flex items-center gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/20 border border-primary/35 glow-primary">
+              <Navigation className="h-4.5 w-4.5 h-5 w-5 text-primary" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[10px] uppercase tracking-wider text-primary font-bold">
+                {hasRealRoute ? "AI-Optimised Route" : "Mall Navigation"}
+              </p>
+              <p className="font-display font-bold text-sm mt-0.5">
+                {selectedMall?.name ?? "Shopping route"}
+              </p>
+            </div>
+            <div className="text-right shrink-0">
+              <p className="font-display font-bold text-xl leading-none text-primary">
+                {doneCount}<span className="text-muted-foreground/40 text-sm">/{stopCount}</span>
+              </p>
+              <p className="text-[10px] text-muted-foreground mt-0.5">steps done</p>
+            </div>
+          </div>
+          {/* Mini progress bar */}
+          <div className="relative mt-3 h-1 rounded-full bg-primary/15 overflow-hidden">
+            <div
+              className="h-full rounded-full bg-gradient-to-r from-primary to-primary-glow transition-all duration-500"
+              style={{ width: stopCount ? `${(doneCount / stopCount) * 100}%` : "0%" }}
+            />
           </div>
         </div>
-      )}
+      </div>
 
       {/* Schematic map */}
       <div className="relative mx-5 h-[200px] rounded-3xl border border-border bg-surface overflow-hidden">

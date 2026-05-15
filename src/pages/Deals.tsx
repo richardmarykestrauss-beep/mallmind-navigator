@@ -195,66 +195,63 @@ const Deals = () => {
           return (
             <div
               key={`${d.product_name}-${d.shop_name}-${i}`}
-              className="rounded-2xl border border-border bg-surface/80 backdrop-blur overflow-hidden animate-slide-up"
-              style={{ animationDelay: `${i * 50}ms` }}
+              className="rounded-3xl border border-primary/15 bg-surface/60 backdrop-blur overflow-hidden animate-slide-up shadow-[0_4px_20px_hsl(0_0%_0%/0.15)] hover:border-primary/30 transition-all"
+              style={{ animationDelay: `${i * 40}ms` }}
             >
-              <div className="flex gap-3 p-3.5">
-                {/* Image placeholder */}
-                <div className="relative h-24 w-24 shrink-0 rounded-xl bg-gradient-to-br from-muted to-surface-elevated grid-bg flex items-center justify-center border border-border">
-                  <ImgIcon className="h-8 w-8 text-muted-foreground" />
+              <div className="flex gap-3.5 p-4">
+                {/* Image placeholder / discount badge */}
+                <div className="relative h-24 w-24 shrink-0 rounded-2xl bg-gradient-to-br from-muted to-surface grid-bg flex items-center justify-center border border-border/60">
+                  <ImgIcon className="h-8 w-8 text-muted-foreground/50" />
                   {hasDiscount && (
                     <span
-                      className={`absolute -top-2 -left-2 flex h-7 min-w-7 items-center justify-center rounded-full bg-gradient-to-br ${BADGE_GRADIENTS[i % BADGE_GRADIENTS.length]} px-2 text-[11px] font-bold text-background shadow-[0_0_15px_hsl(190_100%_50%/0.5)]`}
+                      className={`absolute -top-2 -left-2 flex h-8 min-w-8 items-center justify-center rounded-full bg-gradient-to-br ${BADGE_GRADIENTS[i % BADGE_GRADIENTS.length]} px-2 text-[11px] font-bold text-background shadow-[0_0_18px_hsl(190_100%_50%/0.6)]`}
                     >
                       -{pct}%
                     </span>
                   )}
                 </div>
 
-                <div className="flex-1 min-w-0 flex flex-col gap-1">
+                <div className="flex-1 min-w-0 flex flex-col gap-1.5">
                   <p className="font-semibold text-sm leading-tight line-clamp-2">{d.product_name}</p>
 
                   {/* Shop + location */}
                   <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                     <Store className="h-3 w-3 shrink-0" />
-                    <span className="truncate">{d.shop_name}</span>
+                    <span className="truncate font-medium">{d.shop_name}</span>
                   </div>
 
                   {(d.floor || d.unit_number) && (
-                    <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground/70">
+                    <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground/60">
                       <MapPin className="h-2.5 w-2.5 shrink-0" />
-                      <span>
-                        {[d.floor ? `Floor ${d.floor}` : null, d.unit_number].filter(Boolean).join(" · ")}
-                      </span>
+                      {[d.floor ? `Floor ${d.floor}` : null, d.unit_number].filter(Boolean).join(" · ")}
                     </div>
                   )}
 
-                  {/* Show mall name when no mall is selected */}
                   {!selectedMall && d.mall_name && (
                     <div className="flex items-center gap-1.5 text-[10px] text-primary/70">
                       <MapPin className="h-2.5 w-2.5 shrink-0" />
-                      <span>{d.mall_name}</span>
+                      {d.mall_name}
                     </div>
                   )}
 
                   {/* Price row */}
-                  <div className="mt-auto flex items-end gap-2">
-                    <p className="font-display text-xl font-bold leading-none">
+                  <div className="mt-auto flex items-end gap-2.5">
+                    <p className="font-display text-2xl font-bold leading-none">
                       R{Number(d.price).toLocaleString()}
                     </p>
                     {hasDiscount ? (
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex items-center gap-1.5 mb-0.5">
                         {d.original_price && (
                           <span className="text-xs text-muted-foreground line-through">
                             R{Number(d.original_price).toLocaleString()}
                           </span>
                         )}
                         <span className="inline-flex items-center gap-0.5 rounded-full bg-secondary/15 border border-secondary/40 px-2 py-0.5 text-[10px] font-bold text-secondary">
-                          <Percent className="h-2.5 w-2.5" />{pct} OFF
+                          <Percent className="h-2.5 w-2.5" />{pct}% OFF
                         </span>
                       </div>
                     ) : (
-                      <span className="inline-flex items-center gap-0.5 rounded-full bg-primary/10 border border-primary/20 px-2 py-0.5 text-[10px] font-medium text-primary">
+                      <span className="inline-flex items-center gap-0.5 rounded-full bg-primary/10 border border-primary/20 px-2 py-0.5 text-[10px] font-medium text-primary mb-0.5">
                         Special
                       </span>
                     )}
@@ -262,10 +259,11 @@ const Deals = () => {
                 </div>
               </div>
 
+              {/* Navigate CTA */}
               <button
                 onClick={() => handleNavigate(d, i)}
                 disabled={navigating === i}
-                className="w-full flex items-center justify-center gap-2 border-t border-border bg-primary/5 hover:bg-primary/10 py-3 text-sm font-semibold text-primary transition-colors disabled:opacity-60"
+                className="w-full flex items-center justify-center gap-2 border-t border-primary/15 bg-primary/6 hover:bg-primary/12 py-3.5 text-sm font-semibold text-primary transition-all disabled:opacity-50"
               >
                 {navigating === i
                   ? <Loader2 className="h-4 w-4 animate-spin" />

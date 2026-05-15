@@ -2,8 +2,10 @@ import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Sparkles, MapPin, ListChecks, Car, Trophy,
-  Search, Route as RouteIcon, Zap, Navigation, Loader2
+  Search, Route as RouteIcon, Zap, Navigation, Loader2,
+  Tag, Bot, ShieldCheck,
 } from "lucide-react";
+// RouteIcon used in session banner; ShieldCheck/Navigation/Sparkles in trust strip; others in action grid
 import MobileShell from "@/components/MobileShell";
 import Logo from "@/components/Logo";
 import { Button } from "@/components/ui/button";
@@ -16,11 +18,44 @@ import { cn } from "@/lib/utils";
 
 const SESSION_XP_KEY = "mm_session_xp_awarded";
 
-const quickActions = [
-  { label: "Parking", icon: Car, to: "/parking", color: "text-primary" },
-  { label: "Rewards", icon: Trophy, to: "/rewards", color: "text-secondary" },
-  { label: "Deals", icon: Sparkles, to: "/deals", color: "text-primary" },
-];
+const ACTION_CARDS = [
+  {
+    label: "Find Best Deal",
+    desc: "AI compares every store",
+    Icon: Bot,
+    iconClass: "text-primary",
+    iconBg: "bg-primary/10 border-primary/20",
+    hover: "hover:border-primary/40 hover:bg-primary/8",
+    to: "/assistant",
+  },
+  {
+    label: "Explore Malls",
+    desc: "8 SA malls, verified data",
+    Icon: MapPin,
+    iconClass: "text-secondary",
+    iconBg: "bg-secondary/10 border-secondary/20",
+    hover: "hover:border-secondary/40 hover:bg-secondary/8",
+    to: "/malls",
+  },
+  {
+    label: "Today's Deals",
+    desc: "Specials and verified picks",
+    Icon: Tag,
+    iconClass: "text-primary",
+    iconBg: "bg-primary/10 border-primary/20",
+    hover: "hover:border-primary/40 hover:bg-primary/8",
+    to: "/deals",
+  },
+  {
+    label: "Save Parking",
+    desc: "GPS spot · return to car",
+    Icon: Car,
+    iconClass: "text-secondary",
+    iconBg: "bg-secondary/10 border-secondary/20",
+    hover: "hover:border-secondary/40 hover:bg-secondary/8",
+    to: "/parking",
+  },
+] as const;
 
 const Home = () => {
   const navigate = useNavigate();
@@ -45,7 +80,6 @@ const Home = () => {
   function handleShopHere() {
     if (nearestMall) {
       setSelectedMall(nearestMall);
-      // Start or resume a Supabase shopping session for this mall
       startOrUpdateSession(user?.id ?? null, nearestMall.id, {
         lat: position?.lat,
         lng: position?.lng,
@@ -56,103 +90,88 @@ const Home = () => {
 
   return (
     <MobileShell>
-      <div className="px-5 pt-8 animate-fade-in">
-        <div className="flex items-center justify-between">
-          <Logo />
-          <button
-            onClick={() => navigate("/assistant")}
-            className="flex h-10 w-10 items-center justify-center rounded-xl border border-secondary/30 bg-secondary/10 backdrop-blur hover:bg-secondary/20 transition-all"
-          >
-            <Sparkles className="h-4 w-4 text-secondary" />
-          </button>
-        </div>
+      {/* ── HERO GLASS CARD ─────────────────────────────────────── */}
+      <div className="px-5 pt-7 animate-fade-in">
+        <div className="relative rounded-3xl border border-primary/20 bg-surface/50 backdrop-blur-xl overflow-hidden p-5 shadow-[0_0_40px_hsl(190_100%_50%/0.06)]">
+          {/* Glow orb behind card */}
+          <div className="pointer-events-none absolute -top-12 -right-12 h-48 w-48 rounded-full bg-primary/12 blur-3xl" />
 
-        {/* XP progress strip — only for logged-in users */}
-        {user && profile && (() => {
-          const prog = xpProgress(profile.xp, profile.level);
-          return (
+          {/* Brand row */}
+          <div className="relative flex items-center justify-between">
+            <Logo />
             <button
-              onClick={() => navigate("/rewards")}
-              className="mt-4 w-full flex items-center gap-3 rounded-2xl border border-secondary/20 bg-secondary/8 px-3 py-2.5 hover:bg-secondary/15 transition-all"
+              onClick={() => navigate("/assistant")}
+              className="flex items-center gap-1.5 rounded-xl border border-secondary/30 bg-secondary/10 px-3 py-1.5 text-[11px] font-semibold text-secondary hover:bg-secondary/20 transition-all"
             >
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-secondary/20 border border-secondary/30">
-                <Zap className="h-4 w-4 text-secondary" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-xs font-bold text-secondary">
-                    Lv {profile.level} · {LEVEL_NAMES[profile.level]}
-                  </span>
-                  <span className="text-[10px] text-muted-foreground">{profile.xp} XP</span>
-                </div>
-                <div className="h-1.5 w-full rounded-full bg-secondary/20 overflow-hidden">
-                  <div
-                    className="h-full rounded-full bg-secondary transition-all duration-700"
-                    style={{ width: `${prog.pct}%` }}
-                  />
-                </div>
-              </div>
+              <div className="h-1.5 w-1.5 rounded-full bg-secondary animate-pulse" />
+              AI Active
             </button>
-          );
-        })()}
-      </div>
+          </div>
 
-      {/* Hero */}
-      <div className="relative mt-8 px-5 text-center animate-slide-up">
-        <div className="mx-auto mb-6 flex h-32 w-32 items-center justify-center">
-          <div className="absolute h-32 w-32 rounded-full bg-primary/10 blur-2xl animate-float" />
-          <div className="relative flex h-28 w-28 items-center justify-center rounded-3xl bg-gradient-primary glow-primary animate-float">
-            <MapPin className="h-12 w-12 text-primary-foreground" strokeWidth={2.5} />
-            <span className="absolute -bottom-2 -right-2 flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-secondary glow-secondary">
-              <ListChecks className="h-5 w-5 text-secondary-foreground" strokeWidth={2.8} />
-            </span>
+          {/* Tagline */}
+          <div className="relative mt-5">
+            <p className="text-[10px] uppercase tracking-[0.25em] text-primary/80 font-semibold mb-2">
+              AI Shopping Concierge
+            </p>
+            <h1 className="font-display text-[26px] font-bold leading-[1.1] tracking-tight">
+              Shop{" "}
+              <span className="text-primary text-glow-primary">Smarter.</span>
+              <br />
+              Navigate{" "}
+              <span className="text-secondary text-glow-secondary">Faster.</span>
+            </h1>
+            {/* Trust strip */}
+            <div className="mt-3 flex items-center gap-2 flex-wrap">
+              <span className="flex items-center gap-1 rounded-full border border-border/60 bg-background/40 px-2.5 py-1 text-[10px] text-muted-foreground">
+                <ShieldCheck className="h-3 w-3 text-primary/70" />
+                Verified prices
+              </span>
+              <span className="flex items-center gap-1 rounded-full border border-border/60 bg-background/40 px-2.5 py-1 text-[10px] text-muted-foreground">
+                <Navigation className="h-3 w-3 text-primary/70" />
+                Smart routes
+              </span>
+              <span className="flex items-center gap-1 rounded-full border border-border/60 bg-background/40 px-2.5 py-1 text-[10px] text-muted-foreground">
+                <Sparkles className="h-3 w-3 text-primary/70" />
+                AI powered
+              </span>
+            </div>
           </div>
         </div>
-
-        <h1 className="font-display text-[34px] font-bold leading-[1.05]">
-          Shop <span className="text-primary text-glow-primary">Smarter.</span>
-          <br />
-          Navigate <span className="text-secondary text-glow-secondary">Faster.</span>
-          <br />
-          Save <span className="text-primary text-glow-primary">More.</span>
-        </h1>
-        <p className="mt-4 text-sm text-muted-foreground max-w-xs mx-auto leading-relaxed">
-          Your AI-powered companion for every South African mall.
-        </p>
       </div>
 
-      {/* Nearest mall detector */}
-      <div className="mx-5 mt-5 animate-slide-up">
+      {/* ── MALL DETECTOR CARD ──────────────────────────────────── */}
+      <div className="mx-5 mt-3 animate-slide-up">
         {!nearestMall && !requesting && (
           <button
             onClick={requestLocation}
-            className="w-full flex items-center gap-3 rounded-2xl border border-border bg-surface/60 px-4 py-3 hover:border-primary/40 hover:bg-surface transition-all text-left"
+            className="w-full flex items-center gap-3 rounded-2xl border border-border/80 bg-surface/50 backdrop-blur px-4 py-3.5 hover:border-primary/40 hover:bg-surface/70 transition-all text-left group"
           >
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 border border-primary/30">
-              <Navigation className="h-4 w-4 text-primary" />
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 border border-primary/25 group-hover:bg-primary/20 transition-colors">
+              <Navigation className="h-4.5 w-4.5 h-5 w-5 text-primary" />
             </div>
-            <div>
-              <p className="text-sm font-medium">Detect nearest mall</p>
-              <p className="text-[11px] text-muted-foreground">Uses your GPS — no data stored</p>
+            <div className="flex-1">
+              <p className="text-sm font-semibold">Detect nearest mall</p>
+              <p className="text-[11px] text-muted-foreground mt-0.5">Uses GPS · no data stored</p>
             </div>
+            <div className="text-[10px] text-primary/60 border border-primary/20 rounded-lg px-2 py-1">Tap</div>
           </button>
         )}
 
         {requesting && (
-          <div className="w-full flex items-center gap-3 rounded-2xl border border-primary/30 bg-primary/10 px-4 py-3">
+          <div className="w-full flex items-center gap-3 rounded-2xl border border-primary/25 bg-primary/8 backdrop-blur px-4 py-3.5">
             <Loader2 className="h-5 w-5 text-primary animate-spin shrink-0" />
             <p className="text-sm text-primary font-medium">Finding nearest mall…</p>
           </div>
         )}
 
         {nearestMall && (
-          <div className="w-full flex items-center gap-3 rounded-2xl border border-primary/40 bg-primary/10 px-4 py-3 animate-fade-in">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/20 border border-primary/40">
-              <Navigation className="h-4 w-4 text-primary" />
+          <div className="w-full flex items-center gap-3 rounded-2xl border border-primary/35 bg-primary/8 backdrop-blur px-4 py-3.5 animate-fade-in shadow-[0_0_20px_hsl(190_100%_50%/0.08)]">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/20 border border-primary/35">
+              <Navigation className="h-4.5 w-4.5 h-5 w-5 text-primary" />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-xs uppercase tracking-wider text-primary">Nearest mall</p>
-              <p className="font-display font-bold text-sm truncate">{nearestMall.name}</p>
+              <p className="text-[10px] uppercase tracking-wider text-primary font-bold">Nearest mall</p>
+              <p className="font-display font-bold text-sm truncate mt-0.5">{nearestMall.name}</p>
               <p className="text-[11px] text-muted-foreground">
                 {nearestMall.city}{nearestMallDistance != null ? ` · ${nearestMallDistance} km away` : ""}
               </p>
@@ -163,30 +182,95 @@ const Home = () => {
               onClick={handleShopHere}
               className={cn(selectedMall?.id === nearestMall.id && "opacity-60 pointer-events-none")}
             >
-              {selectedMall?.id === nearestMall.id ? "Selected" : "Shop here"}
+              {selectedMall?.id === nearestMall.id ? "Active" : "Shop here"}
             </Button>
           </div>
         )}
 
         {geoError && !nearestMall && (
-          <p className="text-xs text-muted-foreground text-center px-4">
+          <p className="text-xs text-muted-foreground text-center px-4 py-2">
             Location denied — choose a mall manually below.
           </p>
         )}
       </div>
 
-      {/* Active session banner */}
-      {(selectedMall || routeStops.length > 0) && (
-        <div className="mx-5 mt-4 rounded-2xl border border-primary/30 bg-primary/10 p-4 animate-slide-up">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs uppercase tracking-wider text-primary">Active session</p>
-              <p className="font-display font-bold text-sm mt-0.5">
-                {selectedMall?.name ?? "Shopping session"}
-              </p>
-              {routeStops.length > 0 && (
-                <p className="text-xs text-muted-foreground">{routeStops.length} stops planned</p>
+      {/* ── XP PROGRESS STRIP (logged-in only) ─────────────────── */}
+      {user && profile && (() => {
+        const prog = xpProgress(profile.xp, profile.level);
+        return (
+          <button
+            onClick={() => navigate("/rewards")}
+            className="mx-5 mt-3 w-[calc(100%-2.5rem)] flex items-center gap-3 rounded-2xl border border-secondary/20 bg-secondary/6 px-3 py-2.5 hover:bg-secondary/12 transition-all animate-fade-in"
+          >
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-secondary/20 border border-secondary/30">
+              <Zap className="h-4 w-4 text-secondary" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs font-bold text-secondary">
+                  Lv {profile.level} · {LEVEL_NAMES[profile.level]}
+                </span>
+                <span className="text-[10px] text-muted-foreground">{profile.xp} XP</span>
+              </div>
+              <div className="h-1.5 w-full rounded-full bg-secondary/15 overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-secondary to-secondary-glow transition-all duration-700"
+                  style={{ width: `${prog.pct}%` }}
+                />
+              </div>
+            </div>
+            <Trophy className="h-4 w-4 text-secondary/60 shrink-0" />
+          </button>
+        );
+      })()}
+
+      {/* ── ACTION GRID ─────────────────────────────────────────── */}
+      <div className="px-5 mt-5 animate-slide-up">
+        <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground mb-3 px-1">
+          Quick actions
+        </p>
+        <div className="grid grid-cols-2 gap-3">
+          {ACTION_CARDS.map(({ label, desc, Icon, iconClass, iconBg, hover, to }) => (
+            <button
+              key={label}
+              onClick={() => navigate(to)}
+              className={cn(
+                "group flex flex-col gap-3 rounded-2xl border border-border/60 bg-surface/50 backdrop-blur p-4 text-left transition-all",
+                hover
               )}
+            >
+              <div className={cn(
+                "flex h-10 w-10 items-center justify-center rounded-xl border transition-all",
+                iconBg
+              )}>
+                <Icon className={cn("h-5 w-5", iconClass)} />
+              </div>
+              <div>
+                <p className="font-display font-bold text-sm leading-tight">{label}</p>
+                <p className="text-[10px] text-muted-foreground leading-relaxed mt-0.5">{desc}</p>
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* ── ACTIVE SESSION BANNER ───────────────────────────────── */}
+      {(selectedMall || routeStops.length > 0) && (
+        <div className="mx-5 mt-4 rounded-2xl border border-primary/30 bg-primary/8 backdrop-blur p-4 animate-slide-up shadow-[0_0_20px_hsl(190_100%_50%/0.06)]">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary/20 border border-primary/30 shrink-0">
+                <RouteIcon className="h-4 w-4 text-primary" />
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-primary font-bold">Active session</p>
+                <p className="font-display font-bold text-sm mt-0.5">
+                  {selectedMall?.name ?? "Shopping session"}
+                </p>
+                {routeStops.length > 0 && (
+                  <p className="text-[10px] text-muted-foreground">{routeStops.length} stops planned</p>
+                )}
+              </div>
             </div>
             <Button
               variant="glass"
@@ -203,45 +287,22 @@ const Home = () => {
         </div>
       )}
 
-      {/* CTAs */}
-      <div className="mt-5 px-5 space-y-3 animate-slide-up">
-        <Button
-          variant="neon"
-          size="lg"
-          className="w-full"
-          onClick={() => navigate("/malls")}
-        >
-          <Search className="h-5 w-5" />
-          Browse All Malls
-        </Button>
-        <Button
-          variant="glass"
-          size="lg"
-          className="w-full"
+      {/* ── SECONDARY LINKS ─────────────────────────────────────── */}
+      <div className="px-5 mt-4 mb-3 flex gap-2.5">
+        <button
           onClick={() => navigate("/list")}
+          className="flex-1 flex items-center justify-center gap-2 rounded-2xl border border-border/60 bg-surface/40 py-3 text-xs font-medium text-muted-foreground hover:text-foreground hover:border-primary/30 transition-all"
         >
-          <ListChecks className="h-5 w-5" />
+          <ListChecks className="h-4 w-4" />
           Shopping List
-        </Button>
-      </div>
-
-      {/* Quick actions */}
-      <div className="mt-8 px-5 pb-4 animate-fade-in">
-        <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground mb-3 px-1">
-          Quick Access
-        </p>
-        <div className="grid grid-cols-3 gap-3">
-          {quickActions.map(({ label, icon: Icon, to, color }) => (
-            <button
-              key={label}
-              onClick={() => navigate(to)}
-              className="group flex flex-col items-center gap-2 rounded-2xl border border-border bg-surface/60 backdrop-blur p-4 hover:border-primary/40 hover:bg-surface transition-all"
-            >
-              <Icon className={`h-6 w-6 ${color} group-hover:scale-110 transition-transform`} />
-              <span className="text-xs font-medium">{label}</span>
-            </button>
-          ))}
-        </div>
+        </button>
+        <button
+          onClick={() => navigate("/rewards")}
+          className="flex-1 flex items-center justify-center gap-2 rounded-2xl border border-border/60 bg-surface/40 py-3 text-xs font-medium text-muted-foreground hover:text-foreground hover:border-secondary/30 transition-all"
+        >
+          <Zap className="h-4 w-4" />
+          Rewards
+        </button>
       </div>
     </MobileShell>
   );
