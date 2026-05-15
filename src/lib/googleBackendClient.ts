@@ -1543,3 +1543,239 @@ export async function ingestMallResearchSource(
     accessToken
   );
 }
+
+// ── Mall Intelligence types (Sprint 12C) ──────────────────────────────────────
+
+export type MallSourceType =
+  | "official_website"
+  | "floor_map"
+  | "store_directory"
+  | "tenant_list"
+  | "social_media"
+  | "unknown";
+
+export type MallStagedReviewStatus = "pending" | "accepted" | "rejected" | "flagged";
+
+export interface MallSource {
+  id:              string;
+  mall_id?:        string;
+  source_type:     MallSourceType;
+  url:             string;
+  page_title?:     string;
+  discovered_at:   string;
+  last_scanned_at?: string;
+  is_active:       boolean;
+  scan_status:     string;
+  confidence:      number;
+  notes?:          string;
+  created_by?:     string;
+  created_at:      string;
+}
+
+export interface MallMapAsset {
+  id:             string;
+  mall_source_id?: string;
+  mall_id?:       string;
+  asset_type:     "image" | "pdf" | "svg" | "html_embed";
+  asset_url:      string;
+  floor_label?:   string;
+  link_text?:     string;
+  page_width_px?:  number;
+  page_height_px?: number;
+  extracted_at:   string;
+  review_status:  string;
+  notes?:         string;
+  created_at:     string;
+}
+
+export interface MallStagedStoreLocation {
+  id:                       string;
+  mall_id?:                 string;
+  mall_source_id?:          string;
+  mall_map_asset_id?:       string;
+  shop_name?:               string;
+  unit_number?:             string;
+  floor_label?:             string;
+  category?:                string;
+  x_percent?:               number;
+  y_percent?:               number;
+  source_url?:              string;
+  raw_evidence?:            string;
+  confidence:               number;
+  extraction_method:        string;
+  google_places_verified:   boolean;
+  google_places_place_id?:  string;
+  review_status:            MallStagedReviewStatus;
+  reviewed_by?:             string;
+  reviewed_at?:             string;
+  notes?:                   string;
+  created_at:               string;
+}
+
+export interface DiscoverSourcesResult {
+  source:         MallSource;
+  classification: {
+    inferred_source_type: MallSourceType;
+    confidence:           number;
+    is_blocked:           boolean;
+    block_reason?:        string;
+  };
+  warnings:       string[];
+}
+
+export interface ScanWebsiteResult {
+  source_id:        string;
+  scan_status:      string;
+  page_title?:      string;
+  assets_saved:     MallMapAsset[];
+  assets_found:     number;
+  scan_duration_ms: number;
+  warnings:         string[];
+  error?:           string;
+  has_html:         boolean;
+  raw_html?:        string;
+}
+
+export interface ExtractMapResult {
+  source_id:        string;
+  total_found:      number;
+  stores_staged:    number;
+  strategies_tried: string[];
+  extraction_log:   string[];
+  warnings:         string[];
+}
+
+export interface VerifyStoreResult {
+  shop_name:           string;
+  staged_location_id?: string;
+  verified:            boolean;
+  place_id?:           string;
+  place_name?:         string;
+  place_address?:      string;
+  confidence:          number;
+  method:              "google_places_api" | "not_configured" | "failed";
+  notes?:              string;
+}
+
+export interface AssetsResult {
+  sources:       MallSource[];
+  assets:        MallMapAsset[];
+  total_sources: number;
+  total_assets:  number;
+}
+
+export interface StagedLocationsResult {
+  items: MallStagedStoreLocation[];
+  total: number;
+}
+
+// ── Mall Intelligence public API ───────────────────────────────────────────────
+
+export async function discoverMallSources(
+  payload: {
+    mall_id?:     string;
+    seed_url:     string;
+    mall_name?:   string;
+    source_type?: MallSourceType;
+    notes?:       string;
+  },
+  accessToken: string,
+): Promise<DiscoverSourcesResult> {
+  if (!BASE_URL) throw new Error("VITE_GOOGLE_BACKEND_URL is not configured");
+  return postAuthWithResponse<DiscoverSourcesResult>(
+    "/admin/mall-intelligence/discover-sources",
+    payload,
+    accessToken,
+  );
+}
+
+export async function scanMallWebsiteSource(
+  sourceId: string,
+  accessToken: string,
+): Promise<ScanWebsiteResult> {
+  if (!BASE_URL) throw new Error("VITE_GOOGLE_BACKEND_URL is not configured");
+  return postAuthWithResponse<ScanWebsiteResult>(
+    "/admin/mall-intelligence/scan-website",
+    { source_id: sourceId },
+    accessToken,
+  );
+}
+
+export async function extractMallMapStores(
+  sourceId: string,
+  accessToken: string,
+  htmlContent?: string,
+): Promise<ExtractMapResult> {
+  if (!BASE_URL) throw new Error("VITE_GOOGLE_BACKEND_URL is not configured");
+  return postAuthWithResponse<ExtractMapResult>(
+    "/admin/mall-intelligence/extract-map",
+    { source_id: sourceId, html_content: htmlContent },
+    accessToken,
+  );
+}
+
+export async function verifyMallStoreLocation(
+  stagedLocationId: string,
+  accessToken: string,
+): Promise<VerifyStoreResult> {
+  if (!BASE_URL) throw new Error("VITE_GOOGLE_BACKEND_URL is not configured");
+  return postAuthWithResponse<VerifyStoreResult>(
+    "/admin/mall-intelligence/verify-store-location",
+    { staged_location_id: stagedLocationId },
+    accessToken,
+  );
+}
+
+export async function reviewStagedLocation(
+  locationId:   string,
+  reviewStatus: MallStagedReviewStatus,
+  notes:        string | undefined,
+  accessToken:  string,
+): Promise<{ ok: boolean; item: MallStagedStoreLocation }> {
+  if (!BASE_URL) throw new Error("VITE_GOOGLE_BACKEND_URL is not configured");
+  return patchAuthWithResponse<{ ok: boolean; item: MallStagedStoreLocation }>(
+    `/admin/mall-intelligence/staged-locations/${locationId}/review`,
+    { review_status: reviewStatus, notes },
+    accessToken,
+  );
+}
+
+export async function stageMallRouteNodes(
+  mallId:      string,
+  accessToken: string,
+): Promise<{ mall_id: string; nodes_staged: number; warnings: string[]; note: string }> {
+  if (!BASE_URL) throw new Error("VITE_GOOGLE_BACKEND_URL is not configured");
+  return postAuthWithResponse(
+    "/admin/mall-intelligence/stage-route-nodes",
+    { mall_id: mallId },
+    accessToken,
+  );
+}
+
+export async function getMallIntelligenceAssets(
+  mallId:      string | undefined,
+  accessToken: string,
+): Promise<AssetsResult> {
+  if (!BASE_URL) throw new Error("VITE_GOOGLE_BACKEND_URL is not configured");
+  const qs = mallId ? `?mall_id=${encodeURIComponent(mallId)}` : "";
+  return getAuthenticated<AssetsResult>(
+    `/admin/mall-intelligence/assets${qs}`,
+    accessToken,
+  );
+}
+
+export async function getMallStagedLocations(
+  mallId:      string | undefined,
+  status:      string | undefined,
+  accessToken: string,
+): Promise<StagedLocationsResult> {
+  if (!BASE_URL) throw new Error("VITE_GOOGLE_BACKEND_URL is not configured");
+  const params = new URLSearchParams();
+  if (mallId) params.set("mall_id", mallId);
+  if (status) params.set("status",  status);
+  const qs = params.toString() ? `?${params.toString()}` : "";
+  return getAuthenticated<StagedLocationsResult>(
+    `/admin/mall-intelligence/staged-locations${qs}`,
+    accessToken,
+  );
+}

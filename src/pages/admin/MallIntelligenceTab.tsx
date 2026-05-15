@@ -1,0 +1,832 @@
+/**
+ * MallIntelligenceTab — Sprint 12C
+ *
+ * Admin tab for the Mall Intelligence Harvester pipeline.
+ * Sections:
+ *   1. Source Discovery (add seed URLs, list discovered sources)
+ *   2. Map Assets (discovered floor map / directory assets)
+ *   3. Staged Store Locations (extracted, pending admin review)
+ *   4. Route Graph placeholder (future sprint)
+ *
+ * Safety: no live-table writes. All actions are staged only.
+ */
+
+import React, { useEffect, useState, useCallback } from "react";
+import { supabase } from "@/lib/supabaseClient";
+import {
+  discoverMallSources,
+  scanMallWebsiteSource,
+  extractMallMapStores,
+  verifyMallStoreLocation,
+  reviewStagedLocation,
+  stageMallRouteNodes,
+  getMallIntelligenceAssets,
+  getMallStagedLocations,
+  type MallSource,
+  type MallMapAsset,
+  type MallStagedStoreLocation,
+  type MallSourceType,
+  type MallStagedReviewStatus,
+} from "@/lib/googleBackendClient";
+import { cn } from "@/lib/utils";
+import {
+  Globe,
+  Plus,
+  RefreshCw,
+  Loader2,
+  AlertTriangle,
+  CheckCircle2,
+  XCircle,
+  Flag,
+  ExternalLink,
+  Search,
+  Eye,
+  Layers,
+  FileText,
+  Map,
+  Activity,
+  ChevronDown,
+  ChevronUp,
+} from "lucide-react";
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+interface Mall {
+  id:   string;
+  name: string;
+}
+
+interface MallIntelligenceTabProps {
+  token?: string;
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+const SCAN_STATUS_LABELS: Record<string, string> = {
+  pending:  "Pending",
+  scanning: "Scanning…",
+  scanned:  "Scanned",
+  failed:   "Failed",
+  stale:    "Stale",
+};
+
+const REVIEW_STATUS_COLORS: Record<string, string> = {
+  pending:  "bg-yellow-100 text-yellow-800",
+  accepted: "bg-green-100  text-green-800",
+  rejected: "bg-red-100    text-red-800",
+  flagged:  "bg-orange-100 text-orange-800",
+};
+
+const SOURCE_TYPE_LABELS: Record<MallSourceType | string, string> = {
+  official_website: "Official Website",
+  floor_map:        "Floor Map",
+  store_directory:  "Store Directory",
+  tenant_list:      "Tenant List",
+  social_media:     "Social Media",
+  unknown:          "Unknown",
+};
+
+function ConfidenceBadge({ value }: { value: number }) {
+  const pct   = Math.round(value * 100);
+  const color = pct >= 75 ? "text-green-700" : pct >= 50 ? "text-yellow-700" : "text-red-700";
+  return <span className={cn("text-[10px] font-medium tabular-nums", color)}>{pct}%</span>;
+}
+
+// ── Sub-component: Section wrapper ────────────────────────────────────────────
+
+function Section({
+  title,
+  icon,
+  children,
+  action,
+}: {
+  title:     string;
+  icon:      React.ReactNode;
+  children:  React.ReactNode;
+  action?:   React.ReactNode;
+}) {
+  return (
+    <div className="rounded-lg border bg-card shadow-sm">
+      <div className="flex items-center justify-between border-b px-4 py-3">
+        <div className="flex items-center gap-2">
+          <span className="text-muted-foreground">{icon}</span>
+          <h3 className="text-sm font-semibold">{title}</h3>
+        </div>
+        {action}
+      </div>
+      <div className="p-4">{children}</div>
+    </div>
+  );
+}
+
+// ── Sub-component: Source row ─────────────────────────────────────────────────
+
+function SourceRow({
+  source,
+  token,
+  onScan,
+  onExtract,
+}: {
+  source:    MallSource;
+  token:     string;
+  onScan:    (s: MallSource) => void;
+  onExtract: (s: MallSource) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  const isStaleDays = source.last_scanned_at
+    ? Math.floor((Date.now() - new Date(source.last_scanned_at).getTime()) / 86_400_000)
+    : null;
+  const isStale = isStaleDays !== null && isStaleDays > 30;
+
+  return (
+    <div className="rounded border bg-background text-xs">
+      <div className="flex items-center gap-2 px-3 py-2">
+        <Globe className="h-3 w-3 shrink-0 text-muted-foreground" />
+        <a
+          href={source.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="min-w-0 flex-1 truncate font-medium text-primary hover:underline"
+        >
+          {source.page_title ?? source.url}
+        </a>
+        <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px]">
+          {SOURCE_TYPE_LABELS[source.source_type] ?? source.source_type}
+        </span>
+        <span className={cn(
+          "shrink-0 rounded px-1.5 py-0.5 text-[10px]",
+          source.scan_status === "scanned" ? "bg-green-100 text-green-800" :
+          source.scan_status === "failed"  ? "bg-red-100   text-red-800"  :
+          source.scan_status === "stale"   ? "bg-orange-100 text-orange-800" :
+          "bg-muted text-muted-foreground",
+        )}>
+          {SCAN_STATUS_LABELS[source.scan_status] ?? source.scan_status}
+        </span>
+        <ConfidenceBadge value={source.confidence} />
+        {isStale && (
+          <span className="flex items-center gap-0.5 text-[10px] text-orange-600">
+            <AlertTriangle className="h-2.5 w-2.5" />
+            {isStaleDays}d
+          </span>
+        )}
+        <button onClick={() => setExpanded((v) => !v)} className="ml-1 text-muted-foreground hover:text-foreground">
+          {expanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+        </button>
+      </div>
+
+      {expanded && (
+        <div className="border-t px-3 pb-3 pt-2 space-y-2">
+          <p className="text-[10px] text-muted-foreground break-all">{source.url}</p>
+          {source.last_scanned_at && (
+            <p className="text-[10px] text-muted-foreground">
+              Last scanned: {new Date(source.last_scanned_at).toLocaleString("en-ZA")}
+            </p>
+          )}
+          <div className="flex flex-wrap gap-1.5 mt-1">
+            <button
+              onClick={() => onScan(source)}
+              className="flex items-center gap-1 rounded border px-2 py-1 text-[10px] hover:bg-muted transition-colors"
+            >
+              <Activity className="h-3 w-3" /> Scan Website
+            </button>
+            <button
+              onClick={() => onExtract(source)}
+              className="flex items-center gap-1 rounded border px-2 py-1 text-[10px] hover:bg-muted transition-colors"
+            >
+              <Search className="h-3 w-3" /> Extract Stores
+            </button>
+            <a
+              href={source.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1 rounded border px-2 py-1 text-[10px] hover:bg-muted transition-colors"
+            >
+              <ExternalLink className="h-3 w-3" /> Open URL
+            </a>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Sub-component: Asset row ──────────────────────────────────────────────────
+
+function AssetRow({ asset }: { asset: MallMapAsset }) {
+  const [preview, setPreview] = useState(false);
+
+  const isImage = asset.asset_type === "image";
+  const isPdf   = asset.asset_type === "pdf";
+
+  return (
+    <div className="rounded border bg-background text-xs space-y-1">
+      <div className="flex items-center gap-2 px-3 py-2">
+        <FileText className="h-3 w-3 shrink-0 text-muted-foreground" />
+        <a
+          href={asset.asset_url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="min-w-0 flex-1 truncate text-primary hover:underline"
+        >
+          {asset.link_text ?? asset.asset_url.split("/").pop() ?? asset.asset_url}
+        </a>
+        <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase">
+          {asset.asset_type}
+        </span>
+        {asset.floor_label && (
+          <span className="shrink-0 rounded bg-blue-50 px-1.5 py-0.5 text-[10px] text-blue-700">
+            {asset.floor_label}
+          </span>
+        )}
+        {(isImage || isPdf) && (
+          <button
+            onClick={() => setPreview((v) => !v)}
+            className="ml-1 text-muted-foreground hover:text-foreground"
+          >
+            <Eye className="h-3 w-3" />
+          </button>
+        )}
+      </div>
+      {preview && isImage && (
+        <div className="px-3 pb-2">
+          <img
+            src={asset.asset_url}
+            alt={asset.floor_label ?? "Floor map"}
+            className="max-h-64 rounded border object-contain"
+            onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+          />
+        </div>
+      )}
+      {preview && isPdf && (
+        <div className="px-3 pb-2">
+          <a
+            href={asset.asset_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 text-xs text-primary underline"
+          >
+            <FileText className="h-3.5 w-3.5" /> Open PDF floor map
+          </a>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Sub-component: Staged location row ───────────────────────────────────────
+
+function StagedLocationRow({
+  loc,
+  token,
+  onReview,
+  onVerify,
+}: {
+  loc:      MallStagedStoreLocation;
+  token:    string;
+  onReview: (id: string, status: MallStagedReviewStatus, notes?: string) => void;
+  onVerify: (id: string) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [notes,    setNotes]    = useState("");
+
+  return (
+    <div className="rounded border bg-background text-xs">
+      <div className="flex items-center gap-2 px-3 py-2">
+        <span className="min-w-0 flex-1 truncate font-medium">
+          {loc.shop_name ?? "(no name)"}
+        </span>
+        {loc.unit_number && (
+          <span className="shrink-0 font-mono text-[10px]">{loc.unit_number}</span>
+        )}
+        {loc.floor_label && (
+          <span className="shrink-0 rounded bg-blue-50 px-1.5 py-0.5 text-[10px] text-blue-700">
+            {loc.floor_label}
+          </span>
+        )}
+        {loc.category && (
+          <span className="shrink-0 text-[10px] text-muted-foreground">{loc.category}</span>
+        )}
+        <ConfidenceBadge value={loc.confidence} />
+        {loc.google_places_verified && (
+          <span className="shrink-0 rounded bg-green-100 px-1 py-0.5 text-[10px] text-green-800">✓ Places</span>
+        )}
+        <span className={cn(
+          "shrink-0 rounded px-1.5 py-0.5 text-[10px]",
+          REVIEW_STATUS_COLORS[loc.review_status] ?? "bg-muted text-muted-foreground",
+        )}>
+          {loc.review_status}
+        </span>
+        <button onClick={() => setExpanded((v) => !v)} className="ml-1 text-muted-foreground hover:text-foreground">
+          {expanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+        </button>
+      </div>
+
+      {expanded && (
+        <div className="border-t px-3 pb-3 pt-2 space-y-2">
+          {/* Provenance */}
+          <div className="rounded bg-muted/30 p-2 text-[10px] space-y-0.5">
+            <p><span className="text-muted-foreground">Method:</span> {loc.extraction_method}</p>
+            {loc.source_url && (
+              <p><span className="text-muted-foreground">Source:</span>{" "}
+                <a href={loc.source_url} target="_blank" rel="noopener noreferrer"
+                   className="text-primary hover:underline truncate">{loc.source_url}</a>
+              </p>
+            )}
+            {loc.raw_evidence && (
+              <p className="mt-1 italic text-muted-foreground">"{loc.raw_evidence.slice(0, 120)}"</p>
+            )}
+          </div>
+
+          {/* Notes input */}
+          <input
+            type="text"
+            placeholder="Admin notes (optional)"
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            className="w-full rounded border bg-background px-2 py-1 text-[10px] focus:outline-none focus:ring-1 focus:ring-primary"
+          />
+
+          {/* Actions */}
+          <div className="flex flex-wrap gap-1.5">
+            {loc.review_status !== "accepted" && (
+              <button
+                onClick={() => onReview(loc.id, "accepted", notes || undefined)}
+                className="flex items-center gap-1 rounded border border-green-200 bg-green-50 px-2 py-1 text-[10px] text-green-800 hover:bg-green-100"
+              >
+                <CheckCircle2 className="h-3 w-3" /> Accept
+              </button>
+            )}
+            {loc.review_status !== "rejected" && (
+              <button
+                onClick={() => onReview(loc.id, "rejected", notes || undefined)}
+                className="flex items-center gap-1 rounded border border-red-200 bg-red-50 px-2 py-1 text-[10px] text-red-800 hover:bg-red-100"
+              >
+                <XCircle className="h-3 w-3" /> Reject
+              </button>
+            )}
+            {loc.review_status !== "flagged" && (
+              <button
+                onClick={() => onReview(loc.id, "flagged", notes || undefined)}
+                className="flex items-center gap-1 rounded border border-orange-200 bg-orange-50 px-2 py-1 text-[10px] text-orange-800 hover:bg-orange-100"
+              >
+                <Flag className="h-3 w-3" /> Flag
+              </button>
+            )}
+            {!loc.google_places_verified && (
+              <button
+                onClick={() => onVerify(loc.id)}
+                className="flex items-center gap-1 rounded border px-2 py-1 text-[10px] hover:bg-muted transition-colors"
+              >
+                <Search className="h-3 w-3" /> Verify (Places)
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
+
+export default function MallIntelligenceTab({ token }: MallIntelligenceTabProps) {
+  const [malls,             setMalls]             = useState<Mall[]>([]);
+  const [selectedMallId,    setSelectedMallId]    = useState<string>("");
+  const [seedUrl,           setSeedUrl]           = useState("https://www.menlynpark.co.za/mall-map/");
+  const [sourceType,        setSourceType]        = useState<MallSourceType>("floor_map");
+  const [sources,           setSources]           = useState<MallSource[]>([]);
+  const [assets,            setAssets]            = useState<MallMapAsset[]>([]);
+  const [stagedLocs,        setStagedLocs]        = useState<MallStagedStoreLocation[]>([]);
+  const [statusFilter,      setStatusFilter]      = useState<string>("all");
+
+  const [loading,           setLoading]           = useState(false);
+  const [actionLoading,     setActionLoading]     = useState<string | null>(null);
+  const [error,             setError]             = useState<string | null>(null);
+  const [lastAction,        setLastAction]        = useState<string | null>(null);
+
+  // ── Load malls ──────────────────────────────────────────────────────────────
+
+  useEffect(() => {
+    supabase
+      .from("malls")
+      .select("id, name")
+      .order("name")
+      .then(({ data }) => {
+        if (data) setMalls(data as Mall[]);
+      });
+  }, []);
+
+  // ── Load assets + locations ─────────────────────────────────────────────────
+
+  const loadData = useCallback(async () => {
+    if (!token) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const mallId = selectedMallId || undefined;
+      const [assetsResult, locsResult] = await Promise.all([
+        getMallIntelligenceAssets(mallId, token),
+        getMallStagedLocations(mallId, statusFilter !== "all" ? statusFilter : undefined, token),
+      ]);
+      setSources(assetsResult.sources);
+      setAssets(assetsResult.assets);
+      setStagedLocs(locsResult.items);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setLoading(false);
+    }
+  }, [token, selectedMallId, statusFilter]);
+
+  useEffect(() => {
+    void loadData();
+  }, [loadData]);
+
+  // ── Actions ─────────────────────────────────────────────────────────────────
+
+  async function handleDiscover() {
+    if (!token || !seedUrl.trim()) return;
+    setActionLoading("discover");
+    setError(null);
+    try {
+      await discoverMallSources(
+        {
+          mall_id:     selectedMallId || undefined,
+          seed_url:    seedUrl.trim(),
+          source_type: sourceType,
+        },
+        token,
+      );
+      setLastAction(`Source discovered: ${seedUrl}`);
+      await loadData();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setActionLoading(null);
+    }
+  }
+
+  async function handleScan(source: MallSource) {
+    if (!token) return;
+    setActionLoading(`scan-${source.id}`);
+    setError(null);
+    try {
+      const result = await scanMallWebsiteSource(source.id, token);
+      setLastAction(
+        `Scan complete: ${result.assets_found} asset(s) found, status: ${result.scan_status}` +
+        (result.error ? ` — error: ${result.error}` : ""),
+      );
+      await loadData();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setActionLoading(null);
+    }
+  }
+
+  async function handleExtract(source: MallSource) {
+    if (!token) return;
+    setActionLoading(`extract-${source.id}`);
+    setError(null);
+    try {
+      const result = await extractMallMapStores(source.id, token);
+      setLastAction(`Extraction complete: ${result.stores_staged} stores staged`);
+      await loadData();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setActionLoading(null);
+    }
+  }
+
+  async function handleVerify(locationId: string) {
+    if (!token) return;
+    setActionLoading(`verify-${locationId}`);
+    setError(null);
+    try {
+      const result = await verifyMallStoreLocation(locationId, token);
+      setLastAction(
+        result.method === "not_configured"
+          ? "Google Places API not configured — set GOOGLE_PLACES_API_KEY"
+          : `Verified: ${result.verified ? "✓ match" : "✗ no match"} (${result.method})`,
+      );
+      await loadData();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setActionLoading(null);
+    }
+  }
+
+  async function handleReview(
+    locationId: string,
+    status:     MallStagedReviewStatus,
+    notes?:     string,
+  ) {
+    if (!token) return;
+    setActionLoading(`review-${locationId}`);
+    setError(null);
+    try {
+      await reviewStagedLocation(locationId, status, notes, token);
+      setLastAction(`Location ${status}`);
+      // Optimistic update
+      setStagedLocs((prev) =>
+        prev.map((l) => l.id === locationId ? { ...l, review_status: status } : l),
+      );
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setActionLoading(null);
+    }
+  }
+
+  async function handleStageRouteNodes() {
+    if (!token || !selectedMallId) return;
+    setActionLoading("route-nodes");
+    setError(null);
+    try {
+      const result = await stageMallRouteNodes(selectedMallId, token);
+      setLastAction(`Route nodes staged: ${result.nodes_staged}`);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setActionLoading(null);
+    }
+  }
+
+  const anyLoading = loading || actionLoading !== null;
+
+  // ── Stats ───────────────────────────────────────────────────────────────────
+  const pendingCount   = stagedLocs.filter((l) => l.review_status === "pending").length;
+  const acceptedCount  = stagedLocs.filter((l) => l.review_status === "accepted").length;
+  const rejectedCount  = stagedLocs.filter((l) => l.review_status === "rejected").length;
+
+  const displayedLocs  = statusFilter === "all"
+    ? stagedLocs
+    : stagedLocs.filter((l) => l.review_status === statusFilter);
+
+  // ── Render ──────────────────────────────────────────────────────────────────
+
+  return (
+    <div className="space-y-5">
+
+      {/* ── Header ────────────────────────────────────────────────────────── */}
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-base font-semibold">Mall Intelligence Harvester</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Discover official mall sources → scan → extract store locations → review → stage route graph.
+          </p>
+          <p className="mt-1 text-[10px] font-medium text-orange-700 rounded bg-orange-50 inline-block px-2 py-0.5">
+            ⚠ All data is staged only. No writes to live tables.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <select
+            value={selectedMallId}
+            onChange={(e) => setSelectedMallId(e.target.value)}
+            className="rounded border bg-background px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+          >
+            <option value="">All malls</option>
+            {malls.map((m) => (
+              <option key={m.id} value={m.id}>{m.name}</option>
+            ))}
+          </select>
+          <button
+            onClick={() => void loadData()}
+            disabled={anyLoading}
+            className="flex items-center gap-1.5 rounded border px-3 py-1.5 text-xs hover:bg-muted disabled:opacity-50 transition-colors"
+          >
+            {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+            Refresh
+          </button>
+        </div>
+      </div>
+
+      {/* ── Error / success banner ─────────────────────────────────────────── */}
+      {error && (
+        <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 flex items-start gap-2">
+          <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
+      {lastAction && !error && (
+        <div className="rounded border border-green-200 bg-green-50 px-3 py-2 text-xs text-green-700">
+          ✓ {lastAction}
+        </div>
+      )}
+
+      {/* ── Section 1: Source Discovery ───────────────────────────────────── */}
+      <Section
+        title="Source Discovery"
+        icon={<Globe className="h-3.5 w-3.5" />}
+        action={
+          <span className="text-[10px] text-muted-foreground">{sources.length} source(s)</span>
+        }
+      >
+        {/* Add seed URL form */}
+        <div className="mb-4 flex flex-wrap items-end gap-2">
+          <div className="flex-1 min-w-48 space-y-1">
+            <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+              Seed URL
+            </label>
+            <input
+              type="url"
+              value={seedUrl}
+              onChange={(e) => setSeedUrl(e.target.value)}
+              placeholder="https://www.menlynpark.co.za/mall-map/"
+              className="w-full rounded border bg-background px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+              Type
+            </label>
+            <select
+              value={sourceType}
+              onChange={(e) => setSourceType(e.target.value as MallSourceType)}
+              className="rounded border bg-background px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+            >
+              <option value="floor_map">Floor Map</option>
+              <option value="official_website">Official Website</option>
+              <option value="store_directory">Store Directory</option>
+              <option value="tenant_list">Tenant List</option>
+              <option value="unknown">Unknown</option>
+            </select>
+          </div>
+          <button
+            onClick={() => void handleDiscover()}
+            disabled={anyLoading || !seedUrl.trim()}
+            className="flex items-center gap-1.5 rounded bg-primary px-3 py-1.5 text-xs text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
+          >
+            {actionLoading === "discover"
+              ? <Loader2 className="h-3 w-3 animate-spin" />
+              : <Plus className="h-3 w-3" />}
+            Discover
+          </button>
+        </div>
+
+        {/* Sources list */}
+        {sources.length === 0 ? (
+          <p className="text-xs text-muted-foreground text-center py-4">
+            No sources discovered yet. Add a seed URL above to get started.
+          </p>
+        ) : (
+          <div className="space-y-1.5">
+            {sources.map((s) => (
+              <SourceRow
+                key={s.id}
+                source={s}
+                token={token ?? ""}
+                onScan={handleScan}
+                onExtract={handleExtract}
+              />
+            ))}
+          </div>
+        )}
+      </Section>
+
+      {/* ── Section 2: Map Assets ─────────────────────────────────────────── */}
+      <Section
+        title="Map Assets"
+        icon={<Map className="h-3.5 w-3.5" />}
+        action={
+          <span className="text-[10px] text-muted-foreground">{assets.length} asset(s)</span>
+        }
+      >
+        {assets.length === 0 ? (
+          <p className="text-xs text-muted-foreground text-center py-4">
+            No floor map assets yet. Scan a website to discover images, PDFs, and directory links.
+          </p>
+        ) : (
+          <div className="space-y-1.5">
+            {assets.map((a) => (
+              <AssetRow key={a.id} asset={a} />
+            ))}
+          </div>
+        )}
+      </Section>
+
+      {/* ── Section 3: Staged Store Locations ────────────────────────────── */}
+      <Section
+        title="Staged Store Locations"
+        icon={<Layers className="h-3.5 w-3.5" />}
+        action={
+          <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+            <span className="text-green-700">{acceptedCount} accepted</span>
+            <span>·</span>
+            <span className="text-yellow-700">{pendingCount} pending</span>
+            <span>·</span>
+            <span className="text-red-700">{rejectedCount} rejected</span>
+          </div>
+        }
+      >
+        {/* Filter bar */}
+        <div className="mb-3 flex flex-wrap items-center gap-1.5">
+          {["all", "pending", "accepted", "rejected", "flagged"].map((s) => (
+            <button
+              key={s}
+              onClick={() => setStatusFilter(s)}
+              className={cn(
+                "rounded px-2.5 py-1 text-[10px] font-medium transition-colors",
+                statusFilter === s
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted text-muted-foreground hover:bg-muted/70",
+              )}
+            >
+              {s.charAt(0).toUpperCase() + s.slice(1)}
+              {s === "all" && ` (${stagedLocs.length})`}
+              {s !== "all" && ` (${stagedLocs.filter((l) => l.review_status === s).length})`}
+            </button>
+          ))}
+        </div>
+
+        {displayedLocs.length === 0 ? (
+          <p className="text-xs text-muted-foreground text-center py-4">
+            {stagedLocs.length === 0
+              ? "No staged store locations yet. Run Extract Stores on a source to populate this list."
+              : `No ${statusFilter} items.`}
+          </p>
+        ) : (
+          <div className="space-y-1.5">
+            {displayedLocs.map((loc) => (
+              <StagedLocationRow
+                key={loc.id}
+                loc={loc}
+                token={token ?? ""}
+                onReview={handleReview}
+                onVerify={handleVerify}
+              />
+            ))}
+          </div>
+        )}
+      </Section>
+
+      {/* ── Section 4: Route Graph (placeholder) ─────────────────────────── */}
+      <Section
+        title="Route Graph (Sprint 13+)"
+        icon={<Activity className="h-3.5 w-3.5" />}
+        action={
+          acceptedCount > 0 ? (
+            <button
+              onClick={() => void handleStageRouteNodes()}
+              disabled={anyLoading || !selectedMallId}
+              className="flex items-center gap-1 rounded border px-2.5 py-1 text-[10px] hover:bg-muted disabled:opacity-50 transition-colors"
+              title={!selectedMallId ? "Select a mall first" : "Stage accepted locations as route nodes"}
+            >
+              {actionLoading === "route-nodes"
+                ? <Loader2 className="h-3 w-3 animate-spin" />
+                : <Plus className="h-3 w-3" />}
+              Stage Route Nodes
+            </button>
+          ) : undefined
+        }
+      >
+        {/* Map overlay placeholder */}
+        <div className="relative rounded border-2 border-dashed border-muted-foreground/20 bg-muted/10 min-h-48 flex flex-col items-center justify-center gap-3 text-center p-6">
+          <Map className="h-10 w-10 text-muted-foreground/20" />
+          <div>
+            <p className="text-sm font-medium text-muted-foreground">
+              Floor Map Overlay — Coming Sprint 13
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground/70">
+              Accepted store locations will appear as pins on the floor map.
+              Map images are discovered in the Assets section above.
+            </p>
+          </div>
+
+          {/* Pin previews if we have locations with coordinates */}
+          {displayedLocs.some((l) => l.x_percent !== undefined && l.y_percent !== undefined) && (
+            <div className="mt-2 text-[10px] text-muted-foreground">
+              {displayedLocs.filter((l) => l.x_percent != null).length} store(s) have map coordinates
+            </div>
+          )}
+
+          {/* Summary of accepted stores */}
+          {acceptedCount > 0 && (
+            <div className="mt-3 rounded border bg-background px-3 py-2 text-xs text-left w-full max-w-sm">
+              <p className="font-medium mb-1.5">{acceptedCount} accepted store location(s)</p>
+              <div className="space-y-0.5 max-h-32 overflow-auto">
+                {stagedLocs
+                  .filter((l) => l.review_status === "accepted")
+                  .map((l) => (
+                    <div key={l.id} className="flex items-center gap-2 text-[10px]">
+                      <span className="h-1.5 w-1.5 rounded-full bg-green-500 shrink-0" />
+                      <span className="truncate">{l.shop_name}</span>
+                      {l.unit_number && (
+                        <span className="font-mono text-muted-foreground">{l.unit_number}</span>
+                      )}
+                      {l.floor_label && (
+                        <span className="text-muted-foreground shrink-0">{l.floor_label}</span>
+                      )}
+                    </div>
+                  ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </Section>
+    </div>
+  );
+}

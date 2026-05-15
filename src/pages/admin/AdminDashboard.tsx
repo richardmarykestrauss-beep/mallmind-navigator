@@ -62,8 +62,10 @@ import {
   ChevronDown,
   ChevronUp,
   Lock,
+  MapPin,
 } from "lucide-react";
-import RetailDataExpansion from "./RetailDataExpansion";
+import RetailDataExpansion   from "./RetailDataExpansion";
+import MallIntelligenceTab   from "./MallIntelligenceTab";
 import {
   verifyProductPrice,
   checkBackendHealth,
@@ -4321,7 +4323,8 @@ type AdminTab =
   | "guardian"
   | "bots"
   | "research"
-  | "expansion";
+  | "expansion"
+  | "mall-intelligence";
 
 interface AdminTabDef {
   id:               AdminTab;
@@ -4339,7 +4342,8 @@ const ADMIN_TABS: AdminTabDef[] = [
   { id: "guardian",    label: "Data Guardian",    icon: <Bot            className="h-3.5 w-3.5" />, requiresBackend: true },
   { id: "bots",        label: "Bot Suite",        icon: <Cpu            className="h-3.5 w-3.5" />, requiresBackend: true },
   { id: "research",    label: "Research Batches", icon: <ClipboardList  className="h-3.5 w-3.5" />, requiresBackend: true },
-  { id: "expansion",   label: "Data Expansion",   icon: <TrendingUp     className="h-3.5 w-3.5" /> },
+  { id: "expansion",        label: "Data Expansion",     icon: <TrendingUp className="h-3.5 w-3.5" /> },
+  { id: "mall-intelligence", label: "Mall Intelligence",  icon: <MapPin     className="h-3.5 w-3.5" />, requiresBackend: true },
 ];
 
 function AdminDashboardContent() {
@@ -4403,7 +4407,7 @@ function AdminDashboardContent() {
 
   // "expansion" is intentionally excluded — it degrades gracefully without backend.
   const needsBackend = (tab: AdminTab) =>
-    ["analytics", "mall-data", "guardian", "bots", "research"].includes(tab);
+    ["analytics", "mall-data", "guardian", "bots", "research", "mall-intelligence"].includes(tab);
 
   return (
     <div className="min-h-screen bg-background">
@@ -4556,7 +4560,8 @@ function AdminDashboardContent() {
                         { label: "Data Guardian",     tab: "guardian"    as AdminTab, desc: "Trust scoring",                icon: <Bot            className="h-3.5 w-3.5 text-muted-foreground" />, backend: true },
                         { label: "Bot Suite",         tab: "bots"        as AdminTab, desc: "Intelligence bots",            icon: <Cpu            className="h-3.5 w-3.5 text-muted-foreground" />, backend: true },
                         { label: "Research Batches",  tab: "research"    as AdminTab, desc: "Per-mall research workflow",    icon: <ClipboardList  className="h-3.5 w-3.5 text-muted-foreground" />, backend: true },
-                        { label: "Data Expansion",    tab: "expansion"   as AdminTab, desc: "Dataset growth control room",  icon: <TrendingUp     className="h-3.5 w-3.5 text-muted-foreground" /> },
+                        { label: "Data Expansion",    tab: "expansion"        as AdminTab, desc: "Dataset growth control room",    icon: <TrendingUp className="h-3.5 w-3.5 text-muted-foreground" /> },
+                        { label: "Mall Intelligence", tab: "mall-intelligence" as AdminTab, desc: "Discover & harvest mall data",   icon: <MapPin     className="h-3.5 w-3.5 text-muted-foreground" />, backend: true },
                       ] as const).map((item) => {
                         const disabled = "backend" in item && item.backend && !backendOk;
                         return (
@@ -4768,6 +4773,11 @@ function AdminDashboardContent() {
             backendOk={backendOk}
             onSwitchTab={(tab) => setActiveTab(tab as AdminTab)}
           />
+        )}
+
+        {/* ── Mall Intelligence ────────────────────────────────────────────── */}
+        {activeTab === "mall-intelligence" && backendOk && (
+          <MallIntelligenceTab token={session?.access_token} />
         )}
 
         {/* ── Backend-required tab but backend not configured ──────────────── */}

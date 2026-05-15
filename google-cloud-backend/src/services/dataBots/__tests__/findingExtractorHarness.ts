@@ -10,6 +10,9 @@
  * All test cases verify parsing improvements from Hotfix 12B.1.
  */
 
+// Make this file a TypeScript module (avoids global-scope collisions with other harnesses).
+export {};
+
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { runFindingExtractorBot } = require("../findingExtractorBot") as typeof import("../findingExtractorBot");
 

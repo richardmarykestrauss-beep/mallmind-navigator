@@ -16,6 +16,7 @@ import mallDataCompilerRouter    from "./routes/mallDataCompiler.js";
 import dataGuardianRouter        from "./routes/dataGuardian.js";
 import dataBotsRouter            from "./routes/dataBots.js";
 import mallResearchBatchesRouter from "./routes/mallResearchBatches.js";
+import mallIntelligenceRouter    from "./routes/mallIntelligence.js";
 
 // ── Validate required environment variables at startup ────────────────────────
 const REQUIRED_ENV = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"];
@@ -64,7 +65,8 @@ app.use("/admin-stats",         adminStatsRouter);
 app.use("/admin/mall-data",       mallDataCompilerRouter);
 app.use("/admin/data-guardian",   dataGuardianRouter);
 app.use("/admin/data-bots",       dataBotsRouter);
-app.use("/admin/mall-research",   mallResearchBatchesRouter);
+app.use("/admin/mall-research",     mallResearchBatchesRouter);
+app.use("/admin/mall-intelligence", mallIntelligenceRouter);
 app.use("/admin",                 adminVerifyProductRouter);
 app.use("/analytics",           analyticsEventRouter);
 app.use("/price-corrections",   priceCorrectionsRouter);
