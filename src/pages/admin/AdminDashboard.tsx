@@ -3226,9 +3226,21 @@ function BatchItemRow({
   const extPrice       = extData.price ?? extData.original_price;
   const extCategory    = extData.category    as string | undefined;
   const extFloor       = extData.floor       as string | undefined;
-  const extUnit        = extData.unit_number as string | undefined;
+  const extUnit        = (extData.unit_number ?? extData.unit_code) as string | undefined; // unit_code = legacy field name
   const extConfidence  = typeof extData.confidence === "number" ? (extData.confidence as number) : null;
   const hasExtractedData = Object.keys(extData).length > 0;
+  // Trading hours fields
+  const extDay       = extData.day        as string | undefined;
+  const extOpenTime  = extData.open_time  as string | undefined;
+  const extCloseTime = extData.close_time as string | undefined;
+  // Product promotion fields
+  const extPromotion    = extData.promotion === "true" || extData.promotion === true;
+  const extValidUntil   = extData.valid_until_text as string | undefined;
+  // Label overrides based on finding type
+  const isShopFinding   = item.finding_type === "shop";
+  const isProductFinding = item.finding_type === "product" || item.finding_type === "promotion";
+  const isHoursFinding  = item.finding_type === "trading_hours";
+  const entityLabel     = isShopFinding ? "Shop" : isProductFinding ? "Product" : isHoursFinding ? "Period" : "Entity";
 
   // ── Risk flags ───────────────────────────────────────────────────────────────
   type RiskFlag = { label: string; severity: "error" | "warn" };
@@ -3245,7 +3257,7 @@ function BatchItemRow({
     riskFlags.push({ label: "No entity identified", severity: "warn" });
   if (hasExtractedData && extPrice === undefined && item.finding_type === "product")
     riskFlags.push({ label: "No price extracted", severity: "warn" });
-  if (hasExtractedData && !extFloor && !extUnit && item.finding_type === "shop")
+  if (hasExtractedData && !extFloor && !extUnit && (item.finding_type === "shop" || item.finding_type === "floor_layout"))
     riskFlags.push({ label: "Missing location data", severity: "warn" });
   if (!hasExtractedData)
     riskFlags.push({ label: "Not extracted yet", severity: "warn" });
@@ -3290,38 +3302,86 @@ function BatchItemRow({
             </p>
             {hasExtractedData ? (
               <div className="rounded-lg border bg-muted/20 px-3 py-2.5 space-y-1.5">
-                {extName && (
-                  <div className="flex items-baseline gap-2">
-                    <span className="w-16 shrink-0 text-[10px] text-muted-foreground">Entity</span>
-                    <span className="text-xs font-semibold text-foreground">{extName}</span>
-                  </div>
+
+                {/* Trading hours layout */}
+                {isHoursFinding && (extDay || extOpenTime || extCloseTime) ? (
+                  <>
+                    {extDay && (
+                      <div className="flex items-baseline gap-2">
+                        <span className="w-16 shrink-0 text-[10px] text-muted-foreground">Day</span>
+                        <span className="text-xs font-semibold text-foreground capitalize">{extDay}</span>
+                      </div>
+                    )}
+                    {extOpenTime && (
+                      <div className="flex items-baseline gap-2">
+                        <span className="w-16 shrink-0 text-[10px] text-muted-foreground">Opens</span>
+                        <span className="text-xs font-mono">{extOpenTime}</span>
+                      </div>
+                    )}
+                    {extCloseTime && (
+                      <div className="flex items-baseline gap-2">
+                        <span className="w-16 shrink-0 text-[10px] text-muted-foreground">Closes</span>
+                        <span className="text-xs font-mono">{extCloseTime}</span>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  /* Shop / product / generic layout */
+                  <>
+                    {extName && (
+                      <div className="flex items-baseline gap-2">
+                        <span className="w-16 shrink-0 text-[10px] text-muted-foreground">{entityLabel}</span>
+                        <span className="text-xs font-semibold text-foreground">{extName}</span>
+                      </div>
+                    )}
+                    {extPrice !== undefined && (
+                      <div className="flex items-baseline gap-2">
+                        <span className="w-16 shrink-0 text-[10px] text-muted-foreground">Price</span>
+                        <span className="text-xs font-semibold text-emerald-700">
+                          {typeof extPrice === "number"
+                            ? `R${(extPrice as number).toLocaleString("en-ZA")}`
+                            : String(extPrice)}
+                        </span>
+                      </div>
+                    )}
+                    {extCategory && (
+                      <div className="flex items-baseline gap-2">
+                        <span className="w-16 shrink-0 text-[10px] text-muted-foreground">Category</span>
+                        <span className="text-xs">{extCategory}</span>
+                      </div>
+                    )}
+                    {extFloor && (
+                      <div className="flex items-baseline gap-2">
+                        <span className="w-16 shrink-0 text-[10px] text-muted-foreground">Floor</span>
+                        <span className="text-xs">{extFloor}</span>
+                      </div>
+                    )}
+                    {extUnit && (
+                      <div className="flex items-baseline gap-2">
+                        <span className="w-16 shrink-0 text-[10px] text-muted-foreground">Unit</span>
+                        <span className="text-xs font-mono">{extUnit}</span>
+                      </div>
+                    )}
+                    {extPromotion && (
+                      <div className="flex items-baseline gap-2">
+                        <span className="w-16 shrink-0 text-[10px] text-muted-foreground">Promotion</span>
+                        <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">
+                          On special
+                        </span>
+                      </div>
+                    )}
+                    {extValidUntil && (
+                      <div className="flex items-baseline gap-2">
+                        <span className="w-16 shrink-0 text-[10px] text-muted-foreground">Valid until</span>
+                        <span className="text-xs capitalize">{extValidUntil}</span>
+                      </div>
+                    )}
+                  </>
                 )}
-                {extPrice !== undefined && (
-                  <div className="flex items-baseline gap-2">
-                    <span className="w-16 shrink-0 text-[10px] text-muted-foreground">Price</span>
-                    <span className="text-xs font-semibold text-emerald-700">
-                      {typeof extPrice === "number"
-                        ? `R${(extPrice as number).toLocaleString("en-ZA")}`
-                        : String(extPrice)}
-                    </span>
-                  </div>
-                )}
-                {extCategory && (
-                  <div className="flex items-baseline gap-2">
-                    <span className="w-16 shrink-0 text-[10px] text-muted-foreground">Category</span>
-                    <span className="text-xs">{extCategory}</span>
-                  </div>
-                )}
-                {(extFloor || extUnit) && (
-                  <div className="flex items-baseline gap-2">
-                    <span className="w-16 shrink-0 text-[10px] text-muted-foreground">Location</span>
-                    <span className="text-xs">
-                      {[extFloor && `Floor ${extFloor}`, extUnit && `Unit ${extUnit}`].filter(Boolean).join(", ")}
-                    </span>
-                  </div>
-                )}
+
+                {/* Confidence bar — always shown if present */}
                 {extConfidence !== null && (
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 border-t pt-1.5 mt-1">
                     <span className="w-16 shrink-0 text-[10px] text-muted-foreground">Confidence</span>
                     <div className="flex items-center gap-1.5">
                       <div className="h-1.5 w-20 overflow-hidden rounded-full bg-muted">

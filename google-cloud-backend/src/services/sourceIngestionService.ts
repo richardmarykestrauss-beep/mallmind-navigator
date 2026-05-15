@@ -101,6 +101,7 @@ const KNOWN_RETAILERS_LOWER = new Set(KNOWN_RETAILERS.map((r) => r.toLowerCase()
 
 const NAV_JUNK_PATTERNS = [
   /^home$/i, /^contact$/i, /^about$/i, /^privacy policy$/i, /^terms$/i,
+  /^terms\s+and\s+conditions?$/i,
   /^cookie/i, /^login$/i, /^sign in$/i, /^sign up$/i, /^register$/i,
   /^facebook$/i, /^instagram$/i, /^twitter$/i, /^linkedin$/i, /^youtube$/i,
   /^subscribe$/i, /^newsletter$/i, /^back$/i, /^next$/i, /^previous$/i,
@@ -110,6 +111,28 @@ const NAV_JUNK_PATTERNS = [
   /^search$/i, /^cart$/i, /^checkout$/i, /^wishlist$/i,
   /^load more$/i, /^show more$/i, /^view all$/i,
   /^read more$/i, /^click here$/i, /^learn more$/i,
+  /^contact us$/i, /^get in touch$/i, /^email us$/i,
+  /^back to top$/i, /^scroll to top$/i, /^top$/i,
+  /^get directions?$/i, /^directions?$/i,
+  /^find us$/i, /^our location$/i,
+  /^accept cookies?$/i, /^reject cookies?$/i, /^cookie settings?$/i,
+];
+
+// ── Lines that reference restricted mapping services (not the source URL itself) ─
+//   e.g. "Find on Google Maps" appearing as a CTA on an otherwise-valid page.
+//   These lines are skipped as 'restricted_source_reference'.
+const RESTRICTED_REFERENCE_PATTERNS: RegExp[] = [
+  /find\s+(?:us\s+)?on\s+google\s+maps/i,
+  /view\s+on\s+google\s+maps/i,
+  /open\s+in\s+google\s+maps/i,
+  /google\s+maps\s+link/i,
+  /apple\s+maps/i,
+  /view\s+on\s+yelp/i,
+  /open\s+in\s+yelp/i,
+  /foursquare/i,
+  /tripadvisor/i,
+  /waze\s+(?:link|directions?|navigation)/i,
+  /get\s+directions?\s+(?:on|via|using)\s+google/i,
 ];
 
 // ── "Keep" patterns (lines containing these are candidate-worthy) ─────────────
@@ -177,6 +200,15 @@ function normalizeLine(line: string): string {
 function isNavJunk(line: string): boolean {
   const trimmed = line.trim();
   return NAV_JUNK_PATTERNS.some((p) => p.test(trimmed));
+}
+
+/** Returns a skip reason string if this line references a restricted mapping service,
+ *  null otherwise. Distinct from isNavJunk so the caller can record a more specific reason. */
+function restrictedReferenceReason(line: string): string | null {
+  const trimmed = line.trim();
+  return RESTRICTED_REFERENCE_PATTERNS.some((p) => p.test(trimmed))
+    ? "restricted_source_reference"
+    : null;
 }
 
 function isKnownRetailer(line: string): boolean {
@@ -603,16 +635,37 @@ export async function ingestSourceForBatch(
       continue;
     }
 
+    // Skip lines that reference restricted mapping services (e.g. "Find on Google Maps")
+    const restrictedRef = restrictedReferenceReason(candidate);
+    if (restrictedRef) {
+      skipped.push({ reason: restrictedRef, raw_text: candidate });
+      continue;
+    }
+
     // Run Finding Extractor
     let extractorResult;
     let extractedData: Record<string, unknown> = {};
     try {
       extractorResult = runFindingExtractorBot({ raw_text: candidate });
 
-      // Build extracted_data from the first finding's fields
+      // Build normalised extracted_data from the first finding's fields
       if (extractorResult.extracted_findings?.length) {
         for (const field of extractorResult.extracted_findings[0].fields) {
-          extractedData[field.field] = field.value;
+          // Normalise price to a numeric value
+          if (field.field === "price") {
+            const num = parseFloat(field.value);
+            extractedData["price"] = isNaN(num) ? field.value : num;
+          } else {
+            extractedData[field.field] = field.value;
+          }
+        }
+        // Ensure shop_name is also stored under the canonical "name" key
+        // so the frontend Finding Summary "Entity" row always has a value
+        if (extractedData["shop_name"] && !extractedData["name"]) {
+          extractedData["name"] = extractedData["shop_name"];
+        }
+        if (extractedData["product_name"] && !extractedData["name"]) {
+          extractedData["name"] = extractedData["product_name"];
         }
       }
     } catch {
