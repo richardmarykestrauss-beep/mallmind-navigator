@@ -25,8 +25,7 @@ import {
   type AssistantResponse,
 } from "@/lib/googleBackendClient";
 
-const SUPABASE_URL = "https://qspsouemjtcdcfnivpnt.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFzcHNvdWVtanRjZGNmbml2cG50Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcxMTIzNTAsImV4cCI6MjA5MjY4ODM1MH0.f94Lbzo-EgmcMsklgYiWW6tNhM4hvGm2Z8_37Xp8nkg";
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from "@/lib/env";
 
 // ProductResult imported from RecommendationCard component
 // WebResult and AssistantResponse imported from googleBackendClient
