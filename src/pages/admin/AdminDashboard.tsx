@@ -62,6 +62,7 @@ import {
   ChevronDown,
   ChevronUp,
 } from "lucide-react";
+import RetailDataExpansion from "./RetailDataExpansion";
 import {
   verifyProductPrice,
   checkBackendHealth,
@@ -4046,7 +4047,8 @@ type AdminTab =
   | "mall-data"
   | "guardian"
   | "bots"
-  | "research";
+  | "research"
+  | "expansion";
 
 interface AdminTabDef {
   id:               AdminTab;
@@ -4057,13 +4059,14 @@ interface AdminTabDef {
 
 const ADMIN_TABS: AdminTabDef[] = [
   { id: "overview",    label: "Overview",        icon: <BarChart3      className="h-3.5 w-3.5" /> },
-  { id: "diagnostics", label: "Diagnostics",     icon: <Activity       className="h-3.5 w-3.5" /> },
-  { id: "analytics",   label: "Analytics",       icon: <TrendingUp     className="h-3.5 w-3.5" />, requiresBackend: true },
-  { id: "price-trust", label: "Price Trust",     icon: <ShieldCheck    className="h-3.5 w-3.5" /> },
-  { id: "mall-data",   label: "Mall Data",       icon: <Database       className="h-3.5 w-3.5" />, requiresBackend: true },
-  { id: "guardian",    label: "Data Guardian",   icon: <Bot            className="h-3.5 w-3.5" />, requiresBackend: true },
-  { id: "bots",        label: "Bot Suite",       icon: <Cpu            className="h-3.5 w-3.5" />, requiresBackend: true },
-  { id: "research",    label: "Research Batches",icon: <ClipboardList  className="h-3.5 w-3.5" />, requiresBackend: true },
+  { id: "diagnostics", label: "Diagnostics",      icon: <Activity       className="h-3.5 w-3.5" /> },
+  { id: "analytics",   label: "Analytics",        icon: <TrendingUp     className="h-3.5 w-3.5" />, requiresBackend: true },
+  { id: "price-trust", label: "Price Trust",      icon: <ShieldCheck    className="h-3.5 w-3.5" /> },
+  { id: "mall-data",   label: "Mall Data",        icon: <Database       className="h-3.5 w-3.5" />, requiresBackend: true },
+  { id: "guardian",    label: "Data Guardian",    icon: <Bot            className="h-3.5 w-3.5" />, requiresBackend: true },
+  { id: "bots",        label: "Bot Suite",        icon: <Cpu            className="h-3.5 w-3.5" />, requiresBackend: true },
+  { id: "research",    label: "Research Batches", icon: <ClipboardList  className="h-3.5 w-3.5" />, requiresBackend: true },
+  { id: "expansion",   label: "Data Expansion",   icon: <TrendingUp     className="h-3.5 w-3.5" /> },
 ];
 
 function AdminDashboardContent() {
@@ -4125,6 +4128,7 @@ function AdminDashboardContent() {
 
   const visibleTabs = ADMIN_TABS.filter((t) => !t.requiresBackend || backendOk);
 
+  // "expansion" is intentionally excluded — it degrades gracefully without backend.
   const needsBackend = (tab: AdminTab) =>
     ["analytics", "mall-data", "guardian", "bots", "research"].includes(tab);
 
@@ -4278,7 +4282,8 @@ function AdminDashboardContent() {
                         { label: "Mall Data",         tab: "mall-data"   as AdminTab, desc: "Sources & findings",           icon: <Database       className="h-3.5 w-3.5 text-muted-foreground" />, backend: true },
                         { label: "Data Guardian",     tab: "guardian"    as AdminTab, desc: "Trust scoring",                icon: <Bot            className="h-3.5 w-3.5 text-muted-foreground" />, backend: true },
                         { label: "Bot Suite",         tab: "bots"        as AdminTab, desc: "Intelligence bots",            icon: <Cpu            className="h-3.5 w-3.5 text-muted-foreground" />, backend: true },
-                        { label: "Research Batches",  tab: "research"    as AdminTab, desc: "Per-mall research workflow",   icon: <ClipboardList  className="h-3.5 w-3.5 text-muted-foreground" />, backend: true },
+                        { label: "Research Batches",  tab: "research"    as AdminTab, desc: "Per-mall research workflow",    icon: <ClipboardList  className="h-3.5 w-3.5 text-muted-foreground" />, backend: true },
+                        { label: "Data Expansion",    tab: "expansion"   as AdminTab, desc: "Dataset growth control room",  icon: <TrendingUp     className="h-3.5 w-3.5 text-muted-foreground" /> },
                       ] as const).map((item) => {
                         const disabled = "backend" in item && item.backend && !backendOk;
                         return (
@@ -4480,6 +4485,16 @@ function AdminDashboardContent() {
             </div>
             <MallResearchBatches token={session.access_token} />
           </div>
+        )}
+
+        {/* ── Retail Data Expansion ────────────────────────────────────────── */}
+        {activeTab === "expansion" && (
+          <RetailDataExpansion
+            counts={counts}
+            token={session?.access_token}
+            backendOk={backendOk}
+            onSwitchTab={(tab) => setActiveTab(tab as AdminTab)}
+          />
         )}
 
         {/* ── Backend-required tab but backend not configured ──────────────── */}
