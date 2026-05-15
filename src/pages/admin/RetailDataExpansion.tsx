@@ -562,20 +562,23 @@ export default function RetailDataExpansion({
                   )}
 
                   {/* Navigation links */}
-                  <div className="border-t pt-2 space-y-1">
+                  <div className="border-t pt-3 space-y-2">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      Jump to Review Workflow
+                    </p>
                     <button
                       onClick={() => onSwitchTab("research")}
-                      className="flex items-center gap-1 text-xs text-primary hover:underline"
+                      className="flex w-full items-center justify-between gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-xs text-primary transition-colors hover:bg-primary/10"
                     >
-                      <ChevronRight className="h-3 w-3" />
-                      Open Research Batches to review items
+                      <span className="font-medium">Open Research Batches</span>
+                      <ChevronRight className="h-3.5 w-3.5 shrink-0" />
                     </button>
                     <button
                       onClick={() => onSwitchTab("mall-data")}
-                      className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground hover:underline"
+                      className="flex w-full items-center justify-between gap-2 rounded-lg border px-3 py-2 text-xs text-foreground/80 transition-colors hover:bg-muted"
                     >
-                      <ChevronRight className="h-3 w-3" />
-                      Open Mall Data to review findings
+                      <span>Open Mall Data Findings</span>
+                      <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                     </button>
                   </div>
                 </>

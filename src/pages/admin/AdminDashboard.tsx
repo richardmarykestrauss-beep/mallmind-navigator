@@ -61,6 +61,7 @@ import {
   AlertTriangle,
   ChevronDown,
   ChevronUp,
+  Lock,
 } from "lucide-react";
 import RetailDataExpansion from "./RetailDataExpansion";
 import {
@@ -3219,6 +3220,36 @@ function BatchItemRow({
   const suggestedAction = adminReview?.recommended_actions as Array<{ priority: string; action_label: string; description: string }> | undefined;
   const topAction = suggestedAction?.find((a) => a.priority === "critical" || a.priority === "high") ?? suggestedAction?.[0];
 
+  // ── Extracted data fields ────────────────────────────────────────────────────
+  const extData        = item.extracted_data ?? {};
+  const extName        = ((extData.name ?? extData.product_name ?? extData.shop_name ?? extData.mall_name ?? "") as string);
+  const extPrice       = extData.price ?? extData.original_price;
+  const extCategory    = extData.category    as string | undefined;
+  const extFloor       = extData.floor       as string | undefined;
+  const extUnit        = extData.unit_number as string | undefined;
+  const extConfidence  = typeof extData.confidence === "number" ? (extData.confidence as number) : null;
+  const hasExtractedData = Object.keys(extData).length > 0;
+
+  // ── Risk flags ───────────────────────────────────────────────────────────────
+  type RiskFlag = { label: string; severity: "error" | "warn" };
+  const dupResult   = hints.duplicate_detection as Record<string, unknown> | undefined;
+  const isDuplicate = !!(dupResult?.is_duplicate || dupResult?.duplicate_found);
+  const riskFlags: RiskFlag[] = [];
+  if (!item.source_url)
+    riskFlags.push({ label: "No source URL", severity: "warn" });
+  if (extConfidence !== null && extConfidence < 0.6)
+    riskFlags.push({ label: `Low confidence (${Math.round(extConfidence * 100)}%)`, severity: extConfidence < 0.4 ? "error" : "warn" });
+  if (isDuplicate)
+    riskFlags.push({ label: "Duplicate risk", severity: "error" });
+  if (hasExtractedData && !extName)
+    riskFlags.push({ label: "No entity identified", severity: "warn" });
+  if (hasExtractedData && extPrice === undefined && item.finding_type === "product")
+    riskFlags.push({ label: "No price extracted", severity: "warn" });
+  if (hasExtractedData && !extFloor && !extUnit && item.finding_type === "shop")
+    riskFlags.push({ label: "Missing location data", severity: "warn" });
+  if (!hasExtractedData)
+    riskFlags.push({ label: "Not extracted yet", severity: "warn" });
+
   return (
     <div className="rounded-lg border bg-card text-xs">
       {/* Row header — always visible */}
@@ -3250,60 +3281,240 @@ function BatchItemRow({
 
       {/* Expanded detail */}
       {open && (
-        <div className="border-t px-3 py-3 space-y-4">
-          {/* Raw text + source */}
-          {item.raw_text && (
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">Raw text</p>
-              <p className="whitespace-pre-wrap text-foreground/90 leading-relaxed">{item.raw_text}</p>
-            </div>
-          )}
-          {(item.source_url || item.source_name) && (
-            <div className="flex flex-wrap gap-4">
-              {item.source_name && (
-                <span className="flex items-center gap-1 text-muted-foreground">
-                  <Tag className="h-3 w-3" />{item.source_name}
-                </span>
-              )}
-              {item.source_url && (
-                <a
-                  href={item.source_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-1 text-primary hover:underline"
-                >
-                  <Link className="h-3 w-3" />{item.source_url.slice(0, 60)}
-                </a>
-              )}
-            </div>
-          )}
+        <div className="border-t px-3 py-3 space-y-5">
 
-          {/* Advisory banner */}
-          <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
-            <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-            <span>
-              <strong>Bot outputs are advisory.</strong> They do not update live mall data.
-              Only admin review/apply workflows can change live shops, products, or mall_nodes.
-            </span>
+          {/* ─── 1. Finding Summary ─────────────────────────────────────────── */}
+          <div>
+            <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Finding Summary
+            </p>
+            {hasExtractedData ? (
+              <div className="rounded-lg border bg-muted/20 px-3 py-2.5 space-y-1.5">
+                {extName && (
+                  <div className="flex items-baseline gap-2">
+                    <span className="w-16 shrink-0 text-[10px] text-muted-foreground">Entity</span>
+                    <span className="text-xs font-semibold text-foreground">{extName}</span>
+                  </div>
+                )}
+                {extPrice !== undefined && (
+                  <div className="flex items-baseline gap-2">
+                    <span className="w-16 shrink-0 text-[10px] text-muted-foreground">Price</span>
+                    <span className="text-xs font-semibold text-emerald-700">
+                      {typeof extPrice === "number"
+                        ? `R${(extPrice as number).toLocaleString("en-ZA")}`
+                        : String(extPrice)}
+                    </span>
+                  </div>
+                )}
+                {extCategory && (
+                  <div className="flex items-baseline gap-2">
+                    <span className="w-16 shrink-0 text-[10px] text-muted-foreground">Category</span>
+                    <span className="text-xs">{extCategory}</span>
+                  </div>
+                )}
+                {(extFloor || extUnit) && (
+                  <div className="flex items-baseline gap-2">
+                    <span className="w-16 shrink-0 text-[10px] text-muted-foreground">Location</span>
+                    <span className="text-xs">
+                      {[extFloor && `Floor ${extFloor}`, extUnit && `Unit ${extUnit}`].filter(Boolean).join(", ")}
+                    </span>
+                  </div>
+                )}
+                {extConfidence !== null && (
+                  <div className="flex items-center gap-2">
+                    <span className="w-16 shrink-0 text-[10px] text-muted-foreground">Confidence</span>
+                    <div className="flex items-center gap-1.5">
+                      <div className="h-1.5 w-20 overflow-hidden rounded-full bg-muted">
+                        <div
+                          className={cn(
+                            "h-full rounded-full transition-all",
+                            extConfidence >= 0.7 ? "bg-emerald-500"
+                              : extConfidence >= 0.4 ? "bg-amber-500"
+                              : "bg-red-500"
+                          )}
+                          style={{ width: `${Math.round(extConfidence * 100)}%` }}
+                        />
+                      </div>
+                      <span className={cn(
+                        "text-xs tabular-nums",
+                        extConfidence >= 0.7 ? "text-emerald-700"
+                          : extConfidence >= 0.4 ? "text-amber-700"
+                          : "text-red-600"
+                      )}>
+                        {Math.round(extConfidence * 100)}%
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="rounded-lg border border-dashed px-3 py-2 text-[11px] text-muted-foreground">
+                No extracted data yet — run the <strong>Find Extractor</strong> bot to populate this section.
+              </div>
+            )}
           </div>
 
-          {/* Bot Action buttons */}
-          <div className="space-y-2">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Bot Actions</p>
+          {/* ─── 2. Source Evidence ─────────────────────────────────────────── */}
+          <div>
+            <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Source Evidence
+            </p>
+            <div className="space-y-2">
+              {!item.source_url && (
+                <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2 text-[11px] text-amber-800">
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  <span>No source URL — this finding has no verifiable origin. Consider flagging for manual verification.</span>
+                </div>
+              )}
+              <div className="flex flex-wrap items-center gap-4 text-xs">
+                {item.sequence_number != null && (
+                  <span className="font-mono text-[10px] text-muted-foreground">#{item.sequence_number}</span>
+                )}
+                {item.source_name && (
+                  <span className="flex items-center gap-1 text-muted-foreground">
+                    <Tag className="h-3 w-3" />{item.source_name}
+                  </span>
+                )}
+                {item.source_url && (
+                  <a
+                    href={item.source_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1 text-primary hover:underline"
+                  >
+                    <Link className="h-3 w-3" />{item.source_url.slice(0, 70)}
+                  </a>
+                )}
+                <span className="text-[10px] text-muted-foreground">
+                  Added {new Date(item.created_at).toLocaleString("en-ZA", { dateStyle: "short", timeStyle: "short" })}
+                </span>
+              </div>
+              {item.raw_text && (
+                <div>
+                  <p className="mb-1 text-[10px] font-medium text-muted-foreground">Raw text</p>
+                  <p className="whitespace-pre-wrap rounded border bg-muted/20 px-2.5 py-2 text-xs leading-relaxed text-foreground/80">
+                    {item.raw_text}
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* ─── 3. Risk Flags ──────────────────────────────────────────────── */}
+          {riskFlags.length > 0 && (
+            <div>
+              <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Risk Flags
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {riskFlags.map((flag) => (
+                  <span
+                    key={flag.label}
+                    className={cn(
+                      "flex items-center gap-1 rounded border px-2 py-0.5 text-[10px] font-medium",
+                      flag.severity === "error"
+                        ? "border-red-300 bg-red-50 text-red-700"
+                        : "border-amber-200 bg-amber-50 text-amber-700"
+                    )}
+                  >
+                    <AlertTriangle className="h-2.5 w-2.5 shrink-0" />
+                    {flag.label}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ─── 4. Admin Recommendation ────────────────────────────────────── */}
+          {topAction && (
+            <div>
+              <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Admin Recommendation
+              </p>
+              <div className={cn(
+                "flex items-start gap-2 rounded-lg border px-3 py-2.5 text-[11px]",
+                topAction.priority === "critical" ? "border-red-200 bg-red-50 text-red-900"
+                  : topAction.priority === "high"  ? "border-orange-200 bg-orange-50 text-orange-900"
+                  : "border-blue-200 bg-blue-50 text-blue-900"
+              )}>
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <div>
+                  <p className="font-semibold">Recommended: {topAction.action_label}</p>
+                  <p className="mt-0.5 text-[10px] opacity-80">{topAction.description}</p>
+                  <p className="mt-1 text-[10px] italic opacity-70">
+                    Advisory only. Use Accept / Reject / Flag below to record your decision.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ─── 5. Bot Analysis ────────────────────────────────────────────── */}
+          <div>
+            <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Bot Analysis
+            </p>
+            <div className="mb-2 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>
+                <strong>Bot outputs are advisory.</strong> They do not update live mall data.
+                Only explicit admin approval can change live shops, products, or mall_nodes.
+              </span>
+            </div>
+            {(hints.source_research || hints.finding_extractor || hints.data_guardian || hints.duplicate_detection || hints.admin_review || hints.policy_result) ? (
+              <div className="space-y-1.5">
+                {hints.policy_result && (
+                  <TrustStatusBlock policy={hints.policy_result as TrustPolicyResult} />
+                )}
+                <BotOutputSection label="Source Research"      data={hints.source_research     as Record<string, unknown> | undefined} />
+                <BotOutputSection label="Finding Extractor"    data={hints.finding_extractor   as Record<string, unknown> | undefined} />
+                <BotOutputSection label="Data Guardian"        data={hints.data_guardian       as Record<string, unknown> | undefined} />
+                <BotOutputSection label="Duplicate Detection"  data={hints.duplicate_detection as Record<string, unknown> | undefined} />
+                <BotOutputSection label="Admin Recommendation" data={hints.admin_review        as Record<string, unknown> | undefined} />
+                {pipeline && (
+                  <div className="flex flex-wrap items-center gap-3 rounded border bg-muted/20 px-2.5 py-1.5 text-[10px] text-muted-foreground">
+                    <span className="font-medium text-foreground/70">Pipeline last run:</span>
+                    <span>{new Date(pipeline.last_run_at as string).toLocaleString("en-ZA")}</span>
+                    {stepsCompleted.length > 0 && (
+                      <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary">
+                        {stepsCompleted.length} step{stepsCompleted.length !== 1 ? "s" : ""} completed
+                      </span>
+                    )}
+                    {(pipeline.warnings as string[] | undefined)?.length ? (
+                      <span className="text-amber-600">
+                        {(pipeline.warnings as string[]).length} warning(s)
+                      </span>
+                    ) : null}
+                    {pipeline.halted_at && (
+                      <span className="text-red-600">Halted at: {String(pipeline.halted_at)}</span>
+                    )}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <p className="text-[11px] italic text-muted-foreground">
+                No bot outputs yet — use Pipeline Actions below to analyse this finding.
+              </p>
+            )}
+          </div>
+
+          {/* ─── 6. Pipeline Actions ────────────────────────────────────────── */}
+          <div className="rounded-lg border bg-muted/10 px-3 py-2.5 space-y-2">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Pipeline Actions</p>
             <div className="flex flex-wrap gap-2">
               {[
-                { key: "source",    label: "Source",    runLabel: "Running Source…",    fn: runResearchItemSourceResearch,    hasOutput: !!hints.source_research },
-                { key: "extract",   label: "Extract",   runLabel: "Extracting…",         fn: runResearchItemFindingExtractor,  hasOutput: !!hints.finding_extractor },
-                { key: "guardian",  label: "Guardian",  runLabel: "Reviewing…",          fn: runResearchItemDataGuardian,      hasOutput: !!hints.data_guardian },
-                { key: "duplicate", label: "Duplicate", runLabel: "Checking…",           fn: runResearchItemDuplicateCheck,    hasOutput: !!hints.duplicate_detection },
-                { key: "review",    label: "Review",    runLabel: "Reviewing…",          fn: runResearchItemAdminReview,       hasOutput: !!hints.admin_review },
+                { key: "source",    label: "Source Research", runLabel: "Running…",    fn: runResearchItemSourceResearch,    hasOutput: !!hints.source_research    },
+                { key: "extract",   label: "Find Extractor",  runLabel: "Extracting…", fn: runResearchItemFindingExtractor,  hasOutput: !!hints.finding_extractor  },
+                { key: "guardian",  label: "Data Guardian",   runLabel: "Reviewing…",  fn: runResearchItemDataGuardian,      hasOutput: !!hints.data_guardian      },
+                { key: "duplicate", label: "Duplicate Check", runLabel: "Checking…",   fn: runResearchItemDuplicateCheck,    hasOutput: !!hints.duplicate_detection },
+                { key: "review",    label: "Admin Review",    runLabel: "Reviewing…",  fn: runResearchItemAdminReview,       hasOutput: !!hints.admin_review       },
               ].map(({ key, label, runLabel, fn, hasOutput }) => (
                 <button
                   key={key}
                   disabled={anyRunning}
                   onClick={() => runBot(key, fn)}
                   className={cn(
-                    "flex items-center gap-1 rounded border px-2.5 py-1 transition-colors disabled:opacity-50",
+                    "flex items-center gap-1 rounded border px-2.5 py-1 text-[11px] transition-colors disabled:opacity-50",
                     hasOutput
                       ? "border-primary/40 bg-primary/5 text-primary hover:bg-primary/10"
                       : "bg-card text-foreground/70 hover:bg-muted"
@@ -3318,9 +3529,7 @@ function BatchItemRow({
               <button
                 disabled={anyRunning}
                 onClick={() => runBot("pipeline", runResearchItemFullPipeline)}
-                className={cn(
-                  "flex items-center gap-1 rounded border border-primary/30 bg-primary/10 px-2.5 py-1 font-medium text-primary transition-colors hover:bg-primary/20 disabled:opacity-50"
-                )}
+                className="flex items-center gap-1 rounded border border-primary/30 bg-primary/10 px-2.5 py-1 text-[11px] font-medium text-primary transition-colors hover:bg-primary/20 disabled:opacity-50"
               >
                 {running === "pipeline"
                   ? <><Loader2 className="h-3 w-3 animate-spin" />Running Pipeline…</>
@@ -3333,90 +3542,63 @@ function BatchItemRow({
             )}
           </div>
 
-          {/* Suggested action from Admin Review bot */}
-          {topAction && (
-            <div className={cn(
-              "flex items-start gap-2 rounded-lg border px-3 py-2 text-[11px]",
-              topAction.priority === "critical" ? "border-red-200 bg-red-50 text-red-900" :
-              topAction.priority === "high"     ? "border-orange-200 bg-orange-50 text-orange-900" :
-              "border-blue-200 bg-blue-50 text-blue-900"
-            )}>
-              <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-              <div>
-                <p className="font-semibold">Bot suggestion: {topAction.action_label}</p>
-                <p className="mt-0.5 text-[10px] opacity-80">{topAction.description}</p>
-                <p className="mt-1 text-[10px] italic opacity-70">
-                  This is advisory only. Use the Accept/Reject/Flag buttons below to make your decision.
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* Bot outputs (compact, expandable) */}
-          {(hints.source_research || hints.finding_extractor || hints.data_guardian || hints.duplicate_detection || hints.admin_review || hints.policy_result) && (
-            <div className="space-y-1.5">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Bot Outputs</p>
-              {hints.policy_result && (
-                <TrustStatusBlock policy={hints.policy_result as TrustPolicyResult} />
-              )}
-              <BotOutputSection label="Source Research"    data={hints.source_research as Record<string, unknown> | undefined} />
-              <BotOutputSection label="Finding Extractor"  data={hints.finding_extractor as Record<string, unknown> | undefined} />
-              <BotOutputSection label="Data Guardian"      data={hints.data_guardian as Record<string, unknown> | undefined} />
-              <BotOutputSection label="Duplicate Detection" data={hints.duplicate_detection as Record<string, unknown> | undefined} />
-              <BotOutputSection label="Admin Recommendation" data={hints.admin_review as Record<string, unknown> | undefined} />
-              {pipeline && (
-                <p className="text-[10px] text-muted-foreground">
-                  Pipeline last run: {new Date(pipeline.last_run_at as string).toLocaleString("en-ZA")}
-                  {(pipeline.warnings as string[] | undefined)?.length
-                    ? ` · ${(pipeline.warnings as string[]).length} warning(s)`
-                    : ""}
-                </p>
-              )}
-            </div>
-          )}
-
-          {/* Admin notes + review action buttons */}
-          <div className="space-y-2 border-t pt-3">
+          {/* ─── 7. Admin Decision ──────────────────────────────────────────── */}
+          <div className="space-y-3 border-t pt-3">
             <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Admin Decision</p>
+            <p className="text-[11px] text-muted-foreground">
+              Approving confirms this staged finding as reviewed. It does{" "}
+              <strong className="text-foreground/80">not</strong> publish live data yet.
+            </p>
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               placeholder="Admin notes (optional)…"
               rows={2}
-              className="w-full rounded border bg-background px-2 py-1.5 text-xs resize-none focus:outline-none focus:ring-1 focus:ring-primary/40"
+              className="w-full resize-none rounded border bg-background px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-primary/40"
             />
             <div className="flex flex-wrap gap-2">
               <button
                 disabled={saving}
                 onClick={() => handleReview("accepted")}
-                className="flex items-center gap-1 rounded bg-green-600 px-2.5 py-1 text-white hover:bg-green-700 disabled:opacity-50"
+                className="flex items-center gap-1 rounded bg-green-600 px-2.5 py-1 text-xs text-white hover:bg-green-700 disabled:opacity-50"
               >
                 <CheckCircle className="h-3 w-3" /> Accept
               </button>
               <button
                 disabled={saving}
                 onClick={() => handleReview("rejected")}
-                className="flex items-center gap-1 rounded bg-red-600 px-2.5 py-1 text-white hover:bg-red-700 disabled:opacity-50"
+                className="flex items-center gap-1 rounded bg-red-600 px-2.5 py-1 text-xs text-white hover:bg-red-700 disabled:opacity-50"
               >
                 <XCircle className="h-3 w-3" /> Reject
               </button>
               <button
                 disabled={saving}
                 onClick={() => handleReview("flagged")}
-                className="flex items-center gap-1 rounded bg-orange-500 px-2.5 py-1 text-white hover:bg-orange-600 disabled:opacity-50"
+                className="flex items-center gap-1 rounded bg-orange-500 px-2.5 py-1 text-xs text-white hover:bg-orange-600 disabled:opacity-50"
               >
                 <Flag className="h-3 w-3" /> Flag
               </button>
               <button
                 disabled={saving}
                 onClick={() => handleReview("reviewed")}
-                className="flex items-center gap-1 rounded border bg-card px-2.5 py-1 text-foreground/80 hover:bg-muted disabled:opacity-50"
+                className="flex items-center gap-1 rounded border bg-card px-2.5 py-1 text-xs text-foreground/80 hover:bg-muted disabled:opacity-50"
               >
                 <RotateCcw className="h-3 w-3" /> Mark Reviewed
               </button>
               {saving && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground self-center" />}
             </div>
+
+            {/* Apply-to-live notice */}
+            <div className="flex items-start gap-2 rounded-lg border bg-muted/30 px-3 py-2 text-[11px] text-muted-foreground">
+              <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>
+                <strong className="text-foreground/80">Apply-to-live not enabled yet.</strong>{" "}
+                Approved items remain staged. A future Apply workflow will allow publishing accepted findings
+                to live tables under admin supervision — no data is written automatically.
+              </span>
+            </div>
           </div>
+
         </div>
       )}
     </div>
