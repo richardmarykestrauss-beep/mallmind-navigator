@@ -1975,6 +1975,34 @@ export async function placeRouteNodeCoordinate(
   );
 }
 
+// ── Route Graph types (Sprint 13.1) ──────────────────────────────────────────
+
+export interface StageEdgesResult {
+  mall_id:          string;
+  nodes_considered: number;
+  edges_created:    number;
+  edges_skipped:    number;
+  warnings:         string[];
+}
+
+export interface RoutePreviewStep {
+  node_id:            string;
+  label:              string;
+  floor_label:        string | null;
+  x_percent:          number;
+  y_percent:          number;
+  cumulative_seconds: number;
+}
+
+export interface PreviewRouteResult {
+  mall_id:       string;
+  from_node_id:  string;
+  to_node_id:    string;
+  path:          RoutePreviewStep[] | null;
+  total_seconds: number;
+  warning?:      string;
+}
+
 // ── GeoDirectory import error (Sprint 12C.2.1) ───────────────────────────────
 
 /**
@@ -2063,4 +2091,55 @@ export async function importGeoDirectoryStores(
   }
 
   return res.json() as Promise<GeoDirectoryImportResult>;
+}
+
+// ── Route Graph public API (Sprint 13.1) ──────────────────────────────────────
+
+/**
+ * POST /admin/mall-intelligence/stage-route-edges
+ *
+ * Load all placed route nodes for the mall, generate pairwise same-floor
+ * walkway edges using Euclidean distance weights, deduplicate against existing
+ * DB edges, and persist the new edges to mall_route_edges_staged.
+ *
+ * Returns a summary: how many nodes were considered, how many edges were
+ * created vs skipped (already existed), and any generation warnings.
+ *
+ * Requires admin bearer token.
+ */
+export async function stageRouteEdges(
+  mallId:      string,
+  accessToken: string,
+): Promise<StageEdgesResult> {
+  if (!BASE_URL) throw new Error("VITE_GOOGLE_BACKEND_URL is not configured");
+  return postAuthWithResponse<StageEdgesResult>(
+    "/admin/mall-intelligence/stage-route-edges",
+    { mall_id: mallId },
+    accessToken,
+  );
+}
+
+/**
+ * POST /admin/mall-intelligence/preview-route
+ *
+ * Run Dijkstra over the staged route graph between two placed nodes and return
+ * an ordered step list with cumulative walk-time (seconds).
+ *
+ * Returns `path: null` and a descriptive `warning` when no route exists
+ * (e.g. nodes on different floors without a lift/escalator connector).
+ *
+ * Requires admin bearer token.
+ */
+export async function previewRoute(
+  mallId:      string,
+  fromNodeId:  string,
+  toNodeId:    string,
+  accessToken: string,
+): Promise<PreviewRouteResult> {
+  if (!BASE_URL) throw new Error("VITE_GOOGLE_BACKEND_URL is not configured");
+  return postAuthWithResponse<PreviewRouteResult>(
+    "/admin/mall-intelligence/preview-route",
+    { mall_id: mallId, from_node_id: fromNodeId, to_node_id: toNodeId },
+    accessToken,
+  );
 }

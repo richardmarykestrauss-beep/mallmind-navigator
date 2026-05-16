@@ -27,6 +27,8 @@ import {
   getMallRouteNodes,
   placeRouteNodeCoordinate,
   getMallHealthReport,
+  stageRouteEdges,
+  previewRoute,
   GeoDirectoryImportError,
   type MallSource,
   type MallMapAsset,
@@ -40,6 +42,9 @@ import {
   type MallRouteNode,
   type MallHealthReport,
   type MallReadinessStatus,
+  type StageEdgesResult,
+  type PreviewRouteResult,
+  type RoutePreviewStep,
 } from "@/lib/googleBackendClient";
 import { cn } from "@/lib/utils";
 import {
@@ -60,6 +65,10 @@ import {
   Activity,
   ChevronDown,
   ChevronUp,
+  Network,
+  GitBranch,
+  Navigation,
+  Clock,
 } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -283,6 +292,261 @@ function MallHealthPanel({
           Click "Run Health Check" to generate the readiness report.
         </p>
       )}
+    </div>
+  );
+}
+
+// ── Sub-component: Route Graph Panel (Sprint 13.1) ───────────────────────────
+
+function RouteGraphPanel({
+  token,
+  mallId,
+}: {
+  token:   string;
+  mallId?: string;
+}) {
+  const [nodes,         setNodes]         = useState<MallRouteNode[]>([]);
+  const [nodesLoading,  setNodesLoading]  = useState(false);
+
+  const [stagingResult, setStagingResult] = useState<StageEdgesResult | null>(null);
+  const [stagingErr,    setStagingErr]    = useState<string | null>(null);
+  const [stagingBusy,   setStagingBusy]   = useState(false);
+
+  const [fromNodeId,    setFromNodeId]    = useState<string>("");
+  const [toNodeId,      setToNodeId]      = useState<string>("");
+  const [routeResult,   setRouteResult]   = useState<PreviewRouteResult | null>(null);
+  const [routeErr,      setRouteErr]      = useState<string | null>(null);
+  const [routeBusy,     setRouteBusy]     = useState(false);
+
+  // Load route nodes when mall changes
+  useEffect(() => {
+    if (!mallId || !token) { setNodes([]); return; }
+    setNodesLoading(true);
+    getMallRouteNodes(mallId, token)
+      .then((res) => setNodes(res.items))
+      .catch(() => setNodes([]))
+      .finally(() => setNodesLoading(false));
+  }, [mallId, token]);
+
+  const placedNodes = nodes.filter((n) => n.x_percent != null && n.y_percent != null);
+
+  async function handleStageEdges() {
+    if (!mallId || !token) return;
+    setStagingBusy(true);
+    setStagingErr(null);
+    setStagingResult(null);
+    try {
+      const res = await stageRouteEdges(mallId, token);
+      setStagingResult(res);
+      // Refresh nodes so Preview Route dropdowns stay current
+      const refreshed = await getMallRouteNodes(mallId, token);
+      setNodes(refreshed.items);
+    } catch (e) {
+      setStagingErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setStagingBusy(false);
+    }
+  }
+
+  async function handlePreviewRoute() {
+    if (!mallId || !token || !fromNodeId || !toNodeId) return;
+    setRouteBusy(true);
+    setRouteErr(null);
+    setRouteResult(null);
+    try {
+      const res = await previewRoute(mallId, fromNodeId, toNodeId, token);
+      setRouteResult(res);
+    } catch (e) {
+      setRouteErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRouteBusy(false);
+    }
+  }
+
+  if (!mallId) {
+    return (
+      <p className="text-xs text-muted-foreground text-center py-4">
+        Select a mall above to build and preview the route graph.
+      </p>
+    );
+  }
+
+  if (nodesLoading) {
+    return (
+      <div className="flex items-center justify-center gap-2 py-6 text-xs text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        Loading route nodes…
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-5">
+      {/* ── Stage Edges ───────────────────────────────────────────────────── */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium">Generate Walkway Edges</p>
+            <p className="text-xs text-muted-foreground">
+              Creates pairwise same-floor edges from the {placedNodes.length} placed node(s).
+              {placedNodes.length < 2 && (
+                <span className="text-amber-600"> Place at least 2 nodes on the same floor first.</span>
+              )}
+            </p>
+          </div>
+          <button
+            onClick={() => void handleStageEdges()}
+            disabled={stagingBusy || placedNodes.length < 2}
+            className="flex items-center gap-1.5 rounded-md border bg-background px-3 py-1.5 text-xs font-medium shadow-sm hover:bg-muted disabled:opacity-50 transition-colors"
+          >
+            {stagingBusy
+              ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Staging…</>
+              : <><GitBranch className="h-3.5 w-3.5" /> Stage Route Edges</>
+            }
+          </button>
+        </div>
+
+        {stagingErr && (
+          <div className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 p-3 text-xs text-red-700">
+            <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+            <span>{stagingErr}</span>
+          </div>
+        )}
+
+        {stagingResult && (
+          <div className="rounded-md border bg-muted/30 p-3 space-y-2">
+            <div className="grid grid-cols-3 gap-2 text-center">
+              <div className="rounded-md border bg-background p-2">
+                <p className="text-lg font-semibold tabular-nums">{stagingResult.nodes_considered}</p>
+                <p className="text-[10px] text-muted-foreground">Nodes considered</p>
+              </div>
+              <div className="rounded-md border bg-green-50 border-green-200 p-2">
+                <p className="text-lg font-semibold tabular-nums text-green-700">{stagingResult.edges_created}</p>
+                <p className="text-[10px] text-muted-foreground">Edges created</p>
+              </div>
+              <div className="rounded-md border bg-background p-2">
+                <p className="text-lg font-semibold tabular-nums text-muted-foreground">{stagingResult.edges_skipped}</p>
+                <p className="text-[10px] text-muted-foreground">Skipped (exist)</p>
+              </div>
+            </div>
+            {stagingResult.warnings.length > 0 && (
+              <ul className="space-y-1">
+                {stagingResult.warnings.map((w, i) => (
+                  <li key={i} className="flex items-start gap-1.5 text-xs text-amber-700">
+                    <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />
+                    <span>{w}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ── Preview Route ─────────────────────────────────────────────────── */}
+      <div className="space-y-3">
+        <p className="text-sm font-medium">Preview Route</p>
+        <p className="text-xs text-muted-foreground">
+          Pick two placed nodes and run Dijkstra to see the shortest path with walk-time estimates.
+        </p>
+
+        {placedNodes.length < 2 ? (
+          <p className="text-xs text-amber-600 italic">
+            Place at least 2 nodes to enable route preview.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">From</label>
+                <select
+                  value={fromNodeId}
+                  onChange={(e) => setFromNodeId(e.target.value)}
+                  className="mt-0.5 w-full rounded border bg-background px-2 py-1.5 text-xs"
+                >
+                  <option value="">Select start node…</option>
+                  {placedNodes.map((n) => (
+                    <option key={n.id} value={n.id}>
+                      {n.label} {n.floor_label ? `(${n.floor_label})` : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">To</label>
+                <select
+                  value={toNodeId}
+                  onChange={(e) => setToNodeId(e.target.value)}
+                  className="mt-0.5 w-full rounded border bg-background px-2 py-1.5 text-xs"
+                >
+                  <option value="">Select end node…</option>
+                  {placedNodes.map((n) => (
+                    <option key={n.id} value={n.id}>
+                      {n.label} {n.floor_label ? `(${n.floor_label})` : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <button
+              onClick={() => void handlePreviewRoute()}
+              disabled={routeBusy || !fromNodeId || !toNodeId}
+              className="flex items-center gap-1.5 rounded-md border bg-background px-3 py-1.5 text-xs font-medium shadow-sm hover:bg-muted disabled:opacity-50 transition-colors"
+            >
+              {routeBusy
+                ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Computing…</>
+                : <><Navigation className="h-3.5 w-3.5" /> Preview Route</>
+              }
+            </button>
+          </div>
+        )}
+
+        {routeErr && (
+          <div className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 p-3 text-xs text-red-700">
+            <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+            <span>{routeErr}</span>
+          </div>
+        )}
+
+        {routeResult && (
+          <div className="rounded-md border bg-muted/30 p-3 space-y-2">
+            {routeResult.warning ? (
+              <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-800">
+                <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                <span>{routeResult.warning}</span>
+              </div>
+            ) : (
+              <>
+                <div className="flex items-center gap-2 text-xs font-medium text-green-700">
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  Route found — {routeResult.total_seconds}s total walk time
+                  ({Math.round(routeResult.total_seconds / 60)}m {routeResult.total_seconds % 60}s)
+                </div>
+                <ol className="space-y-1 border-l-2 border-primary/20 pl-3">
+                  {(routeResult.path ?? []).map((step: RoutePreviewStep, idx: number) => (
+                    <li key={step.node_id} className="flex items-start gap-2 text-xs">
+                      <span className="shrink-0 rounded-full bg-primary/10 text-primary w-4 h-4 flex items-center justify-center text-[9px] font-bold mt-0.5">
+                        {idx + 1}
+                      </span>
+                      <div>
+                        <span className="font-medium">{step.label}</span>
+                        {step.floor_label && (
+                          <span className="ml-1 text-muted-foreground">({step.floor_label})</span>
+                        )}
+                        <div className="flex items-center gap-1 text-muted-foreground">
+                          <Clock className="h-2.5 w-2.5" />
+                          <span>+{step.cumulative_seconds}s cumulative</span>
+                        </div>
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              </>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -1718,25 +1982,15 @@ export default function MallIntelligenceTab({ token }: MallIntelligenceTabProps)
         />
       </Section>
 
-      {/* ── Section 5: Route Graph (future) ──────────────────────────────── */}
+      {/* ── Section 5: Route Graph ────────────────────────────────────────── */}
       <Section
-        title="Route Graph (Sprint 13+)"
-        icon={<Activity className="h-3.5 w-3.5" />}
+        title="Route Graph Preview"
+        icon={<Network className="h-3.5 w-3.5" />}
       >
-        <div className="rounded border-2 border-dashed border-muted-foreground/20 bg-muted/10 min-h-24 flex flex-col items-center justify-center gap-2 p-4 text-center">
-          <Activity className="h-8 w-8 text-muted-foreground/20" />
-          <p className="text-sm font-medium text-muted-foreground">
-            Live route graph editor — Sprint 13
-          </p>
-          <p className="text-xs text-muted-foreground/70">
-            Place coordinates above, then connect nodes into edges here.
-          </p>
-          {displayedLocs.some((l) => l.x_percent != null) && (
-            <p className="text-[10px] text-muted-foreground">
-              {displayedLocs.filter((l) => l.x_percent != null).length} store(s) have coordinates
-            </p>
-          )}
-        </div>
+        <RouteGraphPanel
+          token={token ?? ""}
+          mallId={selectedMallId || undefined}
+        />
       </Section>
     </div>
   );

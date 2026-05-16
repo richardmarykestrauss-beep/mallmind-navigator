@@ -39,6 +39,7 @@ import {
 import { fetchImageDimensions } from "../services/mallIntelligence/imageDimensionService.js";
 import { validateRouteNodeCoordinate } from "../services/mallIntelligence/routeNodeCoordinateService.js";
 import { getMallHealth } from "../services/mallIntelligence/mallHealthService.js";
+import { generateSameFloorEdges, dijkstra } from "../services/mallIntelligence/routeEdgeService.js";
 
 const router = Router();
 
@@ -952,6 +953,187 @@ router.post("/route-node-coordinate", async (req: Request, res: Response) => {
     x_percent:        xPct,
     y_percent:        yPct,
     location_updated: locationUpdated,
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /admin/mall-intelligence/stage-route-edges
+//
+// Load all placed route nodes for the mall, generate same-floor walkway edges
+// using Euclidean distance weights, skip any already-stored dedup_keys, and
+// persist the new edges to mall_route_edges_staged.
+// ─────────────────────────────────────────────────────────────────────────────
+
+router.post("/stage-route-edges", async (req: Request, res: Response) => {
+  const admin = await requireAdmin(req, res);
+  if (!admin) return;
+
+  const { mall_id } = req.body as { mall_id: string };
+  if (!mall_id?.trim()) {
+    return res.status(400).json({ error: "mall_id is required" });
+  }
+
+  const supabase = getSupabaseClient();
+
+  // Load placed nodes (x_percent / y_percent must be non-null)
+  const { data: nodeRows, error: nodesErr } = await supabase
+    .from("mall_route_nodes_staged")
+    .select("id, label, floor_label, x_percent, y_percent, node_type")
+    .eq("mall_id", mall_id)
+    .not("x_percent", "is", null)
+    .not("y_percent",  "is", null);
+
+  if (nodesErr) {
+    return res.status(500).json({ error: nodesErr.message });
+  }
+
+  const nodes = (nodeRows ?? []) as unknown as Array<{
+    id:          string;
+    label:       string;
+    floor_label: string | null;
+    x_percent:   number;
+    y_percent:   number;
+    node_type:   string;
+  }>;
+
+  // Generate candidate edges
+  const { edges: candidates, warnings } = generateSameFloorEdges(nodes);
+
+  if (candidates.length === 0) {
+    return res.json({
+      mall_id,
+      nodes_considered: nodes.length,
+      edges_created:    0,
+      edges_skipped:    0,
+      warnings,
+    });
+  }
+
+  // Load existing edges so we can skip duplicates
+  const { data: existingRows, error: existingErr } = await supabase
+    .from("mall_route_edges_staged")
+    .select("from_node_id, to_node_id")
+    .eq("mall_id", mall_id);
+
+  if (existingErr) {
+    return res.status(500).json({ error: existingErr.message });
+  }
+
+  const existingKeys = new Set<string>(
+    ((existingRows ?? []) as unknown as Array<{ from_node_id: string; to_node_id: string }>)
+      .map((e) => {
+        const [a, b] =
+          e.from_node_id < e.to_node_id
+            ? [e.from_node_id, e.to_node_id]
+            : [e.to_node_id, e.from_node_id];
+        return `${a}:${b}`;
+      }),
+  );
+
+  const toInsert = candidates.filter((c) => !existingKeys.has(c.dedup_key));
+  const skipped  = candidates.length - toInsert.length;
+
+  let created = 0;
+  for (const edge of toInsert) {
+    const { error: insertErr } = await supabase
+      .from("mall_route_edges_staged")
+      .insert({
+        mall_id,
+        from_node_id:   edge.from_node_id,
+        to_node_id:     edge.to_node_id,
+        edge_type:      edge.edge_type,
+        weight_seconds: edge.weight_seconds,
+        floor_change:   edge.floor_change,
+        review_status:  "pending",
+      });
+    if (!insertErr) {
+      created++;
+    } else {
+      warnings.push(`Edge ${edge.dedup_key} insert failed: ${insertErr.message}`);
+    }
+  }
+
+  fireAuditLog(admin.user.id, "mall_route_edges_staged", {
+    mall_id,
+    nodes_considered: nodes.length,
+    edges_created:    created,
+    edges_skipped:    skipped,
+  });
+
+  return res.json({
+    mall_id,
+    nodes_considered: nodes.length,
+    edges_created:    created,
+    edges_skipped:    skipped,
+    warnings,
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /admin/mall-intelligence/preview-route
+//
+// Run Dijkstra over the staged route graph and return an ordered step list
+// with cumulative walk-time in seconds.
+// ─────────────────────────────────────────────────────────────────────────────
+
+router.post("/preview-route", async (req: Request, res: Response) => {
+  const admin = await requireAdmin(req, res);
+  if (!admin) return;
+
+  const { mall_id, from_node_id, to_node_id } = req.body as {
+    mall_id:      string;
+    from_node_id: string;
+    to_node_id:   string;
+  };
+
+  if (!mall_id?.trim())      return res.status(400).json({ error: "mall_id is required" });
+  if (!from_node_id?.trim()) return res.status(400).json({ error: "from_node_id is required" });
+  if (!to_node_id?.trim())   return res.status(400).json({ error: "to_node_id is required" });
+
+  const supabase = getSupabaseClient();
+
+  // Load all placed nodes
+  const { data: nodeRows, error: nodesErr } = await supabase
+    .from("mall_route_nodes_staged")
+    .select("id, label, floor_label, x_percent, y_percent, node_type")
+    .eq("mall_id", mall_id)
+    .not("x_percent", "is", null)
+    .not("y_percent",  "is", null);
+
+  if (nodesErr) return res.status(500).json({ error: nodesErr.message });
+
+  const nodes = (nodeRows ?? []) as unknown as Array<{
+    id:          string;
+    label:       string;
+    floor_label: string | null;
+    x_percent:   number;
+    y_percent:   number;
+    node_type:   string;
+  }>;
+
+  // Load all edges for this mall
+  const { data: edgeRows, error: edgesErr } = await supabase
+    .from("mall_route_edges_staged")
+    .select("from_node_id, to_node_id, weight_seconds")
+    .eq("mall_id", mall_id);
+
+  if (edgesErr) return res.status(500).json({ error: edgesErr.message });
+
+  const edges = (edgeRows ?? []) as unknown as Array<{
+    from_node_id:   string;
+    to_node_id:     string;
+    weight_seconds: number;
+  }>;
+
+  const result = dijkstra(nodes, edges, from_node_id, to_node_id);
+
+  return res.json({
+    mall_id,
+    from_node_id,
+    to_node_id,
+    path:          result.path,
+    total_seconds: result.total_seconds,
+    warning:       result.warning,
   });
 });
 
