@@ -30,6 +30,7 @@ import {
   stageRouteEdges,
   previewRoute,
   createFloorChangeNode,
+  runMallSetupPipeline,
   GeoDirectoryImportError,
   type MallSource,
   type MallMapAsset,
@@ -48,6 +49,9 @@ import {
   type RoutePreviewStep,
   type FloorChangeNodeType,
   type CreateFloorChangeNodeResult,
+  type PipelineStepStatus,
+  type PipelineStepOutcome,
+  type MallSetupPipelineResult,
 } from "@/lib/googleBackendClient";
 import { cn } from "@/lib/utils";
 import {
@@ -72,6 +76,7 @@ import {
   GitBranch,
   Navigation,
   Clock,
+  Zap,
 } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -300,6 +305,284 @@ function MallHealthPanel({
 }
 
 // ── Sub-component: Route Graph Panel (Sprint 13.1) ───────────────────────────
+
+// ── Sub-component: Setup Pipeline Panel (Sprint 13.3) ────────────────────────
+
+const STEP_STATUS_CONFIG: Record<PipelineStepStatus, { icon: string; cls: string }> = {
+  ok:      { icon: "✓", cls: "text-green-700" },
+  skipped: { icon: "→", cls: "text-muted-foreground" },
+  warning: { icon: "⚠", cls: "text-amber-700" },
+  error:   { icon: "✗", cls: "text-red-700" },
+};
+
+function SetupPipelinePanel({
+  token,
+  mallId,
+  sources,
+  onComplete,
+}: {
+  token:      string;
+  mallId?:    string;
+  sources:    MallSource[];
+  onComplete: () => void;
+}) {
+  const [sourceId,  setSourceId]  = useState<string>("");
+  const [maxPages,  setMaxPages]  = useState<string>("10");
+  const [perPage,   setPerPage]   = useState<string>("100");
+  const [result,    setResult]    = useState<MallSetupPipelineResult | null>(null);
+  const [error,     setError]     = useState<string | null>(null);
+  const [running,   setRunning]   = useState(false);
+  const [expanded,  setExpanded]  = useState<Set<number>>(new Set());
+
+  const mallSources = sources.filter((s) =>
+    !mallId || !s.mall_id || s.mall_id === mallId,
+  );
+
+  function toggleStep(idx: number) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      next.has(idx) ? next.delete(idx) : next.add(idx);
+      return next;
+    });
+  }
+
+  async function handleRun() {
+    if (!mallId || !sourceId || !token) return;
+    setRunning(true);
+    setError(null);
+    setResult(null);
+    setExpanded(new Set());
+    try {
+      const res = await runMallSetupPipeline(
+        {
+          mall_id:   mallId,
+          source_id: sourceId,
+          options: {
+            max_pages: parseInt(maxPages, 10) || 10,
+            per_page:  parseInt(perPage, 10)  || 100,
+          },
+        },
+        token,
+      );
+      setResult(res);
+      onComplete();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  if (!mallId) {
+    return (
+      <p className="text-xs text-muted-foreground text-center py-4">
+        Select a mall above to run the automated setup pipeline.
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* ── Configuration ──────────────────────────────────────────────────── */}
+      <div className="rounded-md border bg-muted/10 p-3 space-y-3">
+        <p className="text-xs text-muted-foreground">
+          Select a discovered source and click <strong>Run Pipeline</strong>.
+          Steps run in sequence: link source → scan → GeoDirectory import →
+          normalize floor labels → populate image dims → health report.
+        </p>
+
+        <div className="grid grid-cols-2 gap-2">
+          {/* Source selector */}
+          <div className="col-span-2">
+            <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+              Source
+            </label>
+            <select
+              value={sourceId}
+              onChange={(e) => setSourceId(e.target.value)}
+              className="mt-0.5 w-full rounded border bg-background px-2 py-1.5 text-xs"
+            >
+              <option value="">Select a source…</option>
+              {mallSources.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.url} ({s.scan_status})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* GeoDirectory import options */}
+          <div>
+            <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+              Max pages (GeoDir)
+            </label>
+            <input
+              type="number" min={1} max={10} value={maxPages}
+              onChange={(e) => setMaxPages(e.target.value)}
+              className="mt-0.5 w-full rounded border bg-background px-2 py-1.5 text-xs"
+            />
+          </div>
+          <div>
+            <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+              Per page (GeoDir)
+            </label>
+            <input
+              type="number" min={1} max={100} value={perPage}
+              onChange={(e) => setPerPage(e.target.value)}
+              className="mt-0.5 w-full rounded border bg-background px-2 py-1.5 text-xs"
+            />
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => void handleRun()}
+            disabled={running || !sourceId}
+            className="flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
+          >
+            {running
+              ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Running pipeline…</>
+              : <><Zap  className="h-3.5 w-3.5" /> Run Mall Setup Pipeline</>
+            }
+          </button>
+          {running && (
+            <p className="text-[10px] text-muted-foreground animate-pulse">
+              This may take 1–2 minutes. Do not close the tab.
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* ── Error ──────────────────────────────────────────────────────────── */}
+      {error && (
+        <div className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 p-3 text-xs text-red-700">
+          <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
+
+      {/* ── Results ────────────────────────────────────────────────────────── */}
+      {result && (
+        <div className="space-y-3">
+          {/* Summary bar */}
+          <div className="flex flex-wrap items-center gap-3 rounded-md border bg-muted/20 px-3 py-2 text-xs">
+            <span className="font-medium">{result.completed_steps.length} steps</span>
+            {result.errors.length   > 0 && (
+              <span className="text-red-700 font-medium">✗ {result.errors.length} error(s)</span>
+            )}
+            {result.warnings.length > 0 && (
+              <span className="text-amber-700">⚠ {result.warnings.length} warning(s)</span>
+            )}
+            <span className="text-muted-foreground ml-auto text-[10px]">
+              {new Date(result.generated_at).toLocaleTimeString()}
+            </span>
+          </div>
+
+          {/* Step list */}
+          <div className="space-y-1">
+            {result.completed_steps.map((s: PipelineStepOutcome) => {
+              const cfg = STEP_STATUS_CONFIG[s.status];
+              const isOpen = expanded.has(s.step);
+              const hasData = s.data && Object.keys(s.data).length > 0;
+              return (
+                <div key={s.step} className="rounded border bg-background">
+                  <button
+                    onClick={() => hasData && toggleStep(s.step)}
+                    className={cn(
+                      "flex w-full items-center gap-2 px-3 py-2 text-xs text-left",
+                      hasData ? "cursor-pointer hover:bg-muted/30" : "cursor-default",
+                    )}
+                  >
+                    <span className={cn("w-4 shrink-0 font-mono font-bold", cfg.cls)}>
+                      {cfg.icon}
+                    </span>
+                    <span className="w-4 shrink-0 text-[10px] text-muted-foreground tabular-nums">
+                      {s.step}
+                    </span>
+                    <span className="font-medium shrink-0">{s.name}</span>
+                    <span className="text-muted-foreground truncate">{s.message}</span>
+                    {hasData && (
+                      <span className="ml-auto shrink-0 text-muted-foreground">
+                        {isOpen ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                      </span>
+                    )}
+                  </button>
+                  {isOpen && hasData && (
+                    <div className="border-t bg-muted/10 px-3 py-2">
+                      <pre className="text-[10px] text-muted-foreground overflow-x-auto">
+                        {JSON.stringify(s.data, null, 2)}
+                      </pre>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Warnings */}
+          {result.warnings.length > 0 && (
+            <details className="rounded-md border border-amber-200 bg-amber-50 p-3 space-y-1">
+              <summary className="cursor-pointer text-xs font-medium text-amber-800 select-none">
+                ⚠ {result.warnings.length} warning(s) — click to expand
+              </summary>
+              <ul className="mt-2 space-y-1">
+                {result.warnings.map((w, i) => (
+                  <li key={i} className="flex items-start gap-1.5 text-xs text-amber-700">
+                    <span className="shrink-0">•</span>
+                    <span>{w}</span>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+
+          {/* Errors */}
+          {result.errors.length > 0 && (
+            <div className="rounded-md border border-red-200 bg-red-50 p-3 space-y-1">
+              <p className="text-xs font-semibold text-red-800">
+                ✗ {result.errors.length} error(s)
+              </p>
+              <ul className="space-y-0.5">
+                {result.errors.map((e, i) => (
+                  <li key={i} className="flex items-start gap-1.5 text-xs text-red-700">
+                    <span className="shrink-0">•</span>
+                    <span>{e}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Next action */}
+          <div className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2.5 text-xs">
+            <span className="font-semibold text-primary">Next: </span>
+            <span className="text-foreground">{result.next_recommended_action}</span>
+          </div>
+
+          {/* Health summary */}
+          {result.health_report && (() => {
+            const h = result.health_report as Record<string, unknown>;
+            const status = h.readiness_status as string;
+            const statusCls =
+              status === "ready"   ? "text-green-700 bg-green-50 border-green-200" :
+              status === "partial" ? "text-amber-700 bg-amber-50 border-amber-200" :
+                                     "text-red-700 bg-red-50 border-red-200";
+            return (
+              <div className={cn("rounded-md border px-3 py-2 text-xs", statusCls)}>
+                <span className="font-semibold capitalize">{status}</span>
+                {" — "}
+                <span>
+                  {h.accepted_stores as number} accepted store(s), {" "}
+                  {h.route_nodes_staged as number} route node(s) staged
+                </span>
+              </div>
+            );
+          })()}
+        </div>
+      )}
+    </div>
+  );
+}
 
 const FC_NODE_TYPES: FloorChangeNodeType[] = ["lift", "escalator", "stairs"];
 const FC_TYPE_LABELS: Record<FloorChangeNodeType, string> = {
@@ -2027,6 +2310,22 @@ export default function MallIntelligenceTab({ token }: MallIntelligenceTabProps)
         }
       >
         <MallHealthPanel token={token ?? ""} mallId={selectedMallId || undefined} />
+      </Section>
+
+      {/* ── Section 0.5: Setup Pipeline ──────────────────────────────────── */}
+      <Section
+        title="Mall Setup Pipeline"
+        icon={<Zap className="h-3.5 w-3.5" />}
+        action={
+          <span className="text-[10px] text-muted-foreground">automated onboarding</span>
+        }
+      >
+        <SetupPipelinePanel
+          token={token ?? ""}
+          mallId={selectedMallId || undefined}
+          sources={sources}
+          onComplete={() => void loadData()}
+        />
       </Section>
 
       {/* ── Section 1: Source Discovery ───────────────────────────────────── */}

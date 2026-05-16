@@ -1977,6 +1977,35 @@ export async function placeRouteNodeCoordinate(
 
 // ── Route Graph types (Sprint 13.1 / 13.2) ───────────────────────────────────
 
+// ── Mall Setup Pipeline types (Sprint 13.3) ───────────────────────────────────
+
+export type PipelineStepStatus = "ok" | "skipped" | "warning" | "error";
+
+export interface PipelineStepOutcome {
+  step:     number;
+  name:     string;
+  status:   PipelineStepStatus;
+  message:  string;
+  data?:    Record<string, unknown>;
+}
+
+export interface MallSetupPipelineResult {
+  mall_id:                  string;
+  source_id:                string;
+  completed_steps:          PipelineStepOutcome[];
+  warnings:                 string[];
+  errors:                   string[];
+  health_report:            MallHealthReport | null;
+  next_recommended_action:  string;
+  generated_at:             string;
+}
+
+export interface RunSetupPipelineRequest {
+  mall_id:    string;
+  source_id:  string;
+  options?:   { max_pages?: number; per_page?: number };
+}
+
 export type FloorChangeNodeType = "lift" | "escalator" | "stairs";
 
 export interface CreateFloorChangeNodeRequest {
@@ -2116,6 +2145,32 @@ export async function importGeoDirectoryStores(
 }
 
 // ── Route Graph public API (Sprint 13.1) ──────────────────────────────────────
+
+/**
+ * POST /admin/mall-intelligence/run-setup-pipeline
+ *
+ * Orchestrates up to 11 safe setup steps for a mall/source:
+ * link source → scan → detect GeoDirectory → import stores → link mall_id →
+ * normalize floor labels → link assets → populate image dims → dedup check →
+ * health report.
+ *
+ * Returns a structured step-by-step outcome report with warnings, errors,
+ * the final MallHealthReport, and the single most important next action.
+ *
+ * Safety: never auto-accepts stores, auto-places coordinates, or deletes data.
+ * Requires admin bearer token.
+ */
+export async function runMallSetupPipeline(
+  payload:     RunSetupPipelineRequest,
+  accessToken: string,
+): Promise<MallSetupPipelineResult> {
+  if (!BASE_URL) throw new Error("VITE_GOOGLE_BACKEND_URL is not configured");
+  return postAuthWithResponse<MallSetupPipelineResult>(
+    "/admin/mall-intelligence/run-setup-pipeline",
+    payload,
+    accessToken,
+  );
+}
 
 /**
  * POST /admin/mall-intelligence/floor-change-node

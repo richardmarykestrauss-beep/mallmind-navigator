@@ -40,6 +40,12 @@ import { fetchImageDimensions } from "../services/mallIntelligence/imageDimensio
 import { validateRouteNodeCoordinate } from "../services/mallIntelligence/routeNodeCoordinateService.js";
 import { getMallHealth } from "../services/mallIntelligence/mallHealthService.js";
 import {
+  validatePipelineInput,
+  normalizeMallFloorLabel,
+  type PipelineStepOutcome,
+  type MallSetupPipelineResult,
+} from "../services/mallIntelligence/mallSetupPipelineService.js";
+import {
   generateSameFloorEdges,
   generateVerticalEdges,
   validateFloorChangeNode,
@@ -960,6 +966,418 @@ router.post("/route-node-coordinate", async (req: Request, res: Response) => {
     y_percent:        yPct,
     location_updated: locationUpdated,
   });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /admin/mall-intelligence/run-setup-pipeline
+//
+// Orchestration endpoint — runs up to 11 safe setup steps for a mall/source
+// and returns a structured step-by-step report.
+//
+// Safety guarantees (enforced throughout):
+//   ✗  Does NOT auto-accept stores.
+//   ✗  Does NOT auto-place coordinates.
+//   ✗  Does NOT write to live navigation tables.
+//   ✗  Does NOT delete data.
+//   ✓  Only links null mall_id values when source_id + mall_id are explicit.
+//   ✓  Duplicate assets are reported, not deleted.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const PIPELINE_DEFAULT_MAX_PAGES = 10;
+const PIPELINE_DEFAULT_PER_PAGE  = 100;
+const PIPELINE_IMAGE_DIM_CAP     = 8;   // max images to dimension per run
+
+router.post("/run-setup-pipeline", async (req: Request, res: Response) => {
+  const admin = await requireAdmin(req, res);
+  if (!admin) return;
+
+  const { mall_id, source_id, options } = req.body as {
+    mall_id:   unknown;
+    source_id: unknown;
+    options?:  { max_pages?: number; per_page?: number };
+  };
+
+  // ── Step 1: Validate input ────────────────────────────────────────────────
+  const validation = validatePipelineInput(mall_id, source_id);
+  if (!validation.valid) {
+    return res.status(400).json({ error: validation.error });
+  }
+
+  const mallId   = (mall_id   as string).trim();
+  const sourceId = (source_id as string).trim();
+
+  const supabase        = getSupabaseClient();
+  const completedSteps: PipelineStepOutcome[] = [];
+  const warnings:       string[] = [];
+  const errors:         string[] = [];
+  let   healthReport:   unknown  = null;
+
+  let stepNum = 1;
+
+  /** Record a step outcome and optionally collect warnings/errors. */
+  function step(
+    name:    string,
+    status:  PipelineStepOutcome["status"],
+    message: string,
+    data?:   Record<string, unknown>,
+  ): void {
+    completedSteps.push({ step: stepNum++, name, status, message, ...(data ? { data } : {}) });
+    if (status === "warning") warnings.push(message);
+    if (status === "error")   errors.push(message);
+  }
+
+  step("Input validation", "ok", `mall_id and source_id accepted`);
+
+  // ── Step 2: Load source + link to mall ────────────────────────────────────
+  let sourceUrl: string | null   = null;
+  let rawHtml:   string | null   = null;
+
+  try {
+    const { data: srcRow, error: srcErr } = await supabase
+      .from("mall_sources")
+      .select("id, mall_id, url, geodir_detected, geodir_api_url")
+      .eq("id", sourceId)
+      .maybeSingle();
+
+    if (srcErr || !srcRow) {
+      step("Link source to mall", "error", `Source "${sourceId}" not found — check source_id`);
+    } else {
+      const src = srcRow as Record<string, unknown>;
+      sourceUrl = src.url as string;
+
+      if (!src.mall_id) {
+        await supabase.from("mall_sources").update({ mall_id: mallId }).eq("id", sourceId);
+        step("Link source to mall", "ok", `Source linked to mall_id=${mallId}`);
+      } else if (src.mall_id !== mallId) {
+        step("Link source to mall", "warning",
+          `Source already linked to mall_id=${src.mall_id} (not changed). ` +
+          `Continuing with provided mall_id=${mallId}.`,
+          { existing_mall_id: src.mall_id as string });
+      } else {
+        step("Link source to mall", "ok", "Source already linked to this mall");
+      }
+    }
+  } catch (e) {
+    step("Link source to mall", "error", `Unexpected error: ${e instanceof Error ? e.message : String(e)}`);
+  }
+
+  // ── Step 3: Scan website ──────────────────────────────────────────────────
+  if (sourceUrl) {
+    try {
+      await supabase.from("mall_sources").update({ scan_status: "scanning" }).eq("id", sourceId);
+      const scanResult = await scanMallWebsite({ source_id: sourceId, url: sourceUrl });
+      rawHtml = scanResult.raw_html ?? null;
+
+      const newStatus = scanResult.error ? "failed" : "scanned";
+      await supabase.from("mall_sources").update({
+        scan_status:     newStatus,
+        last_scanned_at: new Date().toISOString(),
+        page_title:      scanResult.page_title ?? null,
+      }).eq("id", sourceId);
+
+      if (scanResult.error) {
+        step("Scan website", "warning",
+          `Scan completed with error: ${scanResult.error}. ${scanResult.discovered_assets.length} assets found before error.`,
+          { assets_found: scanResult.discovered_assets.length });
+      } else {
+        // Persist newly discovered assets (skip those already in DB)
+        let savedAssets = 0;
+        for (const asset of scanResult.discovered_assets) {
+          let pw: number | null = null;
+          let ph: number | null = null;
+          if (asset.asset_type === "image") {
+            const dim = await fetchImageDimensions(asset.url);
+            if (dim.dimensions) { pw = dim.dimensions.width; ph = dim.dimensions.height; }
+          }
+          const { error: assetErr } = await supabase.from("mall_map_assets").insert({
+            mall_source_id:  sourceId,
+            mall_id:         mallId,
+            asset_type:      asset.asset_type,
+            asset_url:       asset.url,
+            floor_label:     asset.floor_label  ?? null,
+            link_text:       asset.link_text    ?? null,
+            review_status:   "pending",
+            page_width_px:   pw,
+            page_height_px:  ph,
+          });
+          if (!assetErr) savedAssets++;
+        }
+        step("Scan website", "ok",
+          `Scan complete — ${scanResult.discovered_assets.length} asset(s) found, ${savedAssets} saved`,
+          { assets_found: scanResult.discovered_assets.length, assets_saved: savedAssets,
+            duration_ms: scanResult.scan_duration_ms });
+        warnings.push(...scanResult.warnings);
+      }
+    } catch (e) {
+      step("Scan website", "error", `Scan failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  } else {
+    step("Scan website", "skipped", "Skipped — source URL unavailable (see step 2)");
+  }
+
+  // ── Step 4: Detect GeoDirectory ───────────────────────────────────────────
+  let geodirApiUrl: string | null = null;
+
+  if (sourceUrl) {
+    try {
+      const gdResult = await detectGeoDirectoryApi(sourceUrl);
+      geodirApiUrl   = gdResult.detected ? gdResult.api_url : null;
+      if (gdResult.detected && gdResult.api_url) {
+        await supabase.from("mall_sources").update({
+          geodir_detected: true,
+          geodir_api_url:  gdResult.api_url,
+        }).eq("id", sourceId);
+      }
+      step("Detect GeoDirectory", gdResult.detected ? "ok" : "skipped",
+        gdResult.detected
+          ? `GeoDirectory API detected at ${gdResult.api_url}`
+          : "GeoDirectory not found — source may use a different store directory format",
+        { detected: gdResult.detected, api_url: gdResult.api_url });
+    } catch (e) {
+      step("Detect GeoDirectory", "warning",
+        `Detection attempt failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  } else {
+    step("Detect GeoDirectory", "skipped", "Skipped — source URL unavailable");
+  }
+
+  // ── Step 5: Import GeoDirectory stores ────────────────────────────────────
+  if (geodirApiUrl) {
+    try {
+      const maxPages = Math.min(
+        typeof options?.max_pages === "number" && options.max_pages > 0
+          ? options.max_pages : PIPELINE_DEFAULT_MAX_PAGES,
+        ABSOLUTE_MAX_PAGES,
+      );
+      const perPage = Math.min(
+        typeof options?.per_page === "number" && options.per_page > 0
+          ? options.per_page : PIPELINE_DEFAULT_PER_PAGE,
+        ABSOLUTE_MAX_PER_PAGE,
+      );
+
+      const importResult = await importGeoDirectoryStoresForSource(
+        sourceId, supabase, { maxPages, perPage },
+      );
+      step("Import GeoDirectory stores", "ok",
+        `${importResult.records_found} records fetched across ${importResult.pages_fetched} page(s); ` +
+        `${importResult.stores_staged} staged, ${importResult.stores_updated} updated`,
+        {
+          records_found:  importResult.records_found,
+          stores_staged:  importResult.stores_staged,
+          stores_updated: importResult.stores_updated,
+          pages_fetched:  importResult.pages_fetched,
+        });
+      warnings.push(...importResult.warnings);
+      if (importResult.insert_errors.length > 0) {
+        warnings.push(`${importResult.insert_errors.length} store(s) failed to insert during GeoDirectory import`);
+      }
+    } catch (e) {
+      step("Import GeoDirectory stores", "error",
+        `Import failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  } else {
+    step("Import GeoDirectory stores", "skipped",
+      "Skipped — GeoDirectory not detected (step 4). Use manual import if needed.");
+  }
+
+  // ── Step 6: Link staged stores to mall ────────────────────────────────────
+  try {
+    const { data: orphanStores } = await supabase
+      .from("mall_store_locations_staged")
+      .select("id")
+      .eq("mall_source_id", sourceId)
+      .is("mall_id", null);
+
+    const orphanCount = (orphanStores ?? []).length;
+    if (orphanCount > 0) {
+      await supabase.from("mall_store_locations_staged")
+        .update({ mall_id: mallId })
+        .eq("mall_source_id", sourceId)
+        .is("mall_id", null);
+    }
+    step("Link staged stores to mall", "ok",
+      orphanCount > 0
+        ? `${orphanCount} staged store(s) linked to mall_id=${mallId}`
+        : "All staged stores already linked",
+      { linked: orphanCount });
+  } catch (e) {
+    step("Link staged stores to mall", "error",
+      `Failed: ${e instanceof Error ? e.message : String(e)}`);
+  }
+
+  // ── Step 7: Normalize floor labels ────────────────────────────────────────
+  try {
+    const { data: floorRows } = await supabase
+      .from("mall_store_locations_staged")
+      .select("floor_label")
+      .eq("mall_source_id", sourceId)
+      .not("floor_label", "is", null);
+
+    const uniqueFloors = [
+      ...new Set(
+        ((floorRows ?? []) as Array<{ floor_label: string }>)
+          .map((r) => r.floor_label)
+          .filter(Boolean),
+      ),
+    ];
+
+    let normalizedCount = 0;
+    const changedLabels: Array<{ from: string; to: string }> = [];
+
+    for (const raw of uniqueFloors) {
+      const normalized = normalizeMallFloorLabel(raw);
+      if (normalized !== raw) {
+        await supabase.from("mall_store_locations_staged")
+          .update({ floor_label: normalized })
+          .eq("mall_source_id", sourceId)
+          .eq("floor_label",    raw);
+        normalizedCount++;
+        changedLabels.push({ from: raw, to: normalized });
+      }
+    }
+
+    step("Normalize floor labels", "ok",
+      normalizedCount > 0
+        ? `Normalized ${normalizedCount} floor label variant(s)`
+        : `All ${uniqueFloors.length} floor label(s) already canonical`,
+      { unique_floors: uniqueFloors.length, normalized: normalizedCount,
+        changes: changedLabels });
+  } catch (e) {
+    step("Normalize floor labels", "warning",
+      `Normalization skipped: ${e instanceof Error ? e.message : String(e)}`);
+  }
+
+  // ── Step 8: Link map assets to mall ───────────────────────────────────────
+  try {
+    const { data: orphanAssets } = await supabase
+      .from("mall_map_assets")
+      .select("id")
+      .eq("mall_source_id", sourceId)
+      .is("mall_id", null);
+
+    const orphanAssetCount = (orphanAssets ?? []).length;
+    if (orphanAssetCount > 0) {
+      await supabase.from("mall_map_assets")
+        .update({ mall_id: mallId })
+        .eq("mall_source_id", sourceId)
+        .is("mall_id", null);
+    }
+    step("Link map assets to mall", "ok",
+      orphanAssetCount > 0
+        ? `${orphanAssetCount} map asset(s) linked to mall_id=${mallId}`
+        : "All map assets already linked",
+      { linked: orphanAssetCount });
+  } catch (e) {
+    step("Link map assets to mall", "error",
+      `Failed: ${e instanceof Error ? e.message : String(e)}`);
+  }
+
+  // ── Step 9: Populate missing image dimensions ─────────────────────────────
+  try {
+    const { data: missingDimAssets } = await supabase
+      .from("mall_map_assets")
+      .select("id, asset_url")
+      .eq("mall_source_id", sourceId)
+      .eq("asset_type", "image")
+      .is("page_width_px", null)
+      .limit(PIPELINE_IMAGE_DIM_CAP);
+
+    const toProcess = (missingDimAssets ?? []) as Array<{ id: string; asset_url: string }>;
+    let enriched = 0;
+    const dimWarnings: string[] = [];
+
+    for (const asset of toProcess) {
+      const dimResult = await fetchImageDimensions(asset.asset_url);
+      if (dimResult.dimensions) {
+        await supabase.from("mall_map_assets")
+          .update({ page_width_px: dimResult.dimensions.width, page_height_px: dimResult.dimensions.height })
+          .eq("id", asset.id);
+        enriched++;
+      }
+      dimWarnings.push(...dimResult.warnings);
+    }
+
+    const wasLimited = toProcess.length === PIPELINE_IMAGE_DIM_CAP;
+    step("Populate image dimensions", toProcess.length === 0 ? "skipped" : "ok",
+      toProcess.length === 0
+        ? "No image assets missing dimensions"
+        : `Processed ${toProcess.length} image(s), enriched ${enriched}` +
+          (wasLimited ? ` (capped at ${PIPELINE_IMAGE_DIM_CAP} — re-run to process more)` : ""),
+      { processed: toProcess.length, enriched });
+    warnings.push(...dimWarnings);
+  } catch (e) {
+    step("Populate image dimensions", "warning",
+      `Dimension fetch skipped: ${e instanceof Error ? e.message : String(e)}`);
+  }
+
+  // ── Step 10: Detect duplicate asset URLs ──────────────────────────────────
+  try {
+    const { data: allAssets } = await supabase
+      .from("mall_map_assets")
+      .select("asset_url")
+      .eq("mall_id", mallId);
+
+    const urlCounts = new Map<string, number>();
+    for (const a of (allAssets ?? []) as Array<{ asset_url: string }>) {
+      urlCounts.set(a.asset_url, (urlCounts.get(a.asset_url) ?? 0) + 1);
+    }
+    const dupGroups = [...urlCounts.values()].filter((c) => c > 1).length;
+
+    if (dupGroups > 0) {
+      const msg = `${dupGroups} duplicate asset URL group(s) detected — review and remove duplicates manually`;
+      step("Detect duplicate assets", "warning", msg, { duplicate_groups: dupGroups });
+    } else {
+      step("Detect duplicate assets", "ok",
+        `No duplicate asset URLs detected`, { total_assets: allAssets?.length ?? 0 });
+    }
+  } catch (e) {
+    step("Detect duplicate assets", "warning",
+      `Duplicate check skipped: ${e instanceof Error ? e.message : String(e)}`);
+  }
+
+  // ── Step 11: Run mall health report ───────────────────────────────────────
+  try {
+    healthReport = await getMallHealth(mallId, supabase);
+    const report = healthReport as { readiness_status: string; next_recommended_action: string };
+    step("Mall health report", "ok",
+      `readiness_status=${report.readiness_status}`,
+      { readiness_status: report.readiness_status });
+  } catch (e) {
+    step("Mall health report", "error",
+      `Health check failed: ${e instanceof Error ? e.message : String(e)}`);
+  }
+
+  // ── Derive next action ────────────────────────────────────────────────────
+  let nextAction = "Pipeline complete.";
+  const report = healthReport as ({ next_recommended_action?: string } | null);
+  if (report?.next_recommended_action) {
+    nextAction = report.next_recommended_action;
+  } else if (errors.length > 0) {
+    nextAction = `Resolve ${errors.length} error(s) in the pipeline log, then re-run.`;
+  } else if (warnings.length > 0) {
+    nextAction = "Review warnings above, then run the Mall Health check.";
+  }
+
+  fireAuditLog(admin.user.id, "mall_setup_pipeline_run", {
+    mall_id:    mallId,
+    source_id:  sourceId,
+    steps:      completedSteps.length,
+    errors:     errors.length,
+    warnings:   warnings.length,
+  });
+
+  const result: MallSetupPipelineResult = {
+    mall_id:                 mallId,
+    source_id:               sourceId,
+    completed_steps:         completedSteps,
+    warnings,
+    errors,
+    health_report:           healthReport,
+    next_recommended_action: nextAction,
+    generated_at:            new Date().toISOString(),
+  };
+
+  return res.json(result);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
