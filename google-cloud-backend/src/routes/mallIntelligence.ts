@@ -36,6 +36,7 @@ import {
   ABSOLUTE_MAX_PER_PAGE,
   ABSOLUTE_MAX_PAGES,
 } from "../services/mallIntelligence/geoDirectoryConnectorService.js";
+import { fetchImageDimensions } from "../services/mallIntelligence/imageDimensionService.js";
 
 const router = Router();
 
@@ -219,19 +220,35 @@ router.post("/scan-website", async (req: Request, res: Response) => {
     })
     .eq("id", source_id);
 
-  // Save discovered assets
+  // Save discovered assets — enrich image assets with pixel dimensions
   const savedAssets: unknown[] = [];
+  const dimensionWarnings: string[] = [];
+
   for (const asset of scanResult.discovered_assets) {
+    let pageWidthPx:  number | null = null;
+    let pageHeightPx: number | null = null;
+
+    if (asset.asset_type === "image") {
+      const dimResult = await fetchImageDimensions(asset.url);
+      if (dimResult.dimensions) {
+        pageWidthPx  = dimResult.dimensions.width;
+        pageHeightPx = dimResult.dimensions.height;
+      }
+      dimensionWarnings.push(...dimResult.warnings);
+    }
+
     const { data: assetRow } = await supabase
       .from("mall_map_assets")
       .insert({
-        mall_source_id: source_id,
-        mall_id:        src.mall_id ?? null,
-        asset_type:     asset.asset_type,
-        asset_url:      asset.url,
-        floor_label:    asset.floor_label ?? null,
-        link_text:      asset.link_text ?? null,
-        review_status:  "pending",
+        mall_source_id:  source_id,
+        mall_id:         src.mall_id ?? null,
+        asset_type:      asset.asset_type,
+        asset_url:       asset.url,
+        floor_label:     asset.floor_label ?? null,
+        link_text:       asset.link_text ?? null,
+        review_status:   "pending",
+        page_width_px:   pageWidthPx,
+        page_height_px:  pageHeightPx,
       })
       .select()
       .single();
@@ -253,7 +270,7 @@ router.post("/scan-website", async (req: Request, res: Response) => {
     assets_saved:   savedAssets,
     assets_found:   scanResult.discovered_assets.length,
     scan_duration_ms: scanResult.scan_duration_ms,
-    warnings:       scanResult.warnings,
+    warnings:       [...scanResult.warnings, ...dimensionWarnings],
     error:          scanResult.error,
     // Include a flag so the frontend knows whether to offer "Extract Stores" next
     has_html:       !!scanResult.raw_html,
