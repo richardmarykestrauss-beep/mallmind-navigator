@@ -1975,7 +1975,29 @@ export async function placeRouteNodeCoordinate(
   );
 }
 
-// ── Route Graph types (Sprint 13.1) ──────────────────────────────────────────
+// ── Route Graph types (Sprint 13.1 / 13.2) ───────────────────────────────────
+
+export type FloorChangeNodeType = "lift" | "escalator" | "stairs";
+
+export interface CreateFloorChangeNodeRequest {
+  mall_id:     string;
+  label:       string;
+  node_type:   FloorChangeNodeType;
+  floor_label: string;
+  x_percent:   number;
+  y_percent:   number;
+}
+
+export interface CreateFloorChangeNodeResult {
+  ok:          boolean;
+  node_id:     string;
+  mall_id:     string;
+  label:       string;
+  node_type:   FloorChangeNodeType;
+  floor_label: string;
+  x_percent:   number;
+  y_percent:   number;
+}
 
 export interface StageEdgesResult {
   mall_id:          string;
@@ -2094,6 +2116,27 @@ export async function importGeoDirectoryStores(
 }
 
 // ── Route Graph public API (Sprint 13.1) ──────────────────────────────────────
+
+/**
+ * POST /admin/mall-intelligence/floor-change-node
+ *
+ * Create a single floor-change connector node (lift / escalator / stairs) in
+ * mall_route_nodes_staged.  Vertical edges between nodes sharing the same
+ * label + node_type are generated the next time stage-route-edges is called.
+ *
+ * Requires admin bearer token.
+ */
+export async function createFloorChangeNode(
+  payload:     CreateFloorChangeNodeRequest,
+  accessToken: string,
+): Promise<CreateFloorChangeNodeResult> {
+  if (!BASE_URL) throw new Error("VITE_GOOGLE_BACKEND_URL is not configured");
+  return postAuthWithResponse<CreateFloorChangeNodeResult>(
+    "/admin/mall-intelligence/floor-change-node",
+    payload,
+    accessToken,
+  );
+}
 
 /**
  * POST /admin/mall-intelligence/stage-route-edges

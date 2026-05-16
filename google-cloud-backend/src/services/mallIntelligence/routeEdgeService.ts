@@ -1,25 +1,41 @@
 /**
- * routeEdgeService.ts — Sprint 13.1
+ * routeEdgeService.ts — Sprint 13.1 / 13.2
  *
  * Pure functions for route graph edge generation and shortest-path routing.
  * No DB access — fully testable in the harness.
  *
- * Edge-weight formula (MVP):
+ * Same-floor edge weight (MVP):
  *   distancePct  = sqrt(dx² + dy²)   where dx/dy are x_percent / y_percent differences
  *   weight_secs  = max(5, round(distancePct * WEIGHT_SECONDS_PER_PERCENT))
  *
  * With WEIGHT_SECONDS_PER_PERCENT = 5:
  *   A 10% distance ≈ 50 s (< 1 min) — typical short walk
  *   A 40% distance ≈ 200 s (≈ 3 min) — cross-wing walk
- *   Tune the constant in a future sprint once real metre data is available.
+ *
+ * Vertical (floor-change) edge weights — Sprint 13.2:
+ *   lift:      45 s  (fastest — doors + travel)
+ *   escalator: 60 s  (moving stairs, slower transfer)
+ *   stairs:    75 s  (slowest — full flight climb)
+ *
+ * Tune constants in a future sprint once real timing data is available.
  */
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 export const WEIGHT_SECONDS_PER_PERCENT = 5;
-export const MIN_EDGE_WEIGHT_SECONDS     = 5;
+export const MIN_EDGE_WEIGHT_SECONDS    = 5;
+
+/** Fixed walk-time (seconds) for a single floor transition by connector type. */
+export const VERTICAL_EDGE_WEIGHTS: Readonly<Record<FloorChangeNodeType, number>> = {
+  lift:      45,
+  escalator: 60,
+  stairs:    75,
+};
 
 // ── Types ─────────────────────────────────────────────────────────────────────
+
+export type FloorChangeNodeType = "lift" | "escalator" | "stairs";
+export type EdgeType = "walkway" | FloorChangeNodeType;
 
 export interface PlacedRouteNode {
   id:          string;
@@ -33,11 +49,63 @@ export interface PlacedRouteNode {
 export interface EdgeCandidate {
   from_node_id:   string;
   to_node_id:     string;
-  edge_type:      "walkway";
+  edge_type:      EdgeType;
   weight_seconds: number;
   floor_change:   boolean;
   /** Sorted canonical key for duplicate detection: `${smallerId}:${largerId}`. */
   dedup_key:      string;
+}
+
+// ── Floor-change node validation ──────────────────────────────────────────────
+
+export interface FloorChangeNodeInput {
+  mall_id:     unknown;
+  label:       unknown;
+  node_type:   unknown;
+  floor_label: unknown;
+  x_percent:   unknown;
+  y_percent:   unknown;
+}
+
+export interface FloorChangeNodeValidation {
+  valid:  boolean;
+  error?: string;
+}
+
+export const FLOOR_CHANGE_NODE_TYPES: readonly FloorChangeNodeType[] = [
+  "lift", "escalator", "stairs",
+];
+
+/**
+ * Pure validation for a floor-change node creation request.
+ * Returns { valid: true } or { valid: false, error: "…" }.
+ */
+export function validateFloorChangeNode(
+  input: FloorChangeNodeInput,
+): FloorChangeNodeValidation {
+  if (!input.mall_id || typeof input.mall_id !== "string" || !input.mall_id.trim()) {
+    return { valid: false, error: "mall_id is required" };
+  }
+  if (!input.label || typeof input.label !== "string" || !input.label.trim()) {
+    return { valid: false, error: "label is required" };
+  }
+  if (
+    !input.node_type ||
+    typeof input.node_type !== "string" ||
+    !(FLOOR_CHANGE_NODE_TYPES as readonly string[]).includes(input.node_type)
+  ) {
+    return { valid: false, error: `node_type must be one of: ${FLOOR_CHANGE_NODE_TYPES.join(", ")}` };
+  }
+  if (!input.floor_label || typeof input.floor_label !== "string" || !input.floor_label.trim()) {
+    return { valid: false, error: "floor_label is required" };
+  }
+  if (typeof input.x_percent !== "number" || input.x_percent < 0 || input.x_percent > 100) {
+    return { valid: false, error: "x_percent must be a number between 0 and 100" };
+  }
+  if (typeof input.y_percent !== "number" || input.y_percent < 0 || input.y_percent > 100) {
+    return { valid: false, error: "y_percent must be a number between 0 and 100" };
+  }
+  return { valid: true };
 }
 
 export interface GenerateEdgesResult {
@@ -143,6 +211,74 @@ export function generateSameFloorEdges(
           edge_type:      "walkway",
           weight_seconds: weight,
           floor_change:   false,
+          dedup_key:      `${fromId}:${toId}`,
+        });
+      }
+    }
+  }
+
+  return { edges, warnings };
+}
+
+// ── Vertical edge generation — Sprint 13.2 ───────────────────────────────────
+
+/**
+ * Generate vertical (floor-change) edges between floor-change nodes that share
+ * the same label AND node_type but sit on different floors.
+ *
+ * Grouping key: `${node_type}::${label.trim().toLowerCase()}`
+ *
+ * Rules:
+ *   - Only nodes with node_type "lift" | "escalator" | "stairs" are considered.
+ *   - Two nodes in the same group on DIFFERENT floors get one vertical edge.
+ *   - Same-floor pairs in the same group are skipped (same-floor walkway already connects them).
+ *   - Canonical dedup_key prevents duplicates.
+ *   - Weight comes from VERTICAL_EDGE_WEIGHTS[node_type].
+ */
+export function generateVerticalEdges(
+  nodes: PlacedRouteNode[],
+): GenerateEdgesResult {
+  const warnings: string[] = [];
+  const edges: EdgeCandidate[] = [];
+
+  const fcNodes = nodes.filter(
+    (n) =>
+      n.node_type === "lift" ||
+      n.node_type === "escalator" ||
+      n.node_type === "stairs",
+  );
+
+  if (fcNodes.length === 0) return { edges, warnings };
+
+  // Group by connector identity
+  const groups = new Map<string, PlacedRouteNode[]>();
+  for (const n of fcNodes) {
+    const key = `${n.node_type}::${n.label.trim().toLowerCase()}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(n);
+  }
+
+  for (const [, group] of groups) {
+    for (let i = 0; i < group.length; i++) {
+      for (let j = i + 1; j < group.length; j++) {
+        const a = group[i];
+        const b = group[j];
+
+        // Skip pairs on the same floor — they are already connected by walkway edges
+        if (a.floor_label === b.floor_label) continue;
+
+        const nodeType = a.node_type as FloorChangeNodeType;
+        const weight   = VERTICAL_EDGE_WEIGHTS[nodeType] ?? 60;
+
+        const [fromId, toId] =
+          a.id < b.id ? [a.id, b.id] : [b.id, a.id];
+
+        edges.push({
+          from_node_id:   fromId,
+          to_node_id:     toId,
+          edge_type:      nodeType,
+          weight_seconds: weight,
+          floor_change:   true,
           dedup_key:      `${fromId}:${toId}`,
         });
       }

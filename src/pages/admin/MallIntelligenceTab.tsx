@@ -29,6 +29,7 @@ import {
   getMallHealthReport,
   stageRouteEdges,
   previewRoute,
+  createFloorChangeNode,
   GeoDirectoryImportError,
   type MallSource,
   type MallMapAsset,
@@ -45,6 +46,8 @@ import {
   type StageEdgesResult,
   type PreviewRouteResult,
   type RoutePreviewStep,
+  type FloorChangeNodeType,
+  type CreateFloorChangeNodeResult,
 } from "@/lib/googleBackendClient";
 import { cn } from "@/lib/utils";
 import {
@@ -298,6 +301,13 @@ function MallHealthPanel({
 
 // ── Sub-component: Route Graph Panel (Sprint 13.1) ───────────────────────────
 
+const FC_NODE_TYPES: FloorChangeNodeType[] = ["lift", "escalator", "stairs"];
+const FC_TYPE_LABELS: Record<FloorChangeNodeType, string> = {
+  lift:      "🛗 Lift",
+  escalator: "↗ Escalator",
+  stairs:    "🪜 Stairs",
+};
+
 function RouteGraphPanel({
   token,
   mallId,
@@ -311,6 +321,16 @@ function RouteGraphPanel({
   const [stagingResult, setStagingResult] = useState<StageEdgesResult | null>(null);
   const [stagingErr,    setStagingErr]    = useState<string | null>(null);
   const [stagingBusy,   setStagingBusy]   = useState(false);
+
+  // Floor-change node creation
+  const [fcLabel,     setFcLabel]     = useState("");
+  const [fcType,      setFcType]      = useState<FloorChangeNodeType>("lift");
+  const [fcFloor,     setFcFloor]     = useState("");
+  const [fcX,         setFcX]         = useState("");
+  const [fcY,         setFcY]         = useState("");
+  const [fcResult,    setFcResult]    = useState<CreateFloorChangeNodeResult | null>(null);
+  const [fcErr,       setFcErr]       = useState<string | null>(null);
+  const [fcBusy,      setFcBusy]      = useState(false);
 
   const [fromNodeId,    setFromNodeId]    = useState<string>("");
   const [toNodeId,      setToNodeId]      = useState<string>("");
@@ -345,6 +365,46 @@ function RouteGraphPanel({
       setStagingErr(e instanceof Error ? e.message : String(e));
     } finally {
       setStagingBusy(false);
+    }
+  }
+
+  // Floors present in current nodes (for dropdown hints)
+  const knownFloors = [...new Set(
+    nodes.map((n) => n.floor_label).filter(Boolean) as string[],
+  )].sort();
+
+  async function handleCreateFloorChangeNode() {
+    if (!mallId || !token) return;
+    const xNum = parseFloat(fcX);
+    const yNum = parseFloat(fcY);
+    setFcBusy(true);
+    setFcErr(null);
+    setFcResult(null);
+    try {
+      const res = await createFloorChangeNode(
+        {
+          mall_id:     mallId,
+          label:       fcLabel.trim(),
+          node_type:   fcType,
+          floor_label: fcFloor.trim(),
+          x_percent:   xNum,
+          y_percent:   yNum,
+        },
+        token,
+      );
+      setFcResult(res);
+      // Refresh node list so the new node appears in dropdowns immediately
+      const refreshed = await getMallRouteNodes(mallId, token);
+      setNodes(refreshed.items);
+      // Reset form label, floor, coords but keep type for adding the next floor
+      setFcLabel("");
+      setFcFloor("");
+      setFcX("");
+      setFcY("");
+    } catch (e) {
+      setFcErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setFcBusy(false);
     }
   }
 
@@ -443,8 +503,170 @@ function RouteGraphPanel({
         )}
       </div>
 
+      {/* ── Floor Change Nodes ────────────────────────────────────────────── */}
+      <div className="space-y-3 border-t pt-4">
+        <div>
+          <p className="text-sm font-medium">Floor Change Nodes</p>
+          <p className="text-xs text-muted-foreground">
+            Add a lift, escalator, or stairs node per floor. Nodes with the same label
+            and type are automatically connected with vertical edges when you stage edges.
+          </p>
+        </div>
+
+        {/* Existing floor-change nodes summary */}
+        {(() => {
+          const fcNodes = nodes.filter(
+            (n) => n.node_type === "lift" || n.node_type === "escalator" || n.node_type === "stairs",
+          );
+          if (fcNodes.length === 0) return (
+            <p className="text-xs text-amber-700 italic">
+              No floor-change nodes yet — add at least one per floor to enable cross-floor routing.
+            </p>
+          );
+          return (
+            <div className="rounded-md border bg-muted/20 p-2 space-y-1">
+              {fcNodes.map((n) => (
+                <div key={n.id} className="flex items-center gap-2 text-xs">
+                  <span className="font-mono text-[10px] text-muted-foreground w-16 shrink-0 truncate">
+                    {n.node_type}
+                  </span>
+                  <span className="font-medium truncate">{n.label}</span>
+                  <span className="text-muted-foreground shrink-0">({n.floor_label ?? "no floor"})</span>
+                  {n.x_percent != null && (
+                    <span className="text-[10px] text-muted-foreground ml-auto shrink-0">
+                      {n.x_percent.toFixed(1)}, {n.y_percent?.toFixed(1)}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          );
+        })()}
+
+        {/* Create form */}
+        <div className="rounded-md border bg-muted/10 p-3 space-y-3">
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+            Add floor-change node
+          </p>
+
+          <div className="grid grid-cols-2 gap-2">
+            {/* Label */}
+            <div className="col-span-2">
+              <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                Label (same label across floors = one connector)
+              </label>
+              <input
+                type="text"
+                value={fcLabel}
+                onChange={(e) => setFcLabel(e.target.value)}
+                placeholder="e.g. Central Lift"
+                className="mt-0.5 w-full rounded border bg-background px-2 py-1.5 text-xs"
+              />
+            </div>
+
+            {/* Type */}
+            <div>
+              <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                Type
+              </label>
+              <select
+                value={fcType}
+                onChange={(e) => setFcType(e.target.value as FloorChangeNodeType)}
+                className="mt-0.5 w-full rounded border bg-background px-2 py-1.5 text-xs"
+              >
+                {FC_NODE_TYPES.map((t) => (
+                  <option key={t} value={t}>{FC_TYPE_LABELS[t]}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Floor */}
+            <div>
+              <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                Floor
+              </label>
+              <input
+                type="text"
+                value={fcFloor}
+                onChange={(e) => setFcFloor(e.target.value)}
+                list="floor-options"
+                placeholder={knownFloors[0] ?? "e.g. Ground Floor"}
+                className="mt-0.5 w-full rounded border bg-background px-2 py-1.5 text-xs"
+              />
+              <datalist id="floor-options">
+                {knownFloors.map((f) => <option key={f} value={f} />)}
+              </datalist>
+            </div>
+
+            {/* x_percent */}
+            <div>
+              <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                X % (0–100)
+              </label>
+              <input
+                type="number"
+                value={fcX}
+                onChange={(e) => setFcX(e.target.value)}
+                min={0} max={100} step={0.01}
+                placeholder="50.00"
+                className="mt-0.5 w-full rounded border bg-background px-2 py-1.5 text-xs"
+              />
+            </div>
+
+            {/* y_percent */}
+            <div>
+              <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                Y % (0–100)
+              </label>
+              <input
+                type="number"
+                value={fcY}
+                onChange={(e) => setFcY(e.target.value)}
+                min={0} max={100} step={0.01}
+                placeholder="50.00"
+                className="mt-0.5 w-full rounded border bg-background px-2 py-1.5 text-xs"
+              />
+            </div>
+          </div>
+
+          <button
+            onClick={() => void handleCreateFloorChangeNode()}
+            disabled={
+              fcBusy ||
+              !fcLabel.trim() ||
+              !fcFloor.trim() ||
+              fcX === "" ||
+              fcY === ""
+            }
+            className="flex items-center gap-1.5 rounded-md border bg-background px-3 py-1.5 text-xs font-medium shadow-sm hover:bg-muted disabled:opacity-50 transition-colors"
+          >
+            {fcBusy
+              ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Adding…</>
+              : <><Plus className="h-3.5 w-3.5" /> Add Node</>
+            }
+          </button>
+
+          {fcErr && (
+            <div className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 p-2 text-xs text-red-700">
+              <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+              <span>{fcErr}</span>
+            </div>
+          )}
+
+          {fcResult && (
+            <div className="flex items-center gap-2 rounded-md border border-green-200 bg-green-50 p-2 text-xs text-green-700">
+              <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+              <span>
+                Created {fcResult.node_type} node <b>{fcResult.label}</b> on {fcResult.floor_label}
+                {" "}— re-run Stage Route Edges to generate vertical connections.
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* ── Preview Route ─────────────────────────────────────────────────── */}
-      <div className="space-y-3">
+      <div className="space-y-3 border-t pt-4">
         <p className="text-sm font-medium">Preview Route</p>
         <p className="text-xs text-muted-foreground">
           Pick two placed nodes and run Dijkstra to see the shortest path with walk-time estimates.

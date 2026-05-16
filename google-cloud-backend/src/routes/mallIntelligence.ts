@@ -39,7 +39,13 @@ import {
 import { fetchImageDimensions } from "../services/mallIntelligence/imageDimensionService.js";
 import { validateRouteNodeCoordinate } from "../services/mallIntelligence/routeNodeCoordinateService.js";
 import { getMallHealth } from "../services/mallIntelligence/mallHealthService.js";
-import { generateSameFloorEdges, dijkstra } from "../services/mallIntelligence/routeEdgeService.js";
+import {
+  generateSameFloorEdges,
+  generateVerticalEdges,
+  validateFloorChangeNode,
+  dijkstra,
+  FLOOR_CHANGE_NODE_TYPES,
+} from "../services/mallIntelligence/routeEdgeService.js";
 
 const router = Router();
 
@@ -957,6 +963,83 @@ router.post("/route-node-coordinate", async (req: Request, res: Response) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// POST /admin/mall-intelligence/floor-change-node
+//
+// Create a single floor-change connector node (lift / escalator / stairs) in
+// mall_route_nodes_staged.  Vertical edges between connector nodes sharing the
+// same label + node_type are created the next time stage-route-edges is called.
+//
+// Validation (pure, delegated to routeEdgeService.validateFloorChangeNode):
+//   - admin required
+//   - mall_id, label, node_type, floor_label required
+//   - node_type ∈ { lift, escalator, stairs }
+//   - x_percent, y_percent ∈ [0, 100]
+// ─────────────────────────────────────────────────────────────────────────────
+
+router.post("/floor-change-node", async (req: Request, res: Response) => {
+  const admin = await requireAdmin(req, res);
+  if (!admin) return;
+
+  const { mall_id, label, node_type, floor_label, x_percent, y_percent } =
+    req.body as {
+      mall_id:     unknown;
+      label:       unknown;
+      node_type:   unknown;
+      floor_label: unknown;
+      x_percent:   unknown;
+      y_percent:   unknown;
+    };
+
+  const validation = validateFloorChangeNode({
+    mall_id, label, node_type, floor_label, x_percent, y_percent,
+  });
+  if (!validation.valid) {
+    return res.status(400).json({ error: validation.error });
+  }
+
+  const supabase = getSupabaseClient();
+  const { data: row, error: insertErr } = await supabase
+    .from("mall_route_nodes_staged")
+    .insert({
+      mall_id:            (mall_id as string).trim(),
+      staged_location_id: null,
+      node_type:          (node_type as string).trim(),
+      label:              (label as string).trim(),
+      floor_label:        (floor_label as string).trim(),
+      x_percent:          x_percent as number,
+      y_percent:          y_percent as number,
+      review_status:      "pending",
+    })
+    .select()
+    .single();
+
+  if (insertErr) {
+    return res.status(500).json({ error: insertErr.message });
+  }
+
+  const inserted = row as Record<string, unknown>;
+
+  fireAuditLog(admin.user.id, "mall_floor_change_node_created", {
+    mall_id:     inserted.mall_id,
+    node_id:     inserted.id,
+    node_type:   inserted.node_type,
+    label:       inserted.label,
+    floor_label: inserted.floor_label,
+  });
+
+  return res.json({
+    ok:          true,
+    node_id:     inserted.id,
+    mall_id:     inserted.mall_id,
+    label:       inserted.label,
+    node_type:   inserted.node_type,
+    floor_label: inserted.floor_label,
+    x_percent:   inserted.x_percent,
+    y_percent:   inserted.y_percent,
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // POST /admin/mall-intelligence/stage-route-edges
 //
 // Load all placed route nodes for the mall, generate same-floor walkway edges
@@ -996,8 +1079,11 @@ router.post("/stage-route-edges", async (req: Request, res: Response) => {
     node_type:   string;
   }>;
 
-  // Generate candidate edges
-  const { edges: candidates, warnings } = generateSameFloorEdges(nodes);
+  // Generate same-floor walkway edges + vertical floor-change edges
+  const { edges: sfEdges, warnings: sfWarn } = generateSameFloorEdges(nodes);
+  const { edges: vtEdges, warnings: vtWarn } = generateVerticalEdges(nodes);
+  const candidates = [...sfEdges, ...vtEdges];
+  const warnings   = [...sfWarn, ...vtWarn];
 
   if (candidates.length === 0) {
     return res.json({
