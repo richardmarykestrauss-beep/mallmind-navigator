@@ -38,6 +38,7 @@ import {
 } from "../services/mallIntelligence/geoDirectoryConnectorService.js";
 import { fetchImageDimensions } from "../services/mallIntelligence/imageDimensionService.js";
 import { validateRouteNodeCoordinate } from "../services/mallIntelligence/routeNodeCoordinateService.js";
+import { getMallHealth } from "../services/mallIntelligence/mallHealthService.js";
 
 const router = Router();
 
@@ -817,6 +818,24 @@ router.post("/import-geodirectory", async (req: Request, res: Response) => {
       hint:     "Try max_pages=1 and per_page=25 first.",
     });
   }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /admin/mall-intelligence/mall-health?mall_id=<uuid>
+//
+// Returns a structured readiness report for a single mall (or all malls when
+// mall_id is omitted).  READ-ONLY — no staging-table writes.
+// ─────────────────────────────────────────────────────────────────────────────
+
+router.get("/mall-health", async (req: Request, res: Response) => {
+  const admin = await requireAdmin(req, res);
+  if (!admin) return;
+
+  const mallId = (req.query.mall_id as string | undefined)?.trim() || null;
+  const supabase = getSupabaseClient();
+
+  const report = await getMallHealth(mallId, supabase);
+  return res.json(report);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
