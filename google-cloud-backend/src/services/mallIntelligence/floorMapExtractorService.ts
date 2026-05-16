@@ -5,11 +5,12 @@
  * the raw HTML of a mall directory or floor-map page.
  *
  * Strategies tried in order:
- *   1. JSON-LD schema.org (Store / LocalBusiness blocks)
- *   2. HTML data attributes  (data-unit, data-floor, data-store, …)
- *   3. Table-based directory (thead + tbody column detection)
- *   4. Div / list store cards (class-name heuristics)
- *   5. Text-line fallback    (regex on stripped text — lowest confidence)
+ *   1. JSON-LD schema.org       (Store / LocalBusiness blocks)
+ *   2. HTML data attributes     (data-unit, data-floor, data-store, …)
+ *   3. Table-based directory    (thead + tbody column detection)
+ *   4. Div / list store cards   (class-name heuristics)
+ *   5. Embedded script data     (window.__STATE__, __NEXT_DATA__, var stores=[…])
+ *   6. Text-line fallback       (regex on stripped text — lowest confidence)
  *
  * No external API calls. No DB access. Pure deterministic logic.
  * All results carry source_url for provenance tracing.
@@ -318,7 +319,231 @@ function extractFromCards(html: string, sourceUrl: string): StagedStoreLocation[
   return stores;
 }
 
-// ── Strategy 5: Text-line fallback ────────────────────────────────────────────
+// ── Strategy 5: Embedded script data ─────────────────────────────────────────
+//
+// Inspects <script> tag contents for common JS data-embedding patterns:
+//   • window.__INITIAL_STATE__ = { … }
+//   • window.__NEXT_DATA__     = { … }
+//   • var/const/let stores     = [ … ]
+//   • <script type="application/json"> blocks
+//   • WordPress wp_localize_script outputs
+//
+// Uses a character-level balanced-bracket scanner — no eval, no regex JSON.
+// Confidence: 0.60 (script data is reliable but field mapping is heuristic).
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Keys that indicate an array is a store directory. All lowercase for comparison. */
+const STORE_ARRAY_KEYS = new Set([
+  "stores", "tenants", "shops", "retailers", "directory",
+  "mallmap", "items", "listings", "storelist", "shoplist",
+  "tenantlist", "storedirectory", "storelistings", "tenantlistings",
+  "units", "retailers_list", "mallstores", "floordata",
+]);
+
+/** Keys used to pick shop name — checked in order, lowercased. */
+const NAME_KEYS  = [
+  "name", "storename", "shopname", "title", "retailer",
+  "store", "shop", "tenant", "tradingname", "brandname",
+];
+/** Keys used to pick unit number — checked in order, lowercased. */
+const UNIT_KEYS  = [
+  "unit", "unitnumber", "shopnumber", "shopno", "unit_number",
+  "storenumber", "code", "identifier", "shopcode", "tenantcode",
+  "store_number",
+];
+/** Keys used to pick floor label — checked in order, lowercased. */
+const FLOOR_KEYS = [
+  "floor", "level", "floorname", "levelname", "floorlevel",
+  "floor_label", "floornumber", "levelnumber",
+];
+/** Keys used to pick category — checked in order, lowercased. */
+const CAT_KEYS   = [
+  "category", "type", "storetype", "shoptype",
+  "classification", "sector", "tradecategory",
+];
+
+/** Build a lowercase-keyed copy of an object for fast case-insensitive lookups. */
+function lowerKeys(obj: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(obj)) out[k.toLowerCase()] = v;
+  return out;
+}
+
+/** Return the first truthy value whose key (lowercase) appears in `keys`. */
+function getFirst(lk: Record<string, unknown>, keys: string[]): string | undefined {
+  for (const k of keys) {
+    const v = lk[k];
+    if (v !== undefined && v !== null) {
+      const s = String(v).trim();
+      if (s) return s;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Extract the smallest balanced JSON object or array starting at `start`.
+ * Character-level scan: handles nested structures and quoted strings without
+ * executing JavaScript.  Returns null if extraction fails or cap is hit.
+ */
+function extractBalancedJson(text: string, start: number): string | null {
+  const opener = text[start];
+  if (opener !== "{" && opener !== "[") return null;
+
+  let depth    = 0;
+  let inString = false;
+  let escape   = false;
+  const cap    = Math.min(text.length, start + 400_000); // 400 kB guard
+
+  for (let i = start; i < cap; i++) {
+    const ch = text[i];
+    if (escape)   { escape = false; continue; }
+    if (inString) {
+      if (ch === "\\") escape = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"')             { inString = true; continue; }
+    if (ch === "{" || ch === "[") depth++;
+    else if (ch === "}" || ch === "]") {
+      depth--;
+      if (depth === 0) return text.slice(start, i + 1);
+    }
+  }
+  return null;
+}
+
+/**
+ * Recursively collect arrays that live under store-directory key names.
+ * Stops at depth 6 to avoid runaway traversal.
+ */
+function collectStoreArrays(obj: unknown, depth = 0): unknown[][] {
+  if (depth > 6) return [];
+  if (Array.isArray(obj)) return [obj]; // top-level array → treat as store list
+  if (typeof obj !== "object" || obj === null) return [];
+
+  const result: unknown[][] = [];
+  for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
+    if (Array.isArray(value) && (value as unknown[]).length > 0) {
+      if (STORE_ARRAY_KEYS.has(key.toLowerCase())) {
+        result.push(value as unknown[]);
+      }
+    } else if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+      result.push(...collectStoreArrays(value, depth + 1));
+    }
+  }
+  return result;
+}
+
+/**
+ * Convert a raw JS object (from parsed script JSON) into StagedStoreLocation entries.
+ * Uses case-insensitive key matching via the lowercased-key map.
+ */
+function parseStoreArray(
+  arr:       unknown[],
+  evidence:  string,
+  sourceUrl: string,
+): StagedStoreLocation[] {
+  const out: StagedStoreLocation[] = [];
+  for (const item of arr) {
+    if (typeof item !== "object" || item === null) continue;
+    const lk = lowerKeys(item as Record<string, unknown>);
+
+    const name = getFirst(lk, NAME_KEYS);
+    if (!name || isJunkName(name)) continue;
+
+    const unit  = getFirst(lk, UNIT_KEYS);
+    const floor = getFirst(lk, FLOOR_KEYS);
+    const cat   = getFirst(lk, CAT_KEYS);
+
+    const xRaw = lk.x_percent ?? lk.xpercent ?? lk.x_pos ?? lk.xpos;
+    const yRaw = lk.y_percent ?? lk.ypercent ?? lk.y_pos ?? lk.ypos;
+
+    out.push({
+      shop_name:         name.trim(),
+      unit_number:       unit ? unit.toUpperCase() : undefined,
+      floor_label:       floor ? normaliseFloor(floor) : undefined,
+      category:          cat ? cat.slice(0, 60) : undefined,
+      x_percent:         typeof xRaw === "number" ? xRaw : undefined,
+      y_percent:         typeof yRaw === "number" ? yRaw : undefined,
+      raw_evidence:      evidence.slice(0, 200),
+      confidence:        0.60,
+      extraction_method: "embedded_script_data",
+      source_url:        sourceUrl,
+    });
+  }
+  return out;
+}
+
+/** Patterns whose match ends just before the opening `{` or `[`. */
+const JS_INJECTION_PATTERNS: RegExp[] = [
+  // window.__ANYTHING__ =
+  /window\.__[A-Z_]+__\s*=/g,
+  // var/const/let <storeKeyword> =
+  /(?:var|const|let)\s+(?:stores?|tenants?|shops?|retailers?|directory|storeList|shopList|tenantList|mallData|mallStores?|floorData|storeDirectory|mapData|directoryData)\s*=/gi,
+  // WordPress localizeScript: var <anything> = {"stores": [...]}
+  /var\s+\w+\s*=\s*(?=\{)/g,
+];
+
+function extractEmbeddedScriptData(html: string, sourceUrl: string): StagedStoreLocation[] {
+  const stores: StagedStoreLocation[] = [];
+
+  // Collect all script tag contents (skip ld+json — handled by json_ld strategy)
+  const scriptRe = /<script(?![^>]*application\/ld\+json)[^>]*>([\s\S]*?)<\/script>/gi;
+  const scriptContents: string[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = scriptRe.exec(html)) !== null) {
+    const content = m[1]?.trim() ?? "";
+    if (content.length > 30) scriptContents.push(content);
+  }
+
+  for (const content of scriptContents) {
+    const tried = new Set<number>();
+
+    // ── Attempt 1: the whole script tag might be pure JSON ─────────────────
+    const firstCh = content[0];
+    if (firstCh === "{" || firstCh === "[") {
+      tried.add(0);
+      const jsonStr = extractBalancedJson(content, 0);
+      if (jsonStr) {
+        try {
+          const parsed = JSON.parse(jsonStr) as unknown;
+          for (const arr of collectStoreArrays(parsed)) {
+            stores.push(...parseStoreArray(arr, jsonStr, sourceUrl));
+          }
+        } catch { /* not valid JSON */ }
+      }
+    }
+
+    // ── Attempt 2: known injection patterns ───────────────────────────────
+    for (const pattern of JS_INJECTION_PATTERNS) {
+      pattern.lastIndex = 0;
+      while ((m = pattern.exec(content)) !== null) {
+        // Skip whitespace after the `=` to find the opening bracket
+        let start = m.index + m[0].length;
+        while (start < content.length && /\s/.test(content[start])) start++;
+        if (start >= content.length) continue;
+        const ch = content[start];
+        if (ch !== "{" && ch !== "[") continue;
+        if (tried.has(start)) continue;
+        tried.add(start);
+
+        const jsonStr = extractBalancedJson(content, start);
+        if (!jsonStr || jsonStr.length < 10) continue;
+        try {
+          const parsed = JSON.parse(jsonStr) as unknown;
+          for (const arr of collectStoreArrays(parsed)) {
+            stores.push(...parseStoreArray(arr, jsonStr, sourceUrl));
+          }
+        } catch { /* not valid JSON */ }
+      }
+    }
+  }
+
+  return stores;
+}
+
+// ── Strategy 6: Text-line fallback ────────────────────────────────────────────
 
 const LINE_UNIT_RE  = /\b([A-Z]{0,3}\d{1,4}[A-Z]?)\b/;
 const LINE_FLOOR_RE = /ground\s*floor|upper\s*level|lower\s*level|lower\s*ground|upper\s*ground|first\s*floor|second\s*floor|level\s*\d/i;
@@ -408,10 +633,11 @@ export function extractStoreLocations(input: ExtractMapInput): ExtractMapResult 
     }
   }
 
-  run("json_ld",          extractJsonLd);
-  run("data_attributes",  extractDataAttributes);
-  run("html_table",       extractFromTable);
-  run("html_card",        extractFromCards);
+  run("json_ld",             extractJsonLd);
+  run("data_attributes",     extractDataAttributes);
+  run("html_table",          extractFromTable);
+  run("html_card",           extractFromCards);
+  run("embedded_script_data", extractEmbeddedScriptData);
 
   // Text-line fallback only when all structured strategies found nothing
   if (all.length === 0) {

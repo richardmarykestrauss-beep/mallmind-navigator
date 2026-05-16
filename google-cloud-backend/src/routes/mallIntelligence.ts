@@ -28,6 +28,10 @@ import { scanMallWebsite }        from "../services/mallIntelligence/mallWebsite
 import { extractStoreLocations }  from "../services/mallIntelligence/floorMapExtractorService.js";
 import { verifyStoreLocation }    from "../services/mallIntelligence/googlePlacesVerificationService.js";
 import { buildRouteNodeCandidates } from "../services/mallIntelligence/mallRouteGraphStagingService.js";
+import {
+  detectGeoDirectoryApi,
+  importGeoDirectoryStoresForSource,
+} from "../services/mallIntelligence/geoDirectoryConnectorService.js";
 
 const router = Router();
 
@@ -322,10 +326,12 @@ router.post("/extract-map", async (req: Request, res: Response) => {
 
   warnings.push(...extractResult.warnings);
 
-  // Persist staged locations
-  const inserted: unknown[] = [];
+  // Persist staged locations — capture per-row insert errors
+  const inserted:     unknown[]  = [];
+  const insertErrors: string[]   = [];
+
   for (const store of extractResult.stores_extracted) {
-    const { data: row } = await supabase
+    const { data: row, error: insertErr } = await supabase
       .from("mall_store_locations_staged")
       .insert({
         mall_id:           src.mall_id ?? null,
@@ -345,13 +351,45 @@ router.post("/extract-map", async (req: Request, res: Response) => {
       })
       .select()
       .single();
-    if (row) inserted.push(row);
+
+    if (row) {
+      inserted.push(row);
+    }
+    if (insertErr) {
+      console.error("[mall-intelligence/extract-map] insert error:", insertErr.message, "store:", store.shop_name);
+      insertErrors.push(`${store.shop_name}: ${insertErr.message}`);
+    }
+  }
+
+  // Warn if stores were found but none were persisted
+  if (extractResult.total_found > 0 && inserted.length === 0) {
+    warnings.push(
+      `Extraction found ${extractResult.total_found} store(s) but all DB inserts failed — check staging table constraints`,
+    );
+  }
+
+  // If no stores found, check whether map assets exist for this source.
+  // If so, remind admin that visual/image extraction isn't implemented yet.
+  if (extractResult.total_found === 0) {
+    const { data: mapAssets } = await supabase
+      .from("mall_map_assets")
+      .select("id")
+      .eq("mall_source_id", source_id)
+      .limit(1);
+    if (mapAssets && mapAssets.length > 0) {
+      warnings.push(
+        "Map assets were discovered for this source, but visual/image extraction is not yet implemented. " +
+        "Consider manual data entry or OCR (Sprint 13).",
+      );
+    }
   }
 
   fireAuditLog(admin.user.id, "mall_map_extracted", {
     source_id,
     stores_found:      extractResult.total_found,
+    stores_staged:     inserted.length,
     strategies_tried:  extractResult.strategies_tried,
+    insert_errors:     insertErrors.length,
   });
 
   return res.json({
@@ -361,6 +399,7 @@ router.post("/extract-map", async (req: Request, res: Response) => {
     strategies_tried:  extractResult.strategies_tried,
     extraction_log:    extractResult.extraction_log,
     warnings,
+    insert_errors:     insertErrors,
   });
 });
 
@@ -632,6 +671,106 @@ router.get("/staged-locations", async (req: Request, res: Response) => {
     items:  data ?? [],
     total:  (data ?? []).length,
   });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /admin/mall-intelligence/detect-geodirectory
+//
+// Probe a mall source URL for the WordPress GeoDirectory REST API.
+// If confirmed, persists geodir_detected + geodir_api_url on the source record.
+// ─────────────────────────────────────────────────────────────────────────────
+
+router.post("/detect-geodirectory", async (req: Request, res: Response) => {
+  const admin = await requireAdmin(req, res);
+  if (!admin) return;
+
+  const { source_id } = req.body as { source_id: string };
+  if (!source_id?.trim()) {
+    return res.status(400).json({ error: "source_id is required" });
+  }
+
+  const supabase = getSupabaseClient();
+
+  // Load source
+  const { data: source, error: loadErr } = await supabase
+    .from("mall_sources")
+    .select("*")
+    .eq("id", source_id)
+    .maybeSingle();
+
+  if (loadErr || !source) {
+    return res.status(404).json({ error: "Source not found" });
+  }
+
+  const src = source as Record<string, unknown>;
+
+  // Run detection
+  const result = await detectGeoDirectoryApi(src.url as string);
+
+  // Persist outcome on the source record
+  await supabase
+    .from("mall_sources")
+    .update({
+      geodir_detected: result.detected,
+      geodir_api_url:  result.detected ? result.api_url : null,
+    })
+    .eq("id", source_id);
+
+  fireAuditLog(admin.user.id, "mall_source_geodir_detect", {
+    source_id,
+    detected:        result.detected,
+    api_url:         result.api_url,
+    stores_endpoint: result.stores_endpoint,
+  });
+
+  return res.json({
+    source_id,
+    detected:        result.detected,
+    api_url:         result.api_url,
+    stores_endpoint: result.stores_endpoint,
+    route_names:     result.route_names,
+    warnings:        result.warnings,
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /admin/mall-intelligence/import-geodirectory
+//
+// Fetch all pages from the GeoDirectory /stores endpoint for a source,
+// normalise records, and upsert into mall_store_locations_staged.
+// Deduplicates by (mall_source_id, geodir_store_id).
+// ─────────────────────────────────────────────────────────────────────────────
+
+router.post("/import-geodirectory", async (req: Request, res: Response) => {
+  const admin = await requireAdmin(req, res);
+  if (!admin) return;
+
+  const { source_id, max_pages } = req.body as {
+    source_id:  string;
+    max_pages?: number;
+  };
+
+  if (!source_id?.trim()) {
+    return res.status(400).json({ error: "source_id is required" });
+  }
+
+  const supabase = getSupabaseClient();
+
+  const result = await importGeoDirectoryStoresForSource(
+    source_id,
+    supabase,
+    max_pages,
+  );
+
+  fireAuditLog(admin.user.id, "mall_geodir_imported", {
+    source_id,
+    records_found:  result.records_found,
+    stores_staged:  result.stores_staged,
+    stores_updated: result.stores_updated,
+    pages_fetched:  result.pages_fetched,
+  });
+
+  return res.json(result);
 });
 
 export default router;

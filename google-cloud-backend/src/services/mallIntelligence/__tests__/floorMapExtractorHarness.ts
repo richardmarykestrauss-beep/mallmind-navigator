@@ -238,6 +238,154 @@ const tc6 = extractStoreLocations({ source_id: "test-6", source_url: SOURCE_URL,
 expect("total_found is 0",             tc6.total_found, 0);
 expectTruthy("has warning",            tc6.warnings.length > 0);
 
+// ── TC8: window.__INITIAL_STATE__ containing tenants array ───────────────────
+
+title("TC8: window.__INITIAL_STATE__ embedded script data — tenants array");
+const FIXTURE_INITIAL_STATE = `
+<!DOCTYPE html><html><head><title>Mall</title></head>
+<body>
+<script>
+window.__INITIAL_STATE__ = {
+  "mall": { "name": "Sample Mall" },
+  "tenants": [
+    { "name": "H&M", "unit": "G10", "floor": "Ground Floor", "category": "Fashion" },
+    { "name": "Woolworths Food", "unit": "U05", "floor": "Upper Level", "category": "Grocery" },
+    { "name": "CNA", "unit": "L08", "floor": "Lower Ground", "category": "Books" }
+  ]
+};
+</script>
+</body></html>
+`;
+const tc8 = extractStoreLocations({ source_id: "test-8", source_url: SOURCE_URL, html_content: FIXTURE_INITIAL_STATE });
+info(`strategies_tried: ${tc8.strategies_tried.join(", ")}`);
+info(`total_found: ${tc8.total_found}`);
+
+expectGte("total stores found", tc8.total_found, 3);
+expectTruthy("embedded_script_data strategy used", tc8.strategies_tried.includes("embedded_script_data"));
+
+const tc8HM       = tc8.stores_extracted.find((s) => s.shop_name === "H&M");
+const tc8Woolies  = tc8.stores_extracted.find((s) => s.shop_name.toLowerCase().includes("woolworths"));
+
+expectTruthy("H&M found",                 tc8HM);
+expect("H&M unit_number",                 tc8HM?.unit_number,  "G10");
+expect("H&M floor_label",                 tc8HM?.floor_label,  "Ground Floor");
+expect("H&M category",                    tc8HM?.category,     "Fashion");
+expectTruthy("Woolworths Food found",      tc8Woolies);
+expect("Woolworths Food unit_number",      tc8Woolies?.unit_number, "U05");
+expect("Woolworths Food floor_label",      tc8Woolies?.floor_label, "Upper Level");
+
+// ── TC9: var stores = [...] pattern ──────────────────────────────────────────
+
+title("TC9: var stores = [...] JS variable injection");
+const FIXTURE_VAR_STORES = `
+<!DOCTYPE html><html><head><title>Mall Stores</title></head>
+<body>
+<script type="text/javascript">
+var stores = [
+  { "name": "Sportscene", "unitNumber": "G22", "floor": "Ground Floor", "type": "Sport" },
+  { "name": "Truworths",  "unitNumber": "U14", "floor": "Upper Level",  "type": "Fashion" }
+];
+</script>
+</body></html>
+`;
+const tc9 = extractStoreLocations({ source_id: "test-9", source_url: SOURCE_URL, html_content: FIXTURE_VAR_STORES });
+info(`strategies_tried: ${tc9.strategies_tried.join(", ")}`);
+info(`total_found: ${tc9.total_found}`);
+
+expectGte("total stores found", tc9.total_found, 2);
+expectTruthy("embedded_script_data strategy used", tc9.strategies_tried.includes("embedded_script_data"));
+
+const tc9Sport   = tc9.stores_extracted.find((s) => s.shop_name.toLowerCase() === "sportscene");
+const tc9Truw    = tc9.stores_extracted.find((s) => s.shop_name.toLowerCase() === "truworths");
+
+expectTruthy("Sportscene found",    tc9Sport);
+expect("Sportscene unit_number",    tc9Sport?.unit_number, "G22");
+expect("Sportscene floor_label",    tc9Sport?.floor_label, "Ground Floor");
+expectTruthy("Truworths found",     tc9Truw);
+expect("Truworths unit_number",     tc9Truw?.unit_number, "U14");
+
+// ── TC10: __NEXT_DATA__ props.pageProps.stores ────────────────────────────────
+
+title("TC10: window.__NEXT_DATA__ props.pageProps.stores");
+const FIXTURE_NEXT_DATA = `
+<!DOCTYPE html><html><head><title>NextJS Mall</title></head>
+<body>
+<script id="__NEXT_DATA__" type="application/json">
+{
+  "props": {
+    "pageProps": {
+      "mallName": "NextJS Mall",
+      "stores": [
+        { "storeName": "Nike", "shopNumber": "G04", "level": "Ground Floor", "storeType": "Sport" },
+        { "storeName": "Cotton On", "shopNumber": "U11", "level": "Upper Level" }
+      ]
+    }
+  },
+  "page": "/mall-map"
+}
+</script>
+</body></html>
+`;
+const tc10 = extractStoreLocations({ source_id: "test-10", source_url: SOURCE_URL, html_content: FIXTURE_NEXT_DATA });
+info(`strategies_tried: ${tc10.strategies_tried.join(", ")}`);
+info(`total_found: ${tc10.total_found}`);
+
+expectGte("total stores found", tc10.total_found, 2);
+expectTruthy("embedded_script_data strategy used", tc10.strategies_tried.includes("embedded_script_data"));
+
+const tc10Nike     = tc10.stores_extracted.find((s) => s.shop_name.toLowerCase() === "nike");
+const tc10Cotton   = tc10.stores_extracted.find((s) => s.shop_name.toLowerCase().includes("cotton"));
+
+expectTruthy("Nike found",         tc10Nike);
+expect("Nike unit_number",         tc10Nike?.unit_number, "G04");
+expect("Nike floor_label",         tc10Nike?.floor_label, "Ground Floor");
+expect("Nike category",            tc10Nike?.category,    "Sport");
+expectTruthy("Cotton On found",    tc10Cotton);
+expect("Cotton On unit_number",    tc10Cotton?.unit_number, "U11");
+
+// ── TC11: <script type="application/json"> with shops array ──────────────────
+
+title("TC11: <script type=application/json> shops array");
+const FIXTURE_JSON_SCRIPT = `
+<!DOCTYPE html><html><head><title>Mall JSON</title></head>
+<body>
+<script type="application/json" id="mall-data">
+{
+  "shops": [
+    { "name": "Edgars", "unit": "G33", "floor": "Ground Floor", "category": "Fashion" },
+    { "name": "Jet",    "unit": "U07", "floor": "Upper Level",  "category": "Fashion" }
+  ]
+}
+</script>
+</body></html>
+`;
+const tc11 = extractStoreLocations({ source_id: "test-11", source_url: SOURCE_URL, html_content: FIXTURE_JSON_SCRIPT });
+info(`strategies_tried: ${tc11.strategies_tried.join(", ")}`);
+info(`total_found: ${tc11.total_found}`);
+
+expectGte("total stores found", tc11.total_found, 2);
+expectTruthy("embedded_script_data strategy used", tc11.strategies_tried.includes("embedded_script_data"));
+
+const tc11Edgars = tc11.stores_extracted.find((s) => s.shop_name.toLowerCase() === "edgars");
+expectTruthy("Edgars found",      tc11Edgars);
+expect("Edgars unit_number",      tc11Edgars?.unit_number, "G33");
+expect("Edgars floor_label",      tc11Edgars?.floor_label, "Ground Floor");
+
+// ── TC12: No scripts → warning path ──────────────────────────────────────────
+
+title("TC12: No structured data → warning in extraction_log");
+const FIXTURE_NO_SCRIPTS = `
+<!DOCTYPE html><html><head><title>Visual Floor Map</title></head>
+<body>
+<div id="map"><img src="floormap.jpg" /></div>
+<p>Please visit the information desk for store locations.</p>
+</body></html>
+`;
+const tc12a = extractStoreLocations({ source_id: "test-12", source_url: SOURCE_URL, html_content: FIXTURE_NO_SCRIPTS });
+expect("total_found is 0",    tc12a.total_found, 0);
+expectTruthy("has warning",   tc12a.warnings.length > 0);
+info(`warnings: ${tc12a.warnings.join("; ")}`);
+
 // ── TC7: Floor normalisation check ────────────────────────────────────────────
 
 title("TC7: Floor labels normalised correctly");

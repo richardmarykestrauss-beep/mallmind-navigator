@@ -22,11 +22,17 @@ import {
   stageMallRouteNodes,
   getMallIntelligenceAssets,
   getMallStagedLocations,
+  detectGeoDirectoryForSource,
+  importGeoDirectoryStores,
   type MallSource,
   type MallMapAsset,
   type MallStagedStoreLocation,
   type MallSourceType,
   type MallStagedReviewStatus,
+  type ExtractMapResult,
+  type GeoDirectoryDetectResult,
+  type GeoDirectoryImportResult,
+  type GeoDirectorySampleStore,
 } from "@/lib/googleBackendClient";
 import { cn } from "@/lib/utils";
 import {
@@ -126,18 +132,54 @@ function SourceRow({
   token,
   onScan,
   onExtract,
+  onImportGeoDir,
 }: {
-  source:    MallSource;
-  token:     string;
-  onScan:    (s: MallSource) => void;
-  onExtract: (s: MallSource) => void;
+  source:         MallSource;
+  token:          string;
+  onScan:         (s: MallSource) => void;
+  onExtract:      (s: MallSource) => void;
+  onImportGeoDir: (s: MallSource) => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded,        setExpanded]        = useState(false);
+  const [geoDirLoading,   setGeoDirLoading]   = useState(false);
+  const [geoDirDetected,  setGeoDirDetected]  = useState<GeoDirectoryDetectResult | null>(
+    // Pre-populate from persisted DB fields if already detected
+    source.geodir_detected
+      ? {
+          source_id:       source.id,
+          detected:        true,
+          api_url:         source.geodir_api_url ?? "",
+          stores_endpoint: source.geodir_api_url ? `${source.geodir_api_url}/stores` : "",
+          route_names:     [],
+          warnings:        [],
+        }
+      : null,
+  );
 
   const isStaleDays = source.last_scanned_at
     ? Math.floor((Date.now() - new Date(source.last_scanned_at).getTime()) / 86_400_000)
     : null;
   const isStale = isStaleDays !== null && isStaleDays > 30;
+
+  async function handleDetect() {
+    if (!token) return;
+    setGeoDirLoading(true);
+    try {
+      const result = await detectGeoDirectoryForSource(source.id, token);
+      setGeoDirDetected(result);
+    } catch {
+      setGeoDirDetected({
+        source_id:       source.id,
+        detected:        false,
+        api_url:         "",
+        stores_endpoint: "",
+        route_names:     [],
+        warnings:        ["Detection request failed"],
+      });
+    } finally {
+      setGeoDirLoading(false);
+    }
+  }
 
   return (
     <div className="rounded border bg-background text-xs">
@@ -163,6 +205,11 @@ function SourceRow({
         )}>
           {SCAN_STATUS_LABELS[source.scan_status] ?? source.scan_status}
         </span>
+        {(geoDirDetected?.detected || source.geodir_detected) && (
+          <span className="shrink-0 rounded bg-blue-100 px-1.5 py-0.5 text-[10px] text-blue-800 font-medium">
+            GeoDir ✓
+          </span>
+        )}
         <ConfidenceBadge value={source.confidence} />
         {isStale && (
           <span className="flex items-center gap-0.5 text-[10px] text-orange-600">
@@ -183,6 +230,8 @@ function SourceRow({
               Last scanned: {new Date(source.last_scanned_at).toLocaleString("en-ZA")}
             </p>
           )}
+
+          {/* Action buttons */}
           <div className="flex flex-wrap gap-1.5 mt-1">
             <button
               onClick={() => onScan(source)}
@@ -196,6 +245,24 @@ function SourceRow({
             >
               <Search className="h-3 w-3" /> Extract Stores
             </button>
+            <button
+              onClick={() => void handleDetect()}
+              disabled={geoDirLoading}
+              className="flex items-center gap-1 rounded border px-2 py-1 text-[10px] hover:bg-muted transition-colors disabled:opacity-50"
+            >
+              {geoDirLoading
+                ? <Loader2 className="h-3 w-3 animate-spin" />
+                : <Globe className="h-3 w-3" />}
+              Detect GeoDirectory
+            </button>
+            {(geoDirDetected?.detected || source.geodir_detected) && (
+              <button
+                onClick={() => onImportGeoDir(source)}
+                className="flex items-center gap-1 rounded border border-blue-200 bg-blue-50 px-2 py-1 text-[10px] text-blue-800 hover:bg-blue-100 transition-colors"
+              >
+                <Plus className="h-3 w-3" /> Import GeoDirectory Stores
+              </button>
+            )}
             <a
               href={source.url}
               target="_blank"
@@ -205,6 +272,34 @@ function SourceRow({
               <ExternalLink className="h-3 w-3" /> Open URL
             </a>
           </div>
+
+          {/* GeoDirectory detection result */}
+          {geoDirDetected && (
+            <div className={cn(
+              "rounded border p-2 text-[10px] space-y-0.5 mt-1",
+              geoDirDetected.detected
+                ? "border-blue-200 bg-blue-50"
+                : "border-amber-200 bg-amber-50",
+            )}>
+              {geoDirDetected.detected ? (
+                <>
+                  <p className="font-semibold text-blue-800">✓ GeoDirectory API confirmed</p>
+                  <p className="text-blue-700 font-mono break-all">{geoDirDetected.stores_endpoint}</p>
+                  {geoDirDetected.route_names.length > 0 && (
+                    <p className="text-blue-600">
+                      Routes: {geoDirDetected.route_names.slice(0, 4).join(", ")}
+                      {geoDirDetected.route_names.length > 4 ? ` +${geoDirDetected.route_names.length - 4} more` : ""}
+                    </p>
+                  )}
+                </>
+              ) : (
+                <p className="text-amber-800">
+                  ✗ GeoDirectory API not detected
+                  {geoDirDetected.warnings[0] ? ` — ${geoDirDetected.warnings[0]}` : ""}
+                </p>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -400,10 +495,12 @@ export default function MallIntelligenceTab({ token }: MallIntelligenceTabProps)
   const [stagedLocs,        setStagedLocs]        = useState<MallStagedStoreLocation[]>([]);
   const [statusFilter,      setStatusFilter]      = useState<string>("all");
 
-  const [loading,           setLoading]           = useState(false);
-  const [actionLoading,     setActionLoading]     = useState<string | null>(null);
-  const [error,             setError]             = useState<string | null>(null);
-  const [lastAction,        setLastAction]        = useState<string | null>(null);
+  const [loading,             setLoading]             = useState(false);
+  const [actionLoading,       setActionLoading]       = useState<string | null>(null);
+  const [error,               setError]               = useState<string | null>(null);
+  const [lastAction,          setLastAction]           = useState<string | null>(null);
+  const [extractResult,       setExtractResult]       = useState<ExtractMapResult | null>(null);
+  const [geoDirImportResult,  setGeoDirImportResult]  = useState<GeoDirectoryImportResult | null>(null);
 
   // ── Load malls ──────────────────────────────────────────────────────────────
 
@@ -489,9 +586,28 @@ export default function MallIntelligenceTab({ token }: MallIntelligenceTabProps)
     if (!token) return;
     setActionLoading(`extract-${source.id}`);
     setError(null);
+    setExtractResult(null);
+    setLastAction(null);
     try {
       const result = await extractMallMapStores(source.id, token);
-      setLastAction(`Extraction complete: ${result.stores_staged} stores staged`);
+      setExtractResult(result);
+      await loadData();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setActionLoading(null);
+    }
+  }
+
+  async function handleImportGeoDir(source: MallSource) {
+    if (!token) return;
+    setActionLoading(`geodir-import-${source.id}`);
+    setError(null);
+    setGeoDirImportResult(null);
+    setLastAction(null);
+    try {
+      const result = await importGeoDirectoryStores(source.id, token);
+      setGeoDirImportResult(result);
       await loadData();
     } catch (e) {
       setError(String(e));
@@ -617,6 +733,190 @@ export default function MallIntelligenceTab({ token }: MallIntelligenceTabProps)
         </div>
       )}
 
+      {/* ── Extraction result panel ────────────────────────────────────────── */}
+      {extractResult && !error && (
+        <div className={cn(
+          "rounded border px-3 py-3 text-xs space-y-2",
+          extractResult.total_found === 0
+            ? "border-amber-200 bg-amber-50"
+            : "border-green-200 bg-green-50",
+        )}>
+          {/* Header row */}
+          <div className="flex items-center justify-between">
+            <span className="font-semibold">
+              {extractResult.total_found === 0
+                ? "⚠ No stores extracted"
+                : "✓ Extraction complete"}
+            </span>
+            <button
+              onClick={() => setExtractResult(null)}
+              className="text-[10px] text-muted-foreground hover:text-foreground"
+              aria-label="Dismiss"
+            >
+              ✕
+            </button>
+          </div>
+
+          {/* Stats row */}
+          <div className="flex flex-wrap gap-3 text-[10px]">
+            <span><b>{extractResult.total_found}</b> store(s) found</span>
+            <span><b>{extractResult.stores_staged}</b> staged to DB</span>
+            {extractResult.strategies_tried.length > 0 && (
+              <span>
+                strategies:{" "}
+                <b className="font-mono">{extractResult.strategies_tried.join(", ")}</b>
+              </span>
+            )}
+          </div>
+
+          {/* JS-rendering amber guidance */}
+          {extractResult.total_found === 0 && (
+            <p className="text-[10px] text-amber-800">
+              No stores were extracted from the HTML. This source may require JavaScript
+              rendering or visual map extraction (OCR).
+            </p>
+          )}
+
+          {/* Warnings */}
+          {extractResult.warnings.length > 0 && (
+            <div className="space-y-0.5">
+              {extractResult.warnings.map((w, i) => (
+                <p key={i} className="flex items-start gap-1 text-[10px] text-amber-700">
+                  <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+                  {w}
+                </p>
+              ))}
+            </div>
+          )}
+
+          {/* Insert errors */}
+          {extractResult.insert_errors && extractResult.insert_errors.length > 0 && (
+            <div className="space-y-0.5">
+              <p className="text-[10px] font-semibold text-red-700">
+                Insert errors ({extractResult.insert_errors.length}):
+              </p>
+              {extractResult.insert_errors.slice(0, 5).map((e, i) => (
+                <p key={i} className="font-mono text-[10px] text-red-600">{e}</p>
+              ))}
+              {extractResult.insert_errors.length > 5 && (
+                <p className="text-[10px] text-muted-foreground">
+                  …and {extractResult.insert_errors.length - 5} more
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Extraction log (collapsible) */}
+          {extractResult.extraction_log.length > 0 && (
+            <details className="text-[10px]">
+              <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+                Extraction log ({extractResult.extraction_log.length} entries)
+              </summary>
+              <div className="mt-1 space-y-0.5 font-mono text-muted-foreground">
+                {extractResult.extraction_log.map((l, i) => (
+                  <p key={i}>{l}</p>
+                ))}
+              </div>
+            </details>
+          )}
+        </div>
+      )}
+
+      {/* ── GeoDirectory import result panel ──────────────────────────────── */}
+      {geoDirImportResult && !error && (
+        <div className={cn(
+          "rounded border px-3 py-3 text-xs space-y-2",
+          geoDirImportResult.records_found === 0
+            ? "border-amber-200 bg-amber-50"
+            : "border-blue-200 bg-blue-50",
+        )}>
+          {/* Header */}
+          <div className="flex items-center justify-between">
+            <span className="font-semibold text-blue-900">
+              {geoDirImportResult.detected
+                ? geoDirImportResult.records_found === 0
+                  ? "⚠ GeoDirectory API detected — no records returned"
+                  : `✓ GeoDirectory import complete`
+                : "✗ GeoDirectory API not detected"}
+            </span>
+            <button
+              onClick={() => setGeoDirImportResult(null)}
+              className="text-[10px] text-muted-foreground hover:text-foreground"
+              aria-label="Dismiss"
+            >
+              ✕
+            </button>
+          </div>
+
+          {/* Stats */}
+          <div className="flex flex-wrap gap-3 text-[10px]">
+            <span><b>{geoDirImportResult.records_found}</b> records fetched</span>
+            <span><b>{geoDirImportResult.stores_staged}</b> newly staged</span>
+            <span><b>{geoDirImportResult.stores_updated}</b> updated</span>
+            <span><b>{geoDirImportResult.pages_fetched}</b> page(s)</span>
+          </div>
+
+          {/* API endpoint info */}
+          {geoDirImportResult.stores_endpoint && (
+            <p className="font-mono text-[10px] text-blue-700 break-all">
+              {geoDirImportResult.stores_endpoint}
+            </p>
+          )}
+
+          {/* Warnings */}
+          {geoDirImportResult.warnings.length > 0 && (
+            <div className="space-y-0.5">
+              {geoDirImportResult.warnings.slice(0, 5).map((w, i) => (
+                <p key={i} className="flex items-start gap-1 text-[10px] text-amber-700">
+                  <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+                  {w}
+                </p>
+              ))}
+              {geoDirImportResult.warnings.length > 5 && (
+                <p className="text-[10px] text-muted-foreground">
+                  …and {geoDirImportResult.warnings.length - 5} more
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Insert errors */}
+          {geoDirImportResult.insert_errors.length > 0 && (
+            <div className="space-y-0.5">
+              <p className="text-[10px] font-semibold text-red-700">
+                Errors ({geoDirImportResult.insert_errors.length}):
+              </p>
+              {geoDirImportResult.insert_errors.slice(0, 4).map((e, i) => (
+                <p key={i} className="font-mono text-[10px] text-red-600">{e}</p>
+              ))}
+            </div>
+          )}
+
+          {/* Sample stores */}
+          {geoDirImportResult.sample_stores.length > 0 && (
+            <div className="space-y-1">
+              <p className="text-[10px] font-semibold text-blue-800">
+                Sample stores (first {geoDirImportResult.sample_stores.length}):
+              </p>
+              {geoDirImportResult.sample_stores.map((s: GeoDirectorySampleStore, i) => (
+                <div key={i} className="rounded border border-blue-100 bg-white px-2 py-1 text-[10px] space-y-0.5">
+                  <p className="font-medium truncate">{s.shop_name}</p>
+                  <div className="flex flex-wrap gap-2 text-muted-foreground">
+                    {s.unit_number  && <span>Unit: <b>{s.unit_number}</b></span>}
+                    {s.floor_label  && <span>Floor: <b>{s.floor_label}</b></span>}
+                    {s.category     && <span>{s.category}</span>}
+                    <span className="ml-auto"><ConfidenceBadge value={s.confidence} /></span>
+                  </div>
+                  {s.parking_hint   && <p className="text-muted-foreground">🅿 {s.parking_hint}</p>}
+                  {s.entrance_hint  && <p className="text-muted-foreground">🚪 Entrance {s.entrance_hint}</p>}
+                  {s.road_name      && <p className="text-muted-foreground">📍 {s.road_name}</p>}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ── Section 1: Source Discovery ───────────────────────────────────── */}
       <Section
         title="Source Discovery"
@@ -681,6 +981,7 @@ export default function MallIntelligenceTab({ token }: MallIntelligenceTabProps)
                 token={token ?? ""}
                 onScan={handleScan}
                 onExtract={handleExtract}
+                onImportGeoDir={handleImportGeoDir}
               />
             ))}
           </div>

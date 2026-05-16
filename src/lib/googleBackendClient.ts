@@ -1557,19 +1557,23 @@ export type MallSourceType =
 export type MallStagedReviewStatus = "pending" | "accepted" | "rejected" | "flagged";
 
 export interface MallSource {
-  id:              string;
-  mall_id?:        string;
-  source_type:     MallSourceType;
-  url:             string;
-  page_title?:     string;
-  discovered_at:   string;
+  id:               string;
+  mall_id?:         string;
+  source_type:      MallSourceType;
+  url:              string;
+  page_title?:      string;
+  discovered_at:    string;
   last_scanned_at?: string;
-  is_active:       boolean;
-  scan_status:     string;
-  confidence:      number;
-  notes?:          string;
-  created_by?:     string;
-  created_at:      string;
+  is_active:        boolean;
+  scan_status:      string;
+  confidence:       number;
+  notes?:           string;
+  created_by?:      string;
+  created_at:       string;
+  /** Set by /detect-geodirectory — true when GeoDirectory API confirmed. */
+  geodir_detected?: boolean;
+  /** Base URL of the GeoDirectory API when detected. */
+  geodir_api_url?:  string;
 }
 
 export interface MallMapAsset {
@@ -1610,6 +1614,17 @@ export interface MallStagedStoreLocation {
   reviewed_at?:             string;
   notes?:                   string;
   created_at:               string;
+  // GeoDirectory enrichment columns (migration 014)
+  geodir_store_id?:         number;
+  phone?:                   string;
+  website?:                 string;
+  latitude?:                number;
+  longitude?:               number;
+  parking_hint?:            string;
+  entrance_hint?:           string;
+  road_name?:               string;
+  source_modified_at?:      string;
+  image_url?:               string;
 }
 
 export interface DiscoverSourcesResult {
@@ -1643,6 +1658,8 @@ export interface ExtractMapResult {
   strategies_tried: string[];
   extraction_log:   string[];
   warnings:         string[];
+  /** Per-row Supabase insert errors, if any stores failed to persist. */
+  insert_errors?:   string[];
 }
 
 export interface VerifyStoreResult {
@@ -1776,6 +1793,91 @@ export async function getMallStagedLocations(
   const qs = params.toString() ? `?${params.toString()}` : "";
   return getAuthenticated<StagedLocationsResult>(
     `/admin/mall-intelligence/staged-locations${qs}`,
+    accessToken,
+  );
+}
+
+// ── GeoDirectory Connector types (Sprint 12C.2) ───────────────────────────────
+
+export interface GeoDirectoryDetectResult {
+  source_id:       string;
+  detected:        boolean;
+  api_url:         string;
+  stores_endpoint: string;
+  route_names:     string[];
+  warnings:        string[];
+}
+
+/** Minimal store shape returned in sample_stores[] of the import response. */
+export interface GeoDirectorySampleStore {
+  geodir_store_id: number;
+  shop_name:       string;
+  unit_number?:    string;
+  floor_label?:    string;
+  category?:       string;
+  source_url:      string;
+  confidence:      number;
+  parking_hint?:   string;
+  entrance_hint?:  string;
+  road_name?:      string;
+  phone?:          string;
+  website?:        string;
+  latitude?:       number;
+  longitude?:      number;
+  warnings:        string[];
+}
+
+export interface GeoDirectoryImportResult {
+  source_id:       string;
+  detected:        boolean;
+  api_url:         string;
+  stores_endpoint: string;
+  pages_fetched:   number;
+  records_found:   number;
+  stores_staged:   number;
+  stores_updated:  number;
+  insert_errors:   string[];
+  warnings:        string[];
+  sample_stores:   GeoDirectorySampleStore[];
+}
+
+// ── GeoDirectory Connector public API ─────────────────────────────────────────
+
+/**
+ * POST /admin/mall-intelligence/detect-geodirectory
+ *
+ * Probe a mall source for the WordPress GeoDirectory REST API.
+ * Persists geodir_detected + geodir_api_url on the source if confirmed.
+ * Requires admin bearer token.
+ */
+export async function detectGeoDirectoryForSource(
+  sourceId:    string,
+  accessToken: string,
+): Promise<GeoDirectoryDetectResult> {
+  if (!BASE_URL) throw new Error("VITE_GOOGLE_BACKEND_URL is not configured");
+  return postAuthWithResponse<GeoDirectoryDetectResult>(
+    "/admin/mall-intelligence/detect-geodirectory",
+    { source_id: sourceId },
+    accessToken,
+  );
+}
+
+/**
+ * POST /admin/mall-intelligence/import-geodirectory
+ *
+ * Fetch all GeoDirectory store pages, normalise records, and upsert into
+ * mall_store_locations_staged.  Deduplicates by geodir_store_id.
+ * Requires admin bearer token.
+ */
+export async function importGeoDirectoryStores(
+  sourceId:    string,
+  accessToken: string,
+  maxPages?:   number,
+): Promise<GeoDirectoryImportResult> {
+  if (!BASE_URL) throw new Error("VITE_GOOGLE_BACKEND_URL is not configured");
+  return postAuthWithResponse<GeoDirectoryImportResult>(
+    "/admin/mall-intelligence/import-geodirectory",
+    { source_id: sourceId, max_pages: maxPages },
     accessToken,
   );
 }
