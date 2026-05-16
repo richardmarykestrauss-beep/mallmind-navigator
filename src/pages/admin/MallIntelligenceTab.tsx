@@ -26,6 +26,7 @@ import {
   importGeoDirectoryStores,
   getMallRouteNodes,
   placeRouteNodeCoordinate,
+  getMallHealthReport,
   GeoDirectoryImportError,
   type MallSource,
   type MallMapAsset,
@@ -37,6 +38,8 @@ import {
   type GeoDirectoryImportResult,
   type GeoDirectorySampleStore,
   type MallRouteNode,
+  type MallHealthReport,
+  type MallReadinessStatus,
 } from "@/lib/googleBackendClient";
 import { cn } from "@/lib/utils";
 import {
@@ -100,6 +103,188 @@ function ConfidenceBadge({ value }: { value: number }) {
   const pct   = Math.round(value * 100);
   const color = pct >= 75 ? "text-green-700" : pct >= 50 ? "text-yellow-700" : "text-red-700";
   return <span className={cn("text-[10px] font-medium tabular-nums", color)}>{pct}%</span>;
+}
+
+// ── Sub-component: Mall Health Panel ──────────────────────────────────────────
+
+const READINESS_CONFIG: Record<MallReadinessStatus, {
+  bg:     string;
+  border: string;
+  badge:  string;
+  dot:    string;
+  label:  string;
+}> = {
+  ready:   { bg: "bg-green-50",  border: "border-green-200",  badge: "bg-green-100  text-green-800",  dot: "bg-green-500",  label: "Ready"   },
+  partial: { bg: "bg-amber-50",  border: "border-amber-200",  badge: "bg-amber-100  text-amber-800",  dot: "bg-amber-400",  label: "Partial" },
+  blocked: { bg: "bg-red-50",    border: "border-red-200",    badge: "bg-red-100    text-red-800",    dot: "bg-red-500",    label: "Blocked" },
+};
+
+function StatCell({ label, value, accent }: { label: string; value: number | string; accent?: string }) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className={cn("text-base font-bold tabular-nums leading-none", accent ?? "text-foreground")}>
+        {value}
+      </span>
+      <span className="text-[10px] text-muted-foreground leading-tight">{label}</span>
+    </div>
+  );
+}
+
+function MallHealthPanel({
+  token,
+  mallId,
+}: {
+  token:  string;
+  mallId: string | undefined;
+}) {
+  const [report,  setReport]  = useState<MallHealthReport | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error,   setError]   = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    if (!token) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const r = await getMallHealthReport(mallId || undefined, token);
+      setReport(r);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setLoading(false);
+    }
+  }, [token, mallId]);
+
+  // Auto-load on mount and when mallId changes
+  useEffect(() => { void load(); }, [load]);
+
+  const cfg = report ? READINESS_CONFIG[report.readiness_status] : null;
+
+  return (
+    <div className="space-y-3">
+      {/* Toolbar */}
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => void load()}
+          disabled={loading}
+          className="flex items-center gap-1.5 rounded border px-2.5 py-1.5 text-xs hover:bg-muted disabled:opacity-50 transition-colors"
+        >
+          {loading
+            ? <Loader2 className="h-3 w-3 animate-spin" />
+            : <RefreshCw className="h-3 w-3" />}
+          {loading ? "Checking…" : "Run Health Check"}
+        </button>
+        {report && (
+          <span className="text-[10px] text-muted-foreground">
+            Last run: {new Date(report.generated_at).toLocaleTimeString("en-ZA")}
+          </span>
+        )}
+      </div>
+
+      {/* Error */}
+      {error && (
+        <div className="flex items-start gap-2 rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+          <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+          {error}
+        </div>
+      )}
+
+      {/* Diagnostic card */}
+      {report && cfg && (
+        <div className={cn("rounded-lg border p-4 space-y-4", cfg.border, cfg.bg)}>
+
+          {/* ── Header: readiness badge + action ──────────────────────── */}
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold", cfg.badge)}>
+                <span className={cn("h-2 w-2 rounded-full", cfg.dot)} />
+                {cfg.label}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {mallId ? "This mall" : "All malls"}
+              </span>
+            </div>
+            <p className={cn(
+              "text-xs font-medium rounded px-2 py-1 max-w-sm",
+              report.readiness_status === "ready"
+                ? "text-green-800 bg-green-100/60"
+                : report.readiness_status === "partial"
+                  ? "text-amber-800 bg-amber-100/60"
+                  : "text-red-800 bg-red-100/60",
+            )}>
+              → {report.next_recommended_action}
+            </p>
+          </div>
+
+          {/* ── Stats grid ────────────────────────────────────────────── */}
+          <div className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-3 lg:grid-cols-4">
+            <StatCell label="Staged stores"     value={report.total_staged_stores} />
+            <StatCell label="Accepted"          value={report.accepted_stores}
+              accent={report.accepted_stores === 0 ? "text-red-600" : "text-green-700"} />
+            <StatCell label="With floor label"  value={report.stores_with_floor_label}
+              accent={report.stores_missing_floor_label > 0 ? "text-amber-600" : "text-green-700"} />
+            <StatCell label="Missing floor"     value={report.stores_missing_floor_label}
+              accent={report.stores_missing_floor_label > 0 ? "text-amber-600" : "text-green-700"} />
+            <StatCell label="With coords"       value={report.stores_with_coordinates} />
+            <StatCell label="Accepted missing coords"
+              value={report.accepted_stores_missing_coords}
+              accent={report.accepted_stores_missing_coords > 0 ? "text-red-600" : "text-green-700"} />
+            <StatCell label="Route nodes"       value={report.route_nodes_staged}
+              accent={report.route_nodes_staged === 0 ? "text-red-600" : undefined} />
+            <StatCell label="Nodes placed"      value={`${report.route_nodes_with_coordinates}/${report.route_nodes_staged}`}
+              accent={report.route_nodes_with_coordinates < report.route_nodes_staged ? "text-amber-600" : "text-green-700"} />
+            <StatCell label="Map assets"        value={report.map_assets_total} />
+            <StatCell label="Image assets"      value={report.map_assets_image} />
+            <StatCell label="Missing dims"      value={report.map_assets_image_missing_dims}
+              accent={report.map_assets_image_missing_dims > 0 ? "text-amber-600" : "text-green-700"} />
+            <StatCell label="Duplicate URLs"    value={report.duplicate_asset_url_groups}
+              accent={report.duplicate_asset_url_groups > 0 ? "text-amber-600" : undefined} />
+            <StatCell label="Sources linked"    value={report.sources_linked} />
+            <StatCell label="Sources no mall"   value={report.sources_missing_mall_id}
+              accent={report.sources_missing_mall_id > 0 ? "text-amber-600" : undefined} />
+          </div>
+
+          {/* ── Stores by status breakdown ───────────────────────────── */}
+          {Object.keys(report.stores_by_status).length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {Object.entries(report.stores_by_status)
+                .sort(([, a], [, b]) => b - a)
+                .map(([status, count]) => (
+                  <span
+                    key={status}
+                    className={cn(
+                      "rounded px-2 py-0.5 text-[10px] font-medium",
+                      REVIEW_STATUS_COLORS[status] ?? "bg-muted text-muted-foreground",
+                    )}
+                  >
+                    {status}: {count}
+                  </span>
+                ))}
+            </div>
+          )}
+
+          {/* ── Warnings ─────────────────────────────────────────────── */}
+          {report.warnings.length > 0 && (
+            <div className="space-y-1">
+              {report.warnings.map((w, i) => (
+                <p key={i} className="flex items-start gap-1.5 text-[10px] text-amber-700">
+                  <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+                  {w}
+                </p>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Empty state */}
+      {!report && !loading && !error && (
+        <p className="text-xs text-muted-foreground text-center py-4">
+          Click "Run Health Check" to generate the readiness report.
+        </p>
+      )}
+    </div>
+  );
 }
 
 // ── Sub-component: Section wrapper ────────────────────────────────────────────
@@ -1344,6 +1529,19 @@ export default function MallIntelligenceTab({ token }: MallIntelligenceTabProps)
           )}
         </div>
       )}
+
+      {/* ── Section 0: Mall Health ────────────────────────────────────────── */}
+      <Section
+        title="Mall Health"
+        icon={<Activity className="h-3.5 w-3.5" />}
+        action={
+          <span className="text-[10px] text-muted-foreground">
+            {selectedMallId ? "Selected mall" : "All malls"}
+          </span>
+        }
+      >
+        <MallHealthPanel token={token ?? ""} mallId={selectedMallId || undefined} />
+      </Section>
 
       {/* ── Section 1: Source Discovery ───────────────────────────────────── */}
       <Section

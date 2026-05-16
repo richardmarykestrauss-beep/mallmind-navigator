@@ -1797,6 +1797,33 @@ export async function getMallStagedLocations(
   );
 }
 
+// ── Mall Health types (Sprint 12D.3) ─────────────────────────────────────────
+
+export type MallReadinessStatus = "ready" | "partial" | "blocked";
+
+export interface MallHealthReport {
+  mall_id:                        string | null;
+  generated_at:                   string;
+  total_staged_stores:            number;
+  stores_by_status:               Record<string, number>;
+  stores_with_floor_label:        number;
+  stores_missing_floor_label:     number;
+  stores_with_coordinates:        number;
+  accepted_stores:                number;
+  accepted_stores_missing_coords: number;
+  route_nodes_staged:             number;
+  route_nodes_with_coordinates:   number;
+  map_assets_total:               number;
+  map_assets_image:               number;
+  map_assets_image_missing_dims:  number;
+  duplicate_asset_url_groups:     number;
+  sources_linked:                 number;
+  sources_missing_mall_id:        number;
+  warnings:                       string[];
+  readiness_status:               MallReadinessStatus;
+  next_recommended_action:        string;
+}
+
 // ── Route Node Coordinate types (Sprint 12D.2) ───────────────────────────────
 
 export interface MallRouteNode {
@@ -1873,6 +1900,30 @@ export interface GeoDirectoryImportResult {
   insert_errors:   string[];
   warnings:        string[];
   sample_stores:   GeoDirectorySampleStore[];
+}
+
+// ── Mall Health public API (Sprint 12D.3) ─────────────────────────────────────
+
+/**
+ * GET /admin/mall-intelligence/mall-health?mall_id=<uuid>
+ *
+ * Returns a structured readiness report: store counts by status, coordinate
+ * coverage, asset dimensions, duplicate detection, and a traffic-light
+ * readiness_status (blocked | partial | ready) with the single most
+ * important next_recommended_action.
+ *
+ * Requires admin bearer token. Read-only — no staging writes.
+ */
+export async function getMallHealthReport(
+  mallId:      string | undefined,
+  accessToken: string,
+): Promise<MallHealthReport> {
+  if (!BASE_URL) throw new Error("VITE_GOOGLE_BACKEND_URL is not configured");
+  const qs = mallId ? `?mall_id=${encodeURIComponent(mallId)}` : "";
+  return getAuthenticated<MallHealthReport>(
+    `/admin/mall-intelligence/mall-health${qs}`,
+    accessToken,
+  );
 }
 
 // ── Route Node Coordinate public API (Sprint 12D.2) ──────────────────────────
