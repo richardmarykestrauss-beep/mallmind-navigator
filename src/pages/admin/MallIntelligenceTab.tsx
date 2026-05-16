@@ -24,6 +24,7 @@ import {
   getMallStagedLocations,
   detectGeoDirectoryForSource,
   importGeoDirectoryStores,
+  GeoDirectoryImportError,
   type MallSource,
   type MallMapAsset,
   type MallStagedStoreLocation,
@@ -138,10 +139,12 @@ function SourceRow({
   token:          string;
   onScan:         (s: MallSource) => void;
   onExtract:      (s: MallSource) => void;
-  onImportGeoDir: (s: MallSource) => void;
+  onImportGeoDir: (s: MallSource, pages: number, perPage: number) => void;
 }) {
   const [expanded,        setExpanded]        = useState(false);
   const [geoDirLoading,   setGeoDirLoading]   = useState(false);
+  const [geoDirPages,     setGeoDirPages]     = useState(1);
+  const [geoDirPerPage,   setGeoDirPerPage]   = useState(25);
   const [geoDirDetected,  setGeoDirDetected]  = useState<GeoDirectoryDetectResult | null>(
     // Pre-populate from persisted DB fields if already detected
     source.geodir_detected
@@ -256,12 +259,35 @@ function SourceRow({
               Detect GeoDirectory
             </button>
             {(geoDirDetected?.detected || source.geodir_detected) && (
-              <button
-                onClick={() => onImportGeoDir(source)}
-                className="flex items-center gap-1 rounded border border-blue-200 bg-blue-50 px-2 py-1 text-[10px] text-blue-800 hover:bg-blue-100 transition-colors"
-              >
-                <Plus className="h-3 w-3" /> Import GeoDirectory Stores
-              </button>
+              <>
+                <button
+                  onClick={() => onImportGeoDir(source, geoDirPages, geoDirPerPage)}
+                  className="flex items-center gap-1 rounded border border-blue-200 bg-blue-50 px-2 py-1 text-[10px] text-blue-800 hover:bg-blue-100 transition-colors"
+                >
+                  <Plus className="h-3 w-3" /> Import GeoDirectory Stores
+                </button>
+                {/* Import controls */}
+                <div className="flex items-center gap-1.5 ml-1">
+                  <span className="text-[10px] text-muted-foreground">Pages:</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={10}
+                    value={geoDirPages}
+                    onChange={(e) => setGeoDirPages(Math.max(1, Math.min(10, parseInt(e.target.value) || 1)))}
+                    className="w-10 rounded border bg-background px-1 py-0.5 text-[10px] text-center focus:outline-none focus:ring-1 focus:ring-blue-400"
+                  />
+                  <span className="text-[10px] text-muted-foreground">Per:</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={100}
+                    value={geoDirPerPage}
+                    onChange={(e) => setGeoDirPerPage(Math.max(1, Math.min(100, parseInt(e.target.value) || 25)))}
+                    className="w-12 rounded border bg-background px-1 py-0.5 text-[10px] text-center focus:outline-none focus:ring-1 focus:ring-blue-400"
+                  />
+                </div>
+              </>
             )}
             <a
               href={source.url}
@@ -272,6 +298,13 @@ function SourceRow({
               <ExternalLink className="h-3 w-3" /> Open URL
             </a>
           </div>
+
+          {/* GeoDirectory import helper text */}
+          {(geoDirDetected?.detected || source.geodir_detected) && (
+            <p className="text-[10px] text-muted-foreground">
+              Start small. Import more pages after the first test succeeds.
+            </p>
+          )}
 
           {/* GeoDirectory detection result */}
           {geoDirDetected && (
@@ -501,6 +534,12 @@ export default function MallIntelligenceTab({ token }: MallIntelligenceTabProps)
   const [lastAction,          setLastAction]           = useState<string | null>(null);
   const [extractResult,       setExtractResult]       = useState<ExtractMapResult | null>(null);
   const [geoDirImportResult,  setGeoDirImportResult]  = useState<GeoDirectoryImportResult | null>(null);
+  const [geoDirImportError,   setGeoDirImportError]   = useState<{
+    httpStatus: number;
+    error:      string;
+    hint:       string;
+    warnings:   string[];
+  } | null>(null);
 
   // ── Load malls ──────────────────────────────────────────────────────────────
 
@@ -599,18 +638,32 @@ export default function MallIntelligenceTab({ token }: MallIntelligenceTabProps)
     }
   }
 
-  async function handleImportGeoDir(source: MallSource) {
+  async function handleImportGeoDir(source: MallSource, pages: number, perPage: number) {
     if (!token) return;
     setActionLoading(`geodir-import-${source.id}`);
     setError(null);
     setGeoDirImportResult(null);
+    setGeoDirImportError(null);
     setLastAction(null);
     try {
-      const result = await importGeoDirectoryStores(source.id, token);
+      const result = await importGeoDirectoryStores(source.id, token, {
+        maxPages: pages,
+        perPage,
+      });
       setGeoDirImportResult(result);
       await loadData();
     } catch (e) {
-      setError(String(e));
+      if (e instanceof GeoDirectoryImportError) {
+        // Structured error — show in the result panel, not the generic error banner
+        setGeoDirImportError({
+          httpStatus: e.httpStatus,
+          error:      e.message,
+          hint:       e.hint,
+          warnings:   e.warnings,
+        });
+      } else {
+        setError(String(e));
+      }
     } finally {
       setActionLoading(null);
     }
@@ -911,6 +964,38 @@ export default function MallIntelligenceTab({ token }: MallIntelligenceTabProps)
                   {s.entrance_hint  && <p className="text-muted-foreground">🚪 Entrance {s.entrance_hint}</p>}
                   {s.road_name      && <p className="text-muted-foreground">📍 {s.road_name}</p>}
                 </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── GeoDirectory import error panel ───────────────────────────────── */}
+      {geoDirImportError && (
+        <div className="rounded border border-red-200 bg-red-50 px-3 py-3 text-xs space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="font-semibold text-red-800">
+              ✗ GeoDirectory import failed — HTTP {geoDirImportError.httpStatus}
+            </span>
+            <button
+              onClick={() => setGeoDirImportError(null)}
+              className="text-[10px] text-muted-foreground hover:text-foreground"
+              aria-label="Dismiss"
+            >
+              ✕
+            </button>
+          </div>
+          <p className="text-[10px] text-red-700">{geoDirImportError.error}</p>
+          <p className="rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] text-amber-800">
+            💡 {geoDirImportError.hint}
+          </p>
+          {geoDirImportError.warnings.length > 0 && (
+            <div className="space-y-0.5">
+              {geoDirImportError.warnings.slice(0, 5).map((w, i) => (
+                <p key={i} className="flex items-start gap-1 text-[10px] text-red-600">
+                  <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+                  {w}
+                </p>
               ))}
             </div>
           )}

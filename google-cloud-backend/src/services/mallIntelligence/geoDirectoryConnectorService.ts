@@ -105,8 +105,23 @@ export interface GeoDirectoryImportResult {
 
 const POLITE_UA  = "MallMind-Intelligence/1.0 (+https://mallmind.co.za/bot)";
 const TIMEOUT_MS = 15_000;
-const PER_PAGE   = 100;
-const MAX_PAGES  = 10;
+
+/**
+ * Safe UI defaults — small enough to complete within Cloud Run's 60-second
+ * response timeout even on a cold instance with a slow remote API.
+ * Exported so the route can use them as fallback values and the harness
+ * can assert them.
+ */
+export const DEFAULT_IMPORT_PER_PAGE  = 25;
+export const DEFAULT_IMPORT_MAX_PAGES = 1;
+
+/** Hard ceilings — the route must clamp caller values to these before calling
+ *  importGeoDirectoryStoresForSource. Never raise these without load-testing. */
+export const ABSOLUTE_MAX_PER_PAGE = 100;
+export const ABSOLUTE_MAX_PAGES    = 10;
+
+/** Records per Supabase upsert batch.  Keeps individual payloads small. */
+export const UPSERT_BATCH_SIZE = 25;
 
 // ── HTTP helper ───────────────────────────────────────────────────────────────
 
@@ -340,8 +355,8 @@ export async function fetchGeoDirectoryStores(
   storesEndpoint: string,
   options: { per_page?: number; max_pages?: number } = {},
 ): Promise<GeoDirectoryFetchResult> {
-  const perPage  = options.per_page  ?? PER_PAGE;
-  const maxPages = options.max_pages ?? MAX_PAGES;
+  const perPage  = options.per_page  ?? DEFAULT_IMPORT_PER_PAGE;
+  const maxPages = options.max_pages ?? DEFAULT_IMPORT_MAX_PAGES;
   const warnings: string[] = [];
   const allStores: GeoDirectoryRawStore[] = [];
   let pagesFetched = 0;
@@ -481,23 +496,32 @@ export function normalizeGeoDirectoryStore(
  * Full import orchestration for a single mall_source:
  *   1. Load source from DB
  *   2. Use stored geodir_api_url or detect from source URL
- *   3. Fetch all store pages
+ *   3. Fetch store pages (respecting options.maxPages / options.perPage)
  *   4. Normalise each record
- *   5. Upsert into mall_store_locations_staged (dedup by mall_source_id + geodir_store_id)
+ *   5. Batch-upsert into mall_store_locations_staged in chunks of UPSERT_BATCH_SIZE
+ *      Deduplication uses the unique index on (mall_source_id, geodir_store_id)
+ *      created by migration 015.
  *   6. Return GeoDirectoryImportResult
  *
  * Accepts a SupabaseClient (typed as any) so the route can inject the
  * service-role client without creating a circular import.
  * Does NOT write to live tables.
+ *
+ * Default options: maxPages = DEFAULT_IMPORT_MAX_PAGES (1),
+ *                  perPage  = DEFAULT_IMPORT_PER_PAGE  (25).
+ * The route clamps caller values against ABSOLUTE_MAX_* before calling here.
  */
 export async function importGeoDirectoryStoresForSource(
-  sourceId:  string,
+  sourceId: string,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  supabase:  any,
-  maxPages?: number,
+  supabase: any,
+  options?: { maxPages?: number; perPage?: number },
 ): Promise<GeoDirectoryImportResult> {
   const warnings:     string[] = [];
   const insertErrors: string[] = [];
+
+  const maxPages = options?.maxPages ?? DEFAULT_IMPORT_MAX_PAGES;
+  const perPage  = options?.perPage  ?? DEFAULT_IMPORT_PER_PAGE;
 
   // ── Load source ────────────────────────────────────────────────────────────
   // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
@@ -563,9 +587,10 @@ export async function importGeoDirectoryStoresForSource(
       .eq("id", sourceId);
   }
 
-  // ── Fetch all pages ────────────────────────────────────────────────────────
+  // ── Fetch pages ────────────────────────────────────────────────────────────
   const fetchResult = await fetchGeoDirectoryStores(storesEndpoint, {
-    max_pages: maxPages ?? MAX_PAGES,
+    max_pages: maxPages,
+    per_page:  perPage,
   });
   warnings.push(...fetchResult.warnings);
 
@@ -578,99 +603,59 @@ export async function importGeoDirectoryStoresForSource(
     warnings.push(...n.warnings);
   }
 
-  // ── Upsert into staging table ──────────────────────────────────────────────
-  let stagesInserted = 0;
-  let stagesUpdated  = 0;
+  // ── Batch upsert into staging table ───────────────────────────────────────
+  // Uses the unique partial index on (mall_source_id, geodir_store_id)
+  // created by migration 015 for conflict detection.
+  // stores_updated is not distinguishable from batch upsert — returned as 0.
+  let stagesUpserted = 0;
   const mallId       = (src.mall_id as string | undefined) ?? null;
 
-  for (const store of normalized) {
-    // Check for existing record: dedup by mall_source_id + geodir_store_id
+  const payloads = normalized.map((store) => ({
+    mall_id:            mallId,
+    mall_source_id:     sourceId,
+    shop_name:          store.shop_name,
+    unit_number:        store.unit_number    ?? null,
+    floor_label:        store.floor_label    ?? null,
+    category:           store.category       ?? null,
+    source_url:         store.source_url,
+    raw_evidence:       store.raw_evidence,
+    confidence:         store.confidence,
+    extraction_method:  store.extraction_method,
+    review_status:      "pending",
+    geodir_store_id:    store.geodir_store_id,
+    phone:              store.phone          ?? null,
+    website:            store.website        ?? null,
+    latitude:           store.latitude       ?? null,
+    longitude:          store.longitude      ?? null,
+    parking_hint:       store.parking_hint   ?? null,
+    entrance_hint:      store.entrance_hint  ?? null,
+    road_name:          store.road_name      ?? null,
+    source_modified_at: store.source_modified_at ?? null,
+    image_url:          store.image_url      ?? null,
+  }));
+
+  for (let i = 0; i < payloads.length; i += UPSERT_BATCH_SIZE) {
+    const batch     = payloads.slice(i, i + UPSERT_BATCH_SIZE);
+    const batchNum  = Math.floor(i / UPSERT_BATCH_SIZE) + 1;
+
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-    const { data: existing } = await supabase
+    const { error: upsertErr } = await supabase
       .from("mall_store_locations_staged")
-      .select("id")
-      .eq("mall_source_id", sourceId)
-      .eq("geodir_store_id", store.geodir_store_id)
-      .maybeSingle();
+      .upsert(batch, { onConflict: "mall_source_id,geodir_store_id" });
 
-    const existingId = (existing as Record<string, unknown> | null)?.id as string | undefined;
-
-    const payload = {
-      mall_id:            mallId,
-      mall_source_id:     sourceId,
-      shop_name:          store.shop_name,
-      unit_number:        store.unit_number    ?? null,
-      floor_label:        store.floor_label    ?? null,
-      category:           store.category       ?? null,
-      source_url:         store.source_url,
-      raw_evidence:       store.raw_evidence,
-      confidence:         store.confidence,
-      extraction_method:  store.extraction_method,
-      review_status:      "pending",
-      geodir_store_id:    store.geodir_store_id,
-      phone:              store.phone          ?? null,
-      website:            store.website        ?? null,
-      latitude:           store.latitude       ?? null,
-      longitude:          store.longitude      ?? null,
-      parking_hint:       store.parking_hint   ?? null,
-      entrance_hint:      store.entrance_hint  ?? null,
-      road_name:          store.road_name      ?? null,
-      source_modified_at: store.source_modified_at ?? null,
-      image_url:          store.image_url      ?? null,
-    };
-
-    if (existingId) {
-      // Update — refresh evidence, confidence, and enrichment fields
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-      const { error: updateErr } = await supabase
-        .from("mall_store_locations_staged")
-        .update({
-          shop_name:          payload.shop_name,
-          unit_number:        payload.unit_number,
-          floor_label:        payload.floor_label,
-          category:           payload.category,
-          source_url:         payload.source_url,
-          raw_evidence:       payload.raw_evidence,
-          confidence:         payload.confidence,
-          phone:              payload.phone,
-          website:            payload.website,
-          latitude:           payload.latitude,
-          longitude:          payload.longitude,
-          parking_hint:       payload.parking_hint,
-          entrance_hint:      payload.entrance_hint,
-          road_name:          payload.road_name,
-          source_modified_at: payload.source_modified_at,
-          image_url:          payload.image_url,
-        })
-        .eq("id", existingId);
-
-      if (updateErr) {
-        const e = updateErr as { message: string };
-        console.error("[geodir-import] update error:", e.message, "store:", store.shop_name);
-        insertErrors.push(`${store.shop_name} (update): ${e.message}`);
-      } else {
-        stagesUpdated++;
-      }
+    if (upsertErr) {
+      const e = upsertErr as { message: string };
+      console.error(`[geodir-import] batch ${batchNum} upsert error:`, e.message);
+      insertErrors.push(`Batch ${batchNum} (records ${i + 1}–${i + batch.length}): ${e.message}`);
     } else {
-      // Insert new record
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-      const { error: insertErr } = await supabase
-        .from("mall_store_locations_staged")
-        .insert(payload);
-
-      if (insertErr) {
-        const e = insertErr as { message: string };
-        console.error("[geodir-import] insert error:", e.message, "store:", store.shop_name);
-        insertErrors.push(`${store.shop_name}: ${e.message}`);
-      } else {
-        stagesInserted++;
-      }
+      stagesUpserted += batch.length;
     }
   }
 
-  if (fetchResult.total_fetched > 0 && stagesInserted + stagesUpdated === 0) {
+  if (fetchResult.total_fetched > 0 && stagesUpserted === 0) {
     warnings.push(
-      `Fetched ${fetchResult.total_fetched} records but all DB operations failed — check staging table constraints`,
+      `Fetched ${fetchResult.total_fetched} records but all DB upserts failed — ` +
+      `ensure migration 015 has been applied (unique index on mall_source_id, geodir_store_id)`,
     );
   }
 
@@ -681,8 +666,8 @@ export async function importGeoDirectoryStoresForSource(
     stores_endpoint: storesEndpoint,
     pages_fetched:   fetchResult.pages_fetched,
     records_found:   fetchResult.total_fetched,
-    stores_staged:   stagesInserted,
-    stores_updated:  stagesUpdated,
+    stores_staged:   stagesUpserted,
+    stores_updated:  0,   // not distinguishable with batch upsert
     insert_errors:   insertErrors,
     warnings,
     sample_stores:   normalized.slice(0, 3),

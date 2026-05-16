@@ -31,6 +31,10 @@ import { buildRouteNodeCandidates } from "../services/mallIntelligence/mallRoute
 import {
   detectGeoDirectoryApi,
   importGeoDirectoryStoresForSource,
+  DEFAULT_IMPORT_PER_PAGE,
+  DEFAULT_IMPORT_MAX_PAGES,
+  ABSOLUTE_MAX_PER_PAGE,
+  ABSOLUTE_MAX_PAGES,
 } from "../services/mallIntelligence/geoDirectoryConnectorService.js";
 
 const router = Router();
@@ -745,32 +749,56 @@ router.post("/import-geodirectory", async (req: Request, res: Response) => {
   const admin = await requireAdmin(req, res);
   if (!admin) return;
 
-  const { source_id, max_pages } = req.body as {
+  const { source_id, max_pages, per_page } = req.body as {
     source_id:  string;
     max_pages?: number;
+    per_page?:  number;
   };
 
   if (!source_id?.trim()) {
     return res.status(400).json({ error: "source_id is required" });
   }
 
-  const supabase = getSupabaseClient();
-
-  const result = await importGeoDirectoryStoresForSource(
-    source_id,
-    supabase,
-    max_pages,
+  // Clamp to absolute safety limits — the frontend sends small values by
+  // default but a curl call could try to pass 1000.
+  const safeMaxPages = Math.min(
+    typeof max_pages === "number" && max_pages > 0 ? max_pages : DEFAULT_IMPORT_MAX_PAGES,
+    ABSOLUTE_MAX_PAGES,
+  );
+  const safePerPage = Math.min(
+    typeof per_page  === "number" && per_page  > 0 ? per_page  : DEFAULT_IMPORT_PER_PAGE,
+    ABSOLUTE_MAX_PER_PAGE,
   );
 
-  fireAuditLog(admin.user.id, "mall_geodir_imported", {
-    source_id,
-    records_found:  result.records_found,
-    stores_staged:  result.stores_staged,
-    stores_updated: result.stores_updated,
-    pages_fetched:  result.pages_fetched,
-  });
+  const supabase = getSupabaseClient();
 
-  return res.json(result);
+  try {
+    const result = await importGeoDirectoryStoresForSource(
+      source_id,
+      supabase,
+      { maxPages: safeMaxPages, perPage: safePerPage },
+    );
+
+    fireAuditLog(admin.user.id, "mall_geodir_imported", {
+      source_id,
+      records_found:  result.records_found,
+      stores_staged:  result.stores_staged,
+      stores_updated: result.stores_updated,
+      pages_fetched:  result.pages_fetched,
+      max_pages:      safeMaxPages,
+      per_page:       safePerPage,
+    });
+
+    return res.json(result);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[mall-intelligence/import-geodirectory] unexpected error:", msg);
+    return res.status(500).json({
+      error:    msg,
+      warnings: [],
+      hint:     "Try max_pages=1 and per_page=25 first.",
+    });
+  }
 });
 
 export default router;

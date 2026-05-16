@@ -1797,7 +1797,7 @@ export async function getMallStagedLocations(
   );
 }
 
-// ── GeoDirectory Connector types (Sprint 12C.2) ───────────────────────────────
+// ── GeoDirectory Connector types (Sprint 12C.2 / 12C.2.1) ───────────────────
 
 export interface GeoDirectoryDetectResult {
   source_id:       string;
@@ -1841,6 +1841,27 @@ export interface GeoDirectoryImportResult {
   sample_stores:   GeoDirectorySampleStore[];
 }
 
+// ── GeoDirectory import error (Sprint 12C.2.1) ───────────────────────────────
+
+/**
+ * Thrown by importGeoDirectoryStores when the backend returns a non-2xx response.
+ * Carries structured error info (hint, warnings, HTTP status) so the UI can
+ * display actionable guidance rather than just "TypeError: Failed to fetch".
+ */
+export class GeoDirectoryImportError extends Error {
+  readonly httpStatus: number;
+  readonly hint:       string;
+  readonly warnings:   string[];
+
+  constructor(status: number, errorMsg: string, hint: string, warnings: string[]) {
+    super(errorMsg);
+    this.name       = "GeoDirectoryImportError";
+    this.httpStatus = status;
+    this.hint       = hint;
+    this.warnings   = warnings;
+  }
+}
+
 // ── GeoDirectory Connector public API ─────────────────────────────────────────
 
 /**
@@ -1865,19 +1886,47 @@ export async function detectGeoDirectoryForSource(
 /**
  * POST /admin/mall-intelligence/import-geodirectory
  *
- * Fetch all GeoDirectory store pages, normalise records, and upsert into
- * mall_store_locations_staged.  Deduplicates by geodir_store_id.
+ * Fetch GeoDirectory store pages, normalise records, and batch-upsert into
+ * mall_store_locations_staged.  Deduplicates by (mall_source_id, geodir_store_id).
  * Requires admin bearer token.
+ *
+ * Defaults: maxPages=1, perPage=25 (safe for Cloud Run 60-second timeout).
+ * Throws GeoDirectoryImportError on non-2xx, carrying structured hint + warnings
+ * so the UI can display actionable guidance instead of a generic network error.
  */
 export async function importGeoDirectoryStores(
   sourceId:    string,
   accessToken: string,
-  maxPages?:   number,
+  options?: { maxPages?: number; perPage?: number },
 ): Promise<GeoDirectoryImportResult> {
   if (!BASE_URL) throw new Error("VITE_GOOGLE_BACKEND_URL is not configured");
-  return postAuthWithResponse<GeoDirectoryImportResult>(
-    "/admin/mall-intelligence/import-geodirectory",
-    { source_id: sourceId, max_pages: maxPages },
-    accessToken,
-  );
+
+  const url = `${BASE_URL}/admin/mall-intelligence/import-geodirectory`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization:  `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({
+      source_id:  sourceId,
+      max_pages:  options?.maxPages,
+      per_page:   options?.perPage,
+    }),
+  });
+
+  if (!res.ok) {
+    let errorMsg = `Import GeoDirectory error — HTTP ${res.status}`;
+    let hint     = "Try max_pages=1 and per_page=25 first.";
+    let warnings: string[] = [];
+    try {
+      const body = await res.json() as { error?: string; hint?: string; warnings?: string[] };
+      if (body.error)    errorMsg = body.error;
+      if (body.hint)     hint     = body.hint;
+      if (body.warnings) warnings = body.warnings;
+    } catch { /* ignore JSON parse failure — use defaults above */ }
+    throw new GeoDirectoryImportError(res.status, errorMsg, hint, warnings);
+  }
+
+  return res.json() as Promise<GeoDirectoryImportResult>;
 }
