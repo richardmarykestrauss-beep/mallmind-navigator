@@ -37,6 +37,7 @@ import {
   ABSOLUTE_MAX_PAGES,
 } from "../services/mallIntelligence/geoDirectoryConnectorService.js";
 import { fetchImageDimensions } from "../services/mallIntelligence/imageDimensionService.js";
+import { validateRouteNodeCoordinate } from "../services/mallIntelligence/routeNodeCoordinateService.js";
 
 const router = Router();
 
@@ -816,6 +817,123 @@ router.post("/import-geodirectory", async (req: Request, res: Response) => {
       hint:     "Try max_pages=1 and per_page=25 first.",
     });
   }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /admin/mall-intelligence/route-nodes?mall_id=<uuid>&unplaced=true
+//
+// List staged route nodes for a mall, optionally filtered to those that
+// are still missing x_percent / y_percent coordinates.
+// ─────────────────────────────────────────────────────────────────────────────
+
+router.get("/route-nodes", async (req: Request, res: Response) => {
+  const admin = await requireAdmin(req, res);
+  if (!admin) return;
+
+  const mallId      = req.query.mall_id  as string | undefined;
+  const unplacedOnly = req.query.unplaced === "true";
+  const limit       = Math.min(parseInt((req.query.limit as string) ?? "200", 10), 500);
+
+  const supabase = getSupabaseClient();
+  let query = supabase
+    .from("mall_route_nodes_staged")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (mallId)      query = query.eq("mall_id", mallId);
+  if (unplacedOnly) query = query.is("x_percent", null);
+
+  const { data, error } = await query;
+  if (error) return res.status(500).json({ error: error.message });
+
+  return res.json({ items: data ?? [], total: (data ?? []).length });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /admin/mall-intelligence/route-node-coordinate
+//
+// Place (or update) x_percent / y_percent on a staged route node.
+// Also updates the linked mall_store_locations_staged row when
+// staged_location_id is set on the node.
+//
+// Validates:
+//   - admin required
+//   - route_node_id must be a non-empty string
+//   - x_percent and y_percent must be numbers in [0, 100]
+//   - route node must exist in mall_route_nodes_staged
+// ─────────────────────────────────────────────────────────────────────────────
+
+router.post("/route-node-coordinate", async (req: Request, res: Response) => {
+  const admin = await requireAdmin(req, res);
+  if (!admin) return;
+
+  const { route_node_id, x_percent, y_percent } = req.body as {
+    route_node_id: unknown;
+    x_percent:     unknown;
+    y_percent:     unknown;
+  };
+
+  // Pure validation
+  const validation = validateRouteNodeCoordinate(route_node_id, x_percent, y_percent);
+  if (!validation.valid) {
+    return res.status(400).json({ error: validation.error });
+  }
+
+  // Typed after validation passes
+  const nodeId = (route_node_id as string).trim();
+  const xPct   = x_percent as number;
+  const yPct   = y_percent as number;
+
+  const supabase = getSupabaseClient();
+
+  // Load route node
+  const { data: nodeRow, error: nodeErr } = await supabase
+    .from("mall_route_nodes_staged")
+    .select("id, staged_location_id")
+    .eq("id", nodeId)
+    .maybeSingle();
+
+  if (nodeErr || !nodeRow) {
+    return res.status(404).json({ error: "Route node not found" });
+  }
+
+  const node = nodeRow as { id: string; staged_location_id?: string | null };
+
+  // Update route node coordinates
+  const { error: updateErr } = await supabase
+    .from("mall_route_nodes_staged")
+    .update({ x_percent: xPct, y_percent: yPct })
+    .eq("id", nodeId);
+
+  if (updateErr) {
+    return res.status(500).json({ error: updateErr.message });
+  }
+
+  // Propagate to linked staged store location if present
+  let locationUpdated = false;
+  if (node.staged_location_id) {
+    const { error: locErr } = await supabase
+      .from("mall_store_locations_staged")
+      .update({ x_percent: xPct, y_percent: yPct })
+      .eq("id", node.staged_location_id);
+    if (!locErr) locationUpdated = true;
+  }
+
+  fireAuditLog(admin.user.id, "mall_route_node_coordinate_placed", {
+    route_node_id:    nodeId,
+    x_percent:        xPct,
+    y_percent:        yPct,
+    location_updated: locationUpdated,
+  });
+
+  return res.json({
+    ok:               true,
+    route_node_id:    nodeId,
+    x_percent:        xPct,
+    y_percent:        yPct,
+    location_updated: locationUpdated,
+  });
 });
 
 export default router;

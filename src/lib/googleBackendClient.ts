@@ -1797,6 +1797,40 @@ export async function getMallStagedLocations(
   );
 }
 
+// ── Route Node Coordinate types (Sprint 12D.2) ───────────────────────────────
+
+export interface MallRouteNode {
+  id:                   string;
+  mall_id:              string;
+  staged_location_id?:  string | null;
+  node_type:            string;
+  label:                string;
+  floor_label?:         string;
+  x_percent?:           number | null;
+  y_percent?:           number | null;
+  review_status:        string;
+  created_at:           string;
+}
+
+export interface RouteNodesResult {
+  items: MallRouteNode[];
+  total: number;
+}
+
+export interface RouteNodeCoordinateRequest {
+  route_node_id: string;
+  x_percent:     number;
+  y_percent:     number;
+}
+
+export interface RouteNodeCoordinateResult {
+  ok:               boolean;
+  route_node_id:    string;
+  x_percent:        number;
+  y_percent:        number;
+  location_updated: boolean;
+}
+
 // ── GeoDirectory Connector types (Sprint 12C.2 / 12C.2.1) ───────────────────
 
 export interface GeoDirectoryDetectResult {
@@ -1839,6 +1873,55 @@ export interface GeoDirectoryImportResult {
   insert_errors:   string[];
   warnings:        string[];
   sample_stores:   GeoDirectorySampleStore[];
+}
+
+// ── Route Node Coordinate public API (Sprint 12D.2) ──────────────────────────
+
+/**
+ * GET /admin/mall-intelligence/route-nodes
+ *
+ * List staged route nodes for a mall.
+ * Pass unplaced=true to return only nodes missing x_percent / y_percent.
+ * Requires admin bearer token.
+ */
+export async function getMallRouteNodes(
+  mallId:      string,
+  accessToken: string,
+  options?:    { unplaced?: boolean; limit?: number },
+): Promise<RouteNodesResult> {
+  if (!BASE_URL) throw new Error("VITE_GOOGLE_BACKEND_URL is not configured");
+  const params = new URLSearchParams({ mall_id: mallId });
+  if (options?.unplaced) params.set("unplaced", "true");
+  if (options?.limit)    params.set("limit", String(options.limit));
+  return getAuthenticated<RouteNodesResult>(
+    `/admin/mall-intelligence/route-nodes?${params.toString()}`,
+    accessToken,
+  );
+}
+
+/**
+ * POST /admin/mall-intelligence/route-node-coordinate
+ *
+ * Save manually-placed map coordinates (x_percent, y_percent) for a staged
+ * route node.  Also propagates to the linked mall_store_locations_staged row
+ * when staged_location_id is present.
+ *
+ * Coordinates are expressed as percentages of the displayed image dimensions:
+ *   x_percent = clickX / imageWidth  * 100
+ *   y_percent = clickY / imageHeight * 100
+ *
+ * Requires admin bearer token.
+ */
+export async function placeRouteNodeCoordinate(
+  payload:     RouteNodeCoordinateRequest,
+  accessToken: string,
+): Promise<RouteNodeCoordinateResult> {
+  if (!BASE_URL) throw new Error("VITE_GOOGLE_BACKEND_URL is not configured");
+  return postAuthWithResponse<RouteNodeCoordinateResult>(
+    "/admin/mall-intelligence/route-node-coordinate",
+    payload,
+    accessToken,
+  );
 }
 
 // ── GeoDirectory import error (Sprint 12C.2.1) ───────────────────────────────

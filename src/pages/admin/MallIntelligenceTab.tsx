@@ -24,6 +24,8 @@ import {
   getMallStagedLocations,
   detectGeoDirectoryForSource,
   importGeoDirectoryStores,
+  getMallRouteNodes,
+  placeRouteNodeCoordinate,
   GeoDirectoryImportError,
   type MallSource,
   type MallMapAsset,
@@ -34,6 +36,7 @@ import {
   type GeoDirectoryDetectResult,
   type GeoDirectoryImportResult,
   type GeoDirectorySampleStore,
+  type MallRouteNode,
 } from "@/lib/googleBackendClient";
 import { cn } from "@/lib/utils";
 import {
@@ -509,6 +512,346 @@ function StagedLocationRow({
                 <Search className="h-3 w-3" /> Verify (Places)
               </button>
             )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Sub-component: Coordinate Placement Panel ─────────────────────────────────
+
+function CoordinatePlacementPanel({
+  token,
+  mallId,
+  assets,
+  onSaved,
+}: {
+  token:    string;
+  mallId:   string;
+  assets:   MallMapAsset[];
+  onSaved:  () => void;
+}) {
+  const [nodes,          setNodes]          = useState<MallRouteNode[]>([]);
+  const [loadingNodes,   setLoadingNodes]   = useState(false);
+  const [selectedNodeId, setSelectedNodeId] = useState("");
+  const [selectedAssetId,setSelectedAssetId]= useState("");
+  const [pendingCoord,   setPendingCoord]   = useState<{ x: number; y: number } | null>(null);
+  const [saving,         setSaving]         = useState(false);
+  const [saveResult,     setSaveResult]     = useState<string | null>(null);
+  const [saveError,      setSaveError]      = useState<string | null>(null);
+
+  // Reload route nodes whenever mallId or token changes
+  useEffect(() => {
+    if (!mallId || !token) return;
+    setLoadingNodes(true);
+    setNodes([]);
+    setSelectedNodeId("");
+    setSelectedAssetId("");
+    setPendingCoord(null);
+    setSaveResult(null);
+    setSaveError(null);
+    getMallRouteNodes(mallId, token)
+      .then((r) => setNodes(r.items))
+      .catch(() => setNodes([]))
+      .finally(() => setLoadingNodes(false));
+  }, [mallId, token]);
+
+  const unplacedNodes = nodes.filter(
+    (n) => n.x_percent == null || n.y_percent == null,
+  );
+  const selectedNode  = nodes.find((n) => n.id === selectedNodeId);
+
+  // Image assets compatible with the selected node's floor
+  const imageAssets = assets.filter(
+    (a) =>
+      a.asset_type === "image" &&
+      (!selectedNode?.floor_label ||
+        !a.floor_label ||
+        a.floor_label === selectedNode.floor_label),
+  );
+  const selectedAsset = assets.find((a) => a.id === selectedAssetId);
+
+  function handleImageClick(e: React.MouseEvent<HTMLImageElement>) {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = parseFloat(
+      (((e.clientX - rect.left) / rect.width) * 100).toFixed(2),
+    );
+    const y = parseFloat(
+      (((e.clientY - rect.top) / rect.height) * 100).toFixed(2),
+    );
+    setPendingCoord({ x, y });
+    setSaveResult(null);
+    setSaveError(null);
+  }
+
+  async function handleSave() {
+    if (!selectedNodeId || !pendingCoord || !token) return;
+    setSaving(true);
+    setSaveResult(null);
+    setSaveError(null);
+    try {
+      const result = await placeRouteNodeCoordinate(
+        {
+          route_node_id: selectedNodeId,
+          x_percent:     pendingCoord.x,
+          y_percent:     pendingCoord.y,
+        },
+        token,
+      );
+      const msg =
+        `Saved ${selectedNode?.label ?? selectedNodeId}: ` +
+        `x=${result.x_percent}%, y=${result.y_percent}%` +
+        (result.location_updated ? "  ·  staged location updated" : "");
+      setSaveResult(msg);
+      // Update local node list so it moves out of unplaced
+      setNodes((prev) =>
+        prev.map((n) =>
+          n.id === selectedNodeId
+            ? { ...n, x_percent: result.x_percent, y_percent: result.y_percent }
+            : n,
+        ),
+      );
+      setPendingCoord(null);
+      setSelectedNodeId("");
+      onSaved();
+    } catch (e) {
+      setSaveError(String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!mallId) {
+    return (
+      <p className="text-xs text-muted-foreground text-center py-6">
+        Select a mall above to use the coordinate placement tool.
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+
+      {/* ── Node / asset selectors ─────────────────────────────────────── */}
+      <div className="flex flex-wrap gap-3 items-end">
+
+        {/* Route node selector */}
+        <div className="flex-1 min-w-52 space-y-1">
+          <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+            Route Node (unplaced)
+          </label>
+          {loadingNodes ? (
+            <p className="flex items-center gap-1 text-xs text-muted-foreground">
+              <Loader2 className="h-3 w-3 animate-spin" /> Loading nodes…
+            </p>
+          ) : nodes.length === 0 ? (
+            <p className="text-xs text-muted-foreground">
+              No route nodes found for this mall.
+              Run "Stage Route Nodes" in the Route Graph section first.
+            </p>
+          ) : unplacedNodes.length === 0 ? (
+            <p className="text-xs text-green-700">
+              ✓ All {nodes.length} route node(s) have coordinates placed.
+            </p>
+          ) : (
+            <select
+              value={selectedNodeId}
+              onChange={(e) => {
+                setSelectedNodeId(e.target.value);
+                setSelectedAssetId("");
+                setPendingCoord(null);
+                setSaveResult(null);
+                setSaveError(null);
+              }}
+              className="w-full rounded border bg-background px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+            >
+              <option value="">
+                — select ({unplacedNodes.length} of {nodes.length} unplaced) —
+              </option>
+              {unplacedNodes.map((n) => (
+                <option key={n.id} value={n.id}>
+                  {n.label}
+                  {n.floor_label ? `  ·  ${n.floor_label}` : ""}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+
+        {/* Map asset selector (only visible when a node is selected) */}
+        {selectedNodeId && (
+          <div className="flex-1 min-w-52 space-y-1">
+            <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+              Map Image
+              {selectedNode?.floor_label
+                ? ` — filtered to "${selectedNode.floor_label}"`
+                : " (all floors)"}
+            </label>
+            {imageAssets.length === 0 ? (
+              <p className="text-xs text-muted-foreground">
+                No image assets found. Run "Scan Website" to discover floor map images.
+              </p>
+            ) : (
+              <select
+                value={selectedAssetId}
+                onChange={(e) => {
+                  setSelectedAssetId(e.target.value);
+                  setPendingCoord(null);
+                  setSaveResult(null);
+                }}
+                className="w-full rounded border bg-background px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+              >
+                <option value="">— select map image —</option>
+                {imageAssets.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.floor_label ?? a.link_text ?? a.asset_url.split("/").pop()}
+                    {a.page_width_px
+                      ? `  (${a.page_width_px}×${a.page_height_px})`
+                      : ""}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ── Selected node info ─────────────────────────────────────────── */}
+      {selectedNode && (
+        <div className="rounded bg-muted/30 px-3 py-2 text-[10px] space-y-0.5">
+          <p className="font-medium">{selectedNode.label}</p>
+          <div className="flex flex-wrap gap-3 text-muted-foreground">
+            {selectedNode.floor_label && (
+              <span>Floor: <b>{selectedNode.floor_label}</b></span>
+            )}
+            <span>
+              Current coords:{" "}
+              {selectedNode.x_percent != null
+                ? <b className="text-foreground">x={selectedNode.x_percent}%, y={selectedNode.y_percent}%</b>
+                : <span className="text-amber-600">not placed</span>}
+            </span>
+            <span>Type: {selectedNode.node_type}</span>
+          </div>
+        </div>
+      )}
+
+      {/* ── Clickable map image ────────────────────────────────────────── */}
+      {selectedAsset && (
+        <div className="space-y-2">
+          <p className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+            <Map className="h-3 w-3" />
+            Click on the map to place the node coordinate. The red dot marks your selection.
+          </p>
+
+          {/* Image + overlay pin wrapper */}
+          <div className="relative inline-block overflow-hidden rounded border bg-muted/10 max-w-full">
+            <img
+              src={selectedAsset.asset_url}
+              alt={selectedAsset.floor_label ?? "Floor map"}
+              className="block cursor-crosshair select-none max-w-full"
+              style={{ maxHeight: "500px", width: "auto" }}
+              onClick={handleImageClick}
+              draggable={false}
+              onError={(e) => {
+                (e.target as HTMLImageElement).style.opacity = "0.3";
+              }}
+            />
+            {pendingCoord && (
+              <div
+                className="pointer-events-none absolute"
+                style={{
+                  left:      `${pendingCoord.x}%`,
+                  top:       `${pendingCoord.y}%`,
+                  transform: "translate(-50%, -50%)",
+                }}
+              >
+                {/* Red dot */}
+                <div className="h-4 w-4 rounded-full border-2 border-white bg-red-500 shadow-lg ring-1 ring-red-400" />
+                {/* Coordinate label */}
+                <span
+                  className="absolute left-1/2 top-5 -translate-x-1/2 whitespace-nowrap rounded
+                             bg-black/75 px-1.5 py-0.5 text-[9px] font-mono text-white"
+                >
+                  {pendingCoord.x}%, {pendingCoord.y}%
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* Coordinate preview + save row */}
+          {pendingCoord ? (
+            <div className="flex items-center gap-3 rounded border border-blue-200 bg-blue-50 px-3 py-2">
+              <span className="font-mono text-[10px] text-blue-800">
+                x = {pendingCoord.x}% &nbsp;·&nbsp; y = {pendingCoord.y}%
+              </span>
+              <button
+                onClick={() => void handleSave()}
+                disabled={saving}
+                className="flex items-center gap-1 rounded border border-green-200 bg-green-50 px-2.5
+                           py-1 text-[10px] text-green-800 hover:bg-green-100 disabled:opacity-50 transition-colors"
+              >
+                {saving
+                  ? <Loader2 className="h-3 w-3 animate-spin" />
+                  : <CheckCircle2 className="h-3 w-3" />}
+                Save Coordinate
+              </button>
+              <button
+                onClick={() => setPendingCoord(null)}
+                className="text-[10px] text-muted-foreground hover:text-foreground"
+              >
+                Clear
+              </button>
+            </div>
+          ) : (
+            <p className="text-[10px] text-muted-foreground">
+              No coordinate selected — click anywhere on the map above.
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* ── Result / error banners ─────────────────────────────────────── */}
+      {saveResult && (
+        <div className="rounded border border-green-200 bg-green-50 px-3 py-2 text-[10px] text-green-800">
+          ✓ {saveResult}
+        </div>
+      )}
+      {saveError && (
+        <div className="flex items-start gap-1.5 rounded border border-red-200 bg-red-50 px-3 py-2 text-[10px] text-red-700">
+          <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+          {saveError}
+        </div>
+      )}
+
+      {/* ── All-placed summary ─────────────────────────────────────────── */}
+      {nodes.length > 0 && (
+        <div className="space-y-1">
+          <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+            Placement status ({nodes.filter((n) => n.x_percent != null).length}/{nodes.length} placed)
+          </p>
+          <div className="space-y-0.5 max-h-32 overflow-auto">
+            {nodes.map((n) => (
+              <div key={n.id} className="flex items-center gap-2 text-[10px]">
+                <span
+                  className={cn(
+                    "h-1.5 w-1.5 rounded-full shrink-0",
+                    n.x_percent != null ? "bg-green-500" : "bg-amber-400",
+                  )}
+                />
+                <span className="truncate">{n.label}</span>
+                {n.floor_label && (
+                  <span className="text-muted-foreground shrink-0">{n.floor_label}</span>
+                )}
+                {n.x_percent != null ? (
+                  <span className="ml-auto font-mono text-muted-foreground shrink-0">
+                    {n.x_percent}%, {n.y_percent}%
+                  </span>
+                ) : (
+                  <span className="ml-auto text-amber-600 shrink-0">unplaced</span>
+                )}
+              </div>
+            ))}
           </div>
         </div>
       )}
@@ -1149,17 +1492,17 @@ export default function MallIntelligenceTab({ token }: MallIntelligenceTabProps)
         )}
       </Section>
 
-      {/* ── Section 4: Route Graph (placeholder) ─────────────────────────── */}
+      {/* ── Section 4: Coordinate Placement ──────────────────────────────── */}
       <Section
-        title="Route Graph (Sprint 13+)"
-        icon={<Activity className="h-3.5 w-3.5" />}
+        title="Coordinate Placement"
+        icon={<Map className="h-3.5 w-3.5" />}
         action={
-          acceptedCount > 0 ? (
+          selectedMallId && acceptedCount > 0 ? (
             <button
               onClick={() => void handleStageRouteNodes()}
-              disabled={anyLoading || !selectedMallId}
+              disabled={anyLoading}
               className="flex items-center gap-1 rounded border px-2.5 py-1 text-[10px] hover:bg-muted disabled:opacity-50 transition-colors"
-              title={!selectedMallId ? "Select a mall first" : "Stage accepted locations as route nodes"}
+              title="Stage accepted locations as route nodes"
             >
               {actionLoading === "route-nodes"
                 ? <Loader2 className="h-3 w-3 animate-spin" />
@@ -1169,47 +1512,31 @@ export default function MallIntelligenceTab({ token }: MallIntelligenceTabProps)
           ) : undefined
         }
       >
-        {/* Map overlay placeholder */}
-        <div className="relative rounded border-2 border-dashed border-muted-foreground/20 bg-muted/10 min-h-48 flex flex-col items-center justify-center gap-3 text-center p-6">
-          <Map className="h-10 w-10 text-muted-foreground/20" />
-          <div>
-            <p className="text-sm font-medium text-muted-foreground">
-              Floor Map Overlay — Coming Sprint 13
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground/70">
-              Accepted store locations will appear as pins on the floor map.
-              Map images are discovered in the Assets section above.
-            </p>
-          </div>
+        <CoordinatePlacementPanel
+          token={token ?? ""}
+          mallId={selectedMallId}
+          assets={assets}
+          onSaved={() => void loadData()}
+        />
+      </Section>
 
-          {/* Pin previews if we have locations with coordinates */}
-          {displayedLocs.some((l) => l.x_percent !== undefined && l.y_percent !== undefined) && (
-            <div className="mt-2 text-[10px] text-muted-foreground">
-              {displayedLocs.filter((l) => l.x_percent != null).length} store(s) have map coordinates
-            </div>
-          )}
-
-          {/* Summary of accepted stores */}
-          {acceptedCount > 0 && (
-            <div className="mt-3 rounded border bg-background px-3 py-2 text-xs text-left w-full max-w-sm">
-              <p className="font-medium mb-1.5">{acceptedCount} accepted store location(s)</p>
-              <div className="space-y-0.5 max-h-32 overflow-auto">
-                {stagedLocs
-                  .filter((l) => l.review_status === "accepted")
-                  .map((l) => (
-                    <div key={l.id} className="flex items-center gap-2 text-[10px]">
-                      <span className="h-1.5 w-1.5 rounded-full bg-green-500 shrink-0" />
-                      <span className="truncate">{l.shop_name}</span>
-                      {l.unit_number && (
-                        <span className="font-mono text-muted-foreground">{l.unit_number}</span>
-                      )}
-                      {l.floor_label && (
-                        <span className="text-muted-foreground shrink-0">{l.floor_label}</span>
-                      )}
-                    </div>
-                  ))}
-              </div>
-            </div>
+      {/* ── Section 5: Route Graph (future) ──────────────────────────────── */}
+      <Section
+        title="Route Graph (Sprint 13+)"
+        icon={<Activity className="h-3.5 w-3.5" />}
+      >
+        <div className="rounded border-2 border-dashed border-muted-foreground/20 bg-muted/10 min-h-24 flex flex-col items-center justify-center gap-2 p-4 text-center">
+          <Activity className="h-8 w-8 text-muted-foreground/20" />
+          <p className="text-sm font-medium text-muted-foreground">
+            Live route graph editor — Sprint 13
+          </p>
+          <p className="text-xs text-muted-foreground/70">
+            Place coordinates above, then connect nodes into edges here.
+          </p>
+          {displayedLocs.some((l) => l.x_percent != null) && (
+            <p className="text-[10px] text-muted-foreground">
+              {displayedLocs.filter((l) => l.x_percent != null).length} store(s) have coordinates
+            </p>
           )}
         </div>
       </Section>
