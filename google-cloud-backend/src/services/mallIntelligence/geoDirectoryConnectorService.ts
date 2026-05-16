@@ -21,6 +21,11 @@
  *   • All results staged as review_status = "pending"
  */
 
+import {
+  buildSafeStoreUpdate,
+  type ExistingStagedStore,
+} from "./mallSetupPipelineService.js";
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface GeoDirectoryDetectResult {
@@ -651,59 +656,144 @@ export async function importGeoDirectoryStoresForSource(
     warnings.push(...n.warnings);
   }
 
-  // ── Batch upsert into staging table ───────────────────────────────────────
-  // Uses the unique partial index on (mall_source_id, geodir_store_id)
-  // created by migration 015 for conflict detection.
-  // stores_updated is not distinguishable from batch upsert — returned as 0.
-  let stagesUpserted = 0;
-  const mallId       = (src.mall_id as string | undefined) ?? null;
+  // ── Preserve admin review decisions (Sprint 13.3.1) ───────────────────────
+  // Load existing staged rows for this source so we can:
+  //   a) insert only truly new records (review_status = "pending")
+  //   b) update existing records using only the safe-fields whitelist
+  //      (never touching review_status / reviewed_at / reviewed_by / notes /
+  //       x_percent / y_percent — and only filling floor_label when null)
+  const mallId = (src.mall_id as string | undefined) ?? null;
 
-  const payloads = normalized.map((store) => ({
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+  const { data: existingRows, error: existingErr } = await supabase
+    .from("mall_store_locations_staged")
+    .select(
+      "id, geodir_store_id, review_status, floor_label, reviewed_at, reviewed_by, notes, x_percent, y_percent",
+    )
+    .eq("mall_source_id", sourceId)
+    .not("geodir_store_id", "is", null);
+
+  if (existingErr) {
+    const e = existingErr as { message: string };
+    warnings.push(
+      `Could not load existing staged stores: ${e.message} — all records will be treated as new`,
+    );
+  }
+
+  type ExistingRow = ExistingStagedStore & { id: string; geodir_store_id: number };
+
+  const existingMap = new Map<number, ExistingRow>();
+  for (const row of ((existingRows ?? []) as ExistingRow[])) {
+    existingMap.set(row.geodir_store_id, row);
+  }
+
+  const toInsert = normalized.filter((s) => !existingMap.has(s.geodir_store_id));
+  const toUpdate = normalized.filter((s) =>  existingMap.has(s.geodir_store_id));
+
+  // ── INSERT new rows (batch) ────────────────────────────────────────────────
+  // New rows always start with review_status = "pending".
+  let stagesInserted = 0;
+
+  const insertPayloads = toInsert.map((store) => ({
     mall_id:            mallId,
     mall_source_id:     sourceId,
     shop_name:          store.shop_name,
-    unit_number:        store.unit_number    ?? null,
-    floor_label:        store.floor_label    ?? null,
-    category:           store.category       ?? null,
+    unit_number:        store.unit_number        ?? null,
+    floor_label:        store.floor_label        ?? null,
+    category:           store.category           ?? null,
     source_url:         store.source_url,
     raw_evidence:       store.raw_evidence,
     confidence:         store.confidence,
     extraction_method:  store.extraction_method,
     review_status:      "pending",
     geodir_store_id:    store.geodir_store_id,
-    phone:              store.phone          ?? null,
-    website:            store.website        ?? null,
-    latitude:           store.latitude       ?? null,
-    longitude:          store.longitude      ?? null,
-    parking_hint:       store.parking_hint   ?? null,
-    entrance_hint:      store.entrance_hint  ?? null,
-    road_name:          store.road_name      ?? null,
+    phone:              store.phone              ?? null,
+    website:            store.website            ?? null,
+    latitude:           store.latitude           ?? null,
+    longitude:          store.longitude          ?? null,
+    parking_hint:       store.parking_hint       ?? null,
+    entrance_hint:      store.entrance_hint      ?? null,
+    road_name:          store.road_name          ?? null,
     source_modified_at: store.source_modified_at ?? null,
-    image_url:          store.image_url      ?? null,
+    image_url:          store.image_url          ?? null,
   }));
 
-  for (let i = 0; i < payloads.length; i += UPSERT_BATCH_SIZE) {
-    const batch     = payloads.slice(i, i + UPSERT_BATCH_SIZE);
-    const batchNum  = Math.floor(i / UPSERT_BATCH_SIZE) + 1;
+  for (let i = 0; i < insertPayloads.length; i += UPSERT_BATCH_SIZE) {
+    const batch    = insertPayloads.slice(i, i + UPSERT_BATCH_SIZE);
+    const batchNum = Math.floor(i / UPSERT_BATCH_SIZE) + 1;
 
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-    const { error: upsertErr } = await supabase
+    const { error: insertErr } = await supabase
       .from("mall_store_locations_staged")
-      .upsert(batch, { onConflict: "mall_source_id,geodir_store_id" });
+      .insert(batch);
 
-    if (upsertErr) {
-      const e = upsertErr as { message: string };
-      console.error(`[geodir-import] batch ${batchNum} upsert error:`, e.message);
-      insertErrors.push(`Batch ${batchNum} (records ${i + 1}–${i + batch.length}): ${e.message}`);
+    if (insertErr) {
+      const e = insertErr as { message: string };
+      console.error(`[geodir-import] insert batch ${batchNum} error:`, e.message);
+      insertErrors.push(
+        `Insert batch ${batchNum} (rows ${i + 1}–${i + batch.length}): ${e.message}`,
+      );
     } else {
-      stagesUpserted += batch.length;
+      stagesInserted += batch.length;
     }
   }
 
-  if (fetchResult.total_fetched > 0 && stagesUpserted === 0) {
+  // ── UPDATE existing rows — safe fields only ────────────────────────────────
+  // buildSafeStoreUpdate guarantees review_status / reviewed_at / reviewed_by /
+  // notes / x_percent / y_percent are NEVER in the returned payload.
+  // floor_label is only included when the existing row has floor_label = null.
+  let stagesUpdated = 0;
+
+  for (const store of toUpdate) {
+    const existing = existingMap.get(store.geodir_store_id)!;
+
+    const safeFields = buildSafeStoreUpdate(
+      {
+        review_status: existing.review_status,
+        reviewed_at:   existing.reviewed_at,
+        reviewed_by:   existing.reviewed_by,
+        notes:         existing.notes,
+        x_percent:     existing.x_percent,
+        y_percent:     existing.y_percent,
+        floor_label:   existing.floor_label,
+      },
+      {
+        phone:              store.phone              ?? null,
+        website:            store.website            ?? null,
+        parking_hint:       store.parking_hint       ?? null,
+        entrance_hint:      store.entrance_hint      ?? null,
+        road_name:          store.road_name          ?? null,
+        source_modified_at: store.source_modified_at ?? null,
+        image_url:          store.image_url          ?? null,
+        category:           store.category           ?? null,
+        floor_label:        store.floor_label        ?? null,
+      },
+    );
+
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    const { error: updateErr } = await supabase
+      .from("mall_store_locations_staged")
+      .update(safeFields as Record<string, unknown>)
+      .eq("id", existing.id);
+
+    if (updateErr) {
+      const e = updateErr as { message: string };
+      console.error(
+        `[geodir-import] safe-update geodir_store_id=${store.geodir_store_id}:`,
+        e.message,
+      );
+      insertErrors.push(
+        `Safe-update geodir_store_id=${store.geodir_store_id}: ${e.message}`,
+      );
+    } else {
+      stagesUpdated++;
+    }
+  }
+
+  if (fetchResult.total_fetched > 0 && stagesInserted + stagesUpdated === 0) {
     warnings.push(
-      `Fetched ${fetchResult.total_fetched} records but all DB upserts failed — ` +
-      `ensure migration 015 has been applied (unique index on mall_source_id, geodir_store_id)`,
+      `Fetched ${fetchResult.total_fetched} records but all DB writes failed — ` +
+      `check migration 015 (unique index on mall_source_id, geodir_store_id)`,
     );
   }
 
@@ -714,8 +804,8 @@ export async function importGeoDirectoryStoresForSource(
     stores_endpoint: storesEndpoint,
     pages_fetched:   fetchResult.pages_fetched,
     records_found:   fetchResult.total_fetched,
-    stores_staged:   stagesUpserted,
-    stores_updated:  0,   // not distinguishable with batch upsert
+    stores_staged:   stagesInserted,
+    stores_updated:  stagesUpdated,
     insert_errors:   insertErrors,
     warnings,
     sample_stores:   normalized.slice(0, 3),

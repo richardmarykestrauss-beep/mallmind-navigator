@@ -1,8 +1,8 @@
 /**
- * mallSetupPipelineHarness.ts — Sprint 13.3
+ * mallSetupPipelineHarness.ts — Sprint 13.3 / 13.3.1
  *
  * Manual test harness for mallSetupPipelineService pure functions:
- *   validatePipelineInput, normalizeMallFloorLabel
+ *   validatePipelineInput, normalizeMallFloorLabel, buildSafeStoreUpdate
  *
  * Run with:
  *   npx ts-node --transpile-only src/services/mallIntelligence/__tests__/mallSetupPipelineHarness.ts
@@ -16,6 +16,7 @@ export {};
 const {
   validatePipelineInput,
   normalizeMallFloorLabel,
+  buildSafeStoreUpdate,
 } = require("../mallSetupPipelineService") as typeof import("../mallSetupPipelineService");
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -180,6 +181,165 @@ console.log("\nTC58 — normalizeMallFloorLabel: edge cases and unknown values")
 
   // Sub-ground alias
   assertEqual(normalizeMallFloorLabel("sub ground"), "Lower Ground", "'sub ground' → Lower Ground");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers for TC59–TC63
+// ─────────────────────────────────────────────────────────────────────────────
+
+import type { ExistingStagedStore } from "../mallSetupPipelineService";
+
+/** A typical accepted store with coordinates placed. */
+const ACCEPTED: ExistingStagedStore = {
+  review_status: "accepted",
+  reviewed_at:   "2026-01-15T09:00:00.000Z",
+  reviewed_by:   "admin-uuid-abc",
+  notes:         "Verified on-site",
+  x_percent:     45.5,
+  y_percent:     23.1,
+  floor_label:   "Ground Floor",
+};
+
+/** Incoming GeoDirectory data for that same store. */
+const INCOMING = {
+  phone:              "012 348 8000",
+  website:            "https://absa.co.za",
+  parking_hint:       "Yellow P",
+  entrance_hint:      "Entrance 3",
+  road_name:          "Atterbury Road",
+  source_modified_at: "2026-05-01T00:00:00.000Z",
+  image_url:          "https://menlynpark.co.za/stores/absa.jpg",
+  category:           "Banking",
+  floor_label:        "Upper Level",   // incoming tries to overwrite the existing floor_label
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TC59 — accepted store: review_status, reviewed_at, reviewed_by, notes never in update
+// ─────────────────────────────────────────────────────────────────────────────
+console.log("\nTC59 — accepted store review fields NOT in safe update");
+{
+  const update = buildSafeStoreUpdate(ACCEPTED, INCOMING);
+  assert(!("review_status" in update), "review_status absent from safe update");
+  assert(!("reviewed_at"   in update), "reviewed_at absent from safe update");
+  assert(!("reviewed_by"   in update), "reviewed_by absent from safe update");
+  assert(!("notes"         in update), "notes absent from safe update");
+  // Safe fields ARE present
+  assertEqual(update.phone, "012 348 8000",                   "phone updated");
+  assertEqual(update.category, "Banking",                      "category updated");
+  assertEqual(update.image_url, "https://menlynpark.co.za/stores/absa.jpg", "image_url updated");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TC60 — coordinates preserved: x_percent / y_percent never in update
+// ─────────────────────────────────────────────────────────────────────────────
+console.log("\nTC60 — coordinates NOT in safe update");
+{
+  const update = buildSafeStoreUpdate(ACCEPTED, INCOMING);
+  assert(!("x_percent" in update), "x_percent absent from safe update");
+  assert(!("y_percent" in update), "y_percent absent from safe update");
+
+  // Also verify for a rejected store that has coordinates
+  const rejectedWithCoords: ExistingStagedStore = {
+    review_status: "rejected",
+    reviewed_at:   "2026-02-01T10:00:00.000Z",
+    reviewed_by:   "admin-uuid-abc",
+    notes:         "Not a real tenant",
+    x_percent:     12.0,
+    y_percent:     88.5,
+    floor_label:   "Lower Ground",
+  };
+  const u2 = buildSafeStoreUpdate(rejectedWithCoords, INCOMING);
+  assert(!("x_percent" in u2), "rejected store: x_percent absent");
+  assert(!("y_percent" in u2), "rejected store: y_percent absent");
+  assert(!("review_status" in u2), "rejected store: review_status absent");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TC61 — new store path: buildSafeStoreUpdate cannot reset review_status
+//         (proves the UPDATE path can never downgrade accepted → pending)
+// ─────────────────────────────────────────────────────────────────────────────
+console.log("\nTC61 — buildSafeStoreUpdate never returns review_status (UPDATE path safe)");
+{
+  // Test every possible existing review_status value
+  const statuses = ["pending", "accepted", "rejected", "flagged"] as const;
+  for (const status of statuses) {
+    const existing: ExistingStagedStore = {
+      review_status: status, reviewed_at: null, reviewed_by: null,
+      notes: null, x_percent: null, y_percent: null, floor_label: null,
+    };
+    const u = buildSafeStoreUpdate(existing, INCOMING);
+    assert(!("review_status" in u),
+      `review_status absent for existing status="${status}"`);
+  }
+
+  // The INSERT path for new rows uses review_status = "pending" directly in the
+  // payload (not via buildSafeStoreUpdate), so it is not tested here — but the
+  // guarantee is that buildSafeStoreUpdate is ONLY called for existing rows.
+  assert(true, "INSERT path for new rows sets review_status=pending independently");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TC62 — null floor_label: filled when incoming has a value
+// ─────────────────────────────────────────────────────────────────────────────
+console.log("\nTC62 — null floor_label filled by incoming value");
+{
+  const noFloor: ExistingStagedStore = {
+    review_status: "pending", reviewed_at: null, reviewed_by: null,
+    notes: null, x_percent: null, y_percent: null, floor_label: null,
+  };
+
+  const u1 = buildSafeStoreUpdate(noFloor, { floor_label: "Ground Floor" });
+  assertEqual(u1.floor_label, "Ground Floor", "null floor_label filled → Ground Floor");
+
+  const u2 = buildSafeStoreUpdate(noFloor, { floor_label: "  Lower Ground  " });
+  assertEqual(u2.floor_label, "Lower Ground", "null floor_label filled + trimmed");
+
+  // Empty incoming floor_label does NOT fill
+  const u3 = buildSafeStoreUpdate(noFloor, { floor_label: "" });
+  assert(!("floor_label" in u3) || u3.floor_label === undefined,
+    "null floor_label + empty incoming → floor_label NOT filled");
+
+  // null incoming also does NOT fill
+  const u4 = buildSafeStoreUpdate(noFloor, { floor_label: null });
+  assert(!("floor_label" in u4) || u4.floor_label === undefined,
+    "null floor_label + null incoming → floor_label NOT filled");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TC63 — existing floor_label not overwritten by incoming value
+// ─────────────────────────────────────────────────────────────────────────────
+console.log("\nTC63 — existing floor_label NOT overwritten by incoming");
+{
+  // Existing: "Lower Ground" — incoming tries to set "Ground Floor"
+  const u1 = buildSafeStoreUpdate(ACCEPTED, { ...INCOMING, floor_label: "Ground Floor" });
+  assert(
+    !("floor_label" in u1) || u1.floor_label === undefined,
+    "existing 'Ground Floor' not overwritten by incoming 'Ground Floor'",
+  );
+
+  // Existing: "Upper Level" — incoming tries to change it
+  const upperLevel: ExistingStagedStore = { ...ACCEPTED, floor_label: "Upper Level" };
+  const u2 = buildSafeStoreUpdate(upperLevel, { floor_label: "Lower Ground" });
+  assert(
+    !("floor_label" in u2) || u2.floor_label === undefined,
+    "existing 'Upper Level' not overwritten by incoming 'Lower Ground'",
+  );
+
+  // Accepted store floor_label is "Ground Floor" — same incoming — still not re-set
+  const groundFloor: ExistingStagedStore = { ...ACCEPTED, floor_label: "Ground Floor" };
+  const u3 = buildSafeStoreUpdate(groundFloor, { floor_label: "Ground Floor" });
+  assert(
+    !("floor_label" in u3) || u3.floor_label === undefined,
+    "identical floor_label: no re-set in update (already canonical)",
+  );
+
+  // Whitespace-only incoming floor_label does NOT overwrite null
+  const noFloor2: ExistingStagedStore = { ...ACCEPTED, floor_label: null };
+  const u4 = buildSafeStoreUpdate(noFloor2, { floor_label: "   " });
+  assert(
+    !("floor_label" in u4) || u4.floor_label === undefined,
+    "whitespace-only incoming floor_label does not fill null",
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

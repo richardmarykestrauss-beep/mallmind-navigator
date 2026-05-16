@@ -235,11 +235,37 @@ router.post("/scan-website", async (req: Request, res: Response) => {
     })
     .eq("id", source_id);
 
-  // Save discovered assets — enrich image assets with pixel dimensions
-  const savedAssets: unknown[] = [];
+  // Save discovered assets — enrich image assets with pixel dimensions.
+  // Deduplicate by (asset_type, floor_label, link_text, asset_url) so that
+  // re-scanning the same source never creates duplicate mall_map_assets rows.
+  const savedAssets:     unknown[] = [];
   const dimensionWarnings: string[] = [];
+  let   skippedDuplicateAssets = 0;
+
+  // Load existing assets for this source to build the dedup set
+  const { data: existingAssets } = await supabase
+    .from("mall_map_assets")
+    .select("asset_type, floor_label, link_text, asset_url")
+    .eq("mall_source_id", source_id);
+
+  const assetDedupSet = new Set<string>(
+    ((existingAssets ?? []) as Array<{
+      asset_type: string; floor_label: string | null;
+      link_text:  string | null; asset_url: string;
+    }>).map(
+      (a) => `${a.asset_type}::${a.floor_label ?? ""}::${a.link_text ?? ""}::${a.asset_url}`,
+    ),
+  );
 
   for (const asset of scanResult.discovered_assets) {
+    const dedupKey = `${asset.asset_type}::${asset.floor_label ?? ""}::${asset.link_text ?? ""}::${asset.url}`;
+
+    if (assetDedupSet.has(dedupKey)) {
+      skippedDuplicateAssets++;
+      continue;
+    }
+    assetDedupSet.add(dedupKey); // prevent in-scan duplicates too
+
     let pageWidthPx:  number | null = null;
     let pageHeightPx: number | null = null;
 
@@ -272,24 +298,27 @@ router.post("/scan-website", async (req: Request, res: Response) => {
 
   fireAuditLog(admin.user.id, "mall_source_scanned", {
     source_id,
-    assets_found:  scanResult.discovered_assets.length,
-    scan_status:   newStatus,
-    duration_ms:   scanResult.scan_duration_ms,
+    assets_found:      scanResult.discovered_assets.length,
+    assets_saved:      savedAssets.length,
+    assets_duplicates: skippedDuplicateAssets,
+    scan_status:       newStatus,
+    duration_ms:       scanResult.scan_duration_ms,
   });
 
   // Return scan result (raw_html omitted from response to keep payload small)
   return res.json({
     source_id,
-    scan_status:    newStatus,
-    page_title:     scanResult.page_title,
-    assets_saved:   savedAssets,
-    assets_found:   scanResult.discovered_assets.length,
-    scan_duration_ms: scanResult.scan_duration_ms,
-    warnings:       [...scanResult.warnings, ...dimensionWarnings],
-    error:          scanResult.error,
+    scan_status:              newStatus,
+    page_title:               scanResult.page_title,
+    assets_saved:             savedAssets,
+    assets_found:             scanResult.discovered_assets.length,
+    assets_skipped_duplicate: skippedDuplicateAssets,
+    scan_duration_ms:         scanResult.scan_duration_ms,
+    warnings:                 [...scanResult.warnings, ...dimensionWarnings],
+    error:                    scanResult.error,
     // Include a flag so the frontend knows whether to offer "Extract Stores" next
-    has_html:       !!scanResult.raw_html,
-    raw_html:       scanResult.raw_html, // available for immediate extract-map call
+    has_html:                 !!scanResult.raw_html,
+    raw_html:                 scanResult.raw_html, // available for immediate extract-map call
   });
 });
 
@@ -1080,9 +1109,29 @@ router.post("/run-setup-pipeline", async (req: Request, res: Response) => {
           `Scan completed with error: ${scanResult.error}. ${scanResult.discovered_assets.length} assets found before error.`,
           { assets_found: scanResult.discovered_assets.length });
       } else {
-        // Persist newly discovered assets (skip those already in DB)
-        let savedAssets = 0;
+        // Persist newly discovered assets, skipping exact duplicates
+        // (same asset_type + floor_label + link_text + asset_url already in DB).
+        const { data: existingPipelineAssets } = await supabase
+          .from("mall_map_assets")
+          .select("asset_type, floor_label, link_text, asset_url")
+          .eq("mall_source_id", sourceId);
+
+        const pipelineAssetDedup = new Set<string>(
+          ((existingPipelineAssets ?? []) as Array<{
+            asset_type: string; floor_label: string | null;
+            link_text:  string | null; asset_url: string;
+          }>).map(
+            (a) => `${a.asset_type}::${a.floor_label ?? ""}::${a.link_text ?? ""}::${a.asset_url}`,
+          ),
+        );
+
+        let savedAssets     = 0;
+        let dupAssets       = 0;
         for (const asset of scanResult.discovered_assets) {
+          const dk = `${asset.asset_type}::${asset.floor_label ?? ""}::${asset.link_text ?? ""}::${asset.url}`;
+          if (pipelineAssetDedup.has(dk)) { dupAssets++; continue; }
+          pipelineAssetDedup.add(dk);
+
           let pw: number | null = null;
           let ph: number | null = null;
           if (asset.asset_type === "image") {
@@ -1103,9 +1152,9 @@ router.post("/run-setup-pipeline", async (req: Request, res: Response) => {
           if (!assetErr) savedAssets++;
         }
         step("Scan website", "ok",
-          `Scan complete — ${scanResult.discovered_assets.length} asset(s) found, ${savedAssets} saved`,
+          `Scan complete — ${scanResult.discovered_assets.length} asset(s) found, ${savedAssets} saved, ${dupAssets} duplicate(s) skipped`,
           { assets_found: scanResult.discovered_assets.length, assets_saved: savedAssets,
-            duration_ms: scanResult.scan_duration_ms });
+            assets_duplicates_skipped: dupAssets, duration_ms: scanResult.scan_duration_ms });
         warnings.push(...scanResult.warnings);
       }
     } catch (e) {
