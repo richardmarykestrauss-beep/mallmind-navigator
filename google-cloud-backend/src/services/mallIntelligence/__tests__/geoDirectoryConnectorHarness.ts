@@ -16,6 +16,7 @@ export {};
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const {
   inferFloorFromStoreCode,
+  inferFloorLabelFromUnitNumber,
   stripGeoHtml,
   parseGeoDirectoryContent,
   normalizeGeoDirectoryStore,
@@ -360,6 +361,81 @@ expectTruthy("stops on partial page (3 < 100)",     simulateShouldStop(3, 100));
 expectTruthy("stops on partial page (99 < 100)",    simulateShouldStop(99, 100));
 expect("does NOT stop on full page (100 === 100)", simulateShouldStop(100, 100), false);
 expect("does NOT stop on full page (5 === 5)",    simulateShouldStop(5, 5),   false);
+
+// ── TC19: inferFloorLabelFromUnitNumber ───────────────────────────────────────
+
+title("TC19: inferFloorLabelFromUnitNumber — Menlyn unit-number prefix mapping");
+
+// Ground Floor variants (G prefix followed by space or digit)
+expect('G 87  → Ground Floor',  inferFloorLabelFromUnitNumber("G 87"),   "Ground Floor");
+expect('G120  → Ground Floor',  inferFloorLabelFromUnitNumber("G120"),   "Ground Floor");
+expect('G105A → Ground Floor',  inferFloorLabelFromUnitNumber("G105A"),  "Ground Floor");
+
+// Lower Ground
+expect('LG 10  → Lower Ground', inferFloorLabelFromUnitNumber("LG 10"),  "Lower Ground");
+expect('LF 111 → Lower Ground', inferFloorLabelFromUnitNumber("LF 111"), "Lower Ground");
+
+// Upper Level
+expect('UF 28  → Upper Level',  inferFloorLabelFromUnitNumber("UF 28"),  "Upper Level");
+
+// Food Court
+expect('FC 11  → Food Court',   inferFloorLabelFromUnitNumber("FC 11"),  "Food Court");
+expect('SH 01  → Food Court',   inferFloorLabelFromUnitNumber("SH 01"),  "Food Court");
+
+// Kiosk
+expect('KI 02  → Kiosk',        inferFloorLabelFromUnitNumber("KI 02"),  "Kiosk");
+
+// Null / empty — must not throw
+expectFalsy('null   → null',    inferFloorLabelFromUnitNumber(null));
+expectFalsy('""     → null',    inferFloorLabelFromUnitNumber(""));
+
+// Sanity: "GF 042" must NOT match the bare G rule (F is not space/digit)
+// — that code is handled upstream by inferFloorFromStoreCode
+expectFalsy('"GF 042" does NOT match G rule', inferFloorLabelFromUnitNumber("GF 042"));
+
+// Fallback in normalizeGeoDirectoryStore: floor_label inferred from unit_number
+// when content has no "Store Code:" with a known GF/LF/UF prefix.
+const RAW_G_STORE = {
+  id:       999,
+  title:    { raw: "Woolworths Food" },
+  link:     "https://www.menlynpark.co.za/stores/woolworths-food/",
+  modified: "2024-12-01T00:00:00",
+  content:  { raw: "Store Code: G 120", rendered: "" },  // G prefix, not GF
+  featured_image: null,
+  images:   [],
+};
+const n19 = normalizeGeoDirectoryStore(RAW_G_STORE as never, "https://www.menlynpark.co.za/");
+expect('normalizeGeoDirectoryStore: G 120 unit_number', n19.unit_number, "G 120");
+expect('normalizeGeoDirectoryStore: G 120 → Ground Floor via inferFloorLabelFromUnitNumber',
+  n19.floor_label, "Ground Floor");
+expect('normalizeGeoDirectoryStore: confidence 0.90 when unit_number present',
+  n19.confidence, 0.90);
+
+const RAW_KI_STORE = {
+  id:       998,
+  title:    { raw: "Kiosk Vendor" },
+  link:     "https://www.menlynpark.co.za/stores/kiosk/",
+  modified: "2024-12-01T00:00:00",
+  content:  { raw: "Store Code: KI 04", rendered: "" },
+  featured_image: null,
+  images:   [],
+};
+const n19b = normalizeGeoDirectoryStore(RAW_KI_STORE as never, "https://www.menlynpark.co.za/");
+expect('normalizeGeoDirectoryStore: KI 04 → Kiosk', n19b.floor_label, "Kiosk");
+
+// Explicit floor_label from inferFloorFromStoreCode must NOT be overwritten
+const RAW_LF_STORE = {
+  id:       997,
+  title:    { raw: "@home living" },
+  link:     "https://www.menlynpark.co.za/stores/home/",
+  modified: "2024-12-01T00:00:00",
+  content:  { raw: "Store Code: LF 111", rendered: "" },
+  featured_image: null,
+  images:   [],
+};
+const n19c = normalizeGeoDirectoryStore(RAW_LF_STORE as never, "https://www.menlynpark.co.za/");
+expect('normalizeGeoDirectoryStore: LF 111 keeps Lower Ground (not overwritten)',
+  n19c.floor_label, "Lower Ground");
 
 // ── TC15: Exported constants — safe defaults ───────────────────────────────────
 

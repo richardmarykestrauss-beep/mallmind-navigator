@@ -175,6 +175,45 @@ export function inferFloorFromStoreCode(code: string): string | undefined {
   return undefined;
 }
 
+/**
+ * Infer a canonical floor label from a unit_number string when the content
+ * parser could not derive one from a "Store Code:" field.
+ *
+ * Handles the Menlyn Park unit-number prefixes seen in production data:
+ *   G / Gxxx  → Ground Floor   (e.g. "G 87", "G120", "G105A")
+ *   LG        → Lower Ground   (e.g. "LG 10")
+ *   LF        → Lower Ground   (e.g. "LF 111")
+ *   UF        → Upper Level    (e.g. "UF 28")
+ *   FC        → Food Court     (e.g. "FC 11")
+ *   SH        → Food Court     (e.g. "SH 01" — food-hall units near Entrance 6)
+ *   KI        → Kiosk          (e.g. "KI 02")
+ *
+ * Returns null when the prefix is unrecognised or input is null/empty.
+ * Pure function — no DB or HTTP calls.  Exported for unit testing.
+ */
+export function inferFloorLabelFromUnitNumber(unitNumber: string | null | undefined): string | null {
+  if (!unitNumber?.trim()) return null;
+  const u = unitNumber.trim().toUpperCase();
+
+  // Each entry: [pattern that the unit_number must match, canonical floor label]
+  // Pattern requires the prefix to be followed by a space or digit so that
+  // e.g. "GF 042" does NOT match the bare "G" rule (F is neither space nor digit).
+  const UNIT_FLOOR_MAP: Array<[RegExp, string]> = [
+    [/^LF(\s|\d)/, "Lower Ground"],
+    [/^LG(\s|\d)/, "Lower Ground"],
+    [/^UF(\s|\d)/, "Upper Level"],
+    [/^G(\s|\d)/,  "Ground Floor"],
+    [/^FC(\s|\d)/, "Food Court"],
+    [/^SH(\s|\d)/, "Food Court"],
+    [/^KI(\s|\d)/, "Kiosk"],
+  ];
+
+  for (const [pattern, label] of UNIT_FLOOR_MAP) {
+    if (pattern.test(u)) return label;
+  }
+  return null;
+}
+
 // ── HTML / text utilities ─────────────────────────────────────────────────────
 
 /**
@@ -441,6 +480,15 @@ export function normalizeGeoDirectoryStore(
     : `GeoDirectory store ID ${record.id}`;
   const parsed = parseGeoDirectoryContent(rawContent);
 
+  // If the content parser could not infer a floor label from the "Store Code:"
+  // field, try to infer one from the unit_number itself (e.g. "G 87" → Ground Floor,
+  // "LG 10" → Lower Ground, "FC 11" → Food Court, "KI 02" → Kiosk).
+  // This recovers floor labels for the ~186 Menlyn rows that use G/LG/FC/SH/KI prefixes
+  // rather than the GF/LF/UF store-code convention.
+  const floorLabel = parsed.floor_label
+    ?? inferFloorLabelFromUnitNumber(parsed.unit_number ?? null)
+    ?? undefined;
+
   // GPS coordinates
   const toCoord = (v: number | string | null | undefined): number | undefined => {
     if (v === null || v === undefined || v === "") return undefined;
@@ -470,7 +518,7 @@ export function normalizeGeoDirectoryStore(
   return {
     shop_name:          displayName,
     unit_number:        parsed.unit_number,
-    floor_label:        parsed.floor_label,
+    floor_label:        floorLabel,
     category,
     source_url:         record.link || sourceUrl,
     raw_evidence:       rawEvidence,
