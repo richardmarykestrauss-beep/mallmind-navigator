@@ -60,6 +60,8 @@ import {
   getMapAnchors,
   updateMapAnchor,
   seedMapAnchors,
+  addManualMapAsset,
+  type AddManualMapAssetRequest,
 } from "@/lib/googleBackendClient";
 import { cn } from "@/lib/utils";
 import {
@@ -731,6 +733,18 @@ function MapReconstructionPanel({
   const [assetSaving, setAssetSaving] = useState(false);
   const [assetMsg,    setAssetMsg]    = useState<string | null>(null);
 
+  // Manual add-asset form state
+  const [addFloor,    setAddFloor]    = useState<string>("");
+  const [addType,     setAddType]     = useState<"image" | "pdf" | "photo">("image");
+  const [addUrl,      setAddUrl]      = useState<string>("");
+  const [addKind,     setAddKind]     = useState<AddManualMapAssetRequest["source_kind"]>("physical_map_photo");
+  const [addBase,     setAddBase]     = useState<boolean>(false);
+  const [addCorr,     setAddCorr]     = useState<boolean>(false);
+  const [addNotes,    setAddNotes]    = useState<string>("");
+  const [addSaving,   setAddSaving]   = useState(false);
+  const [addMsg,      setAddMsg]      = useState<string | null>(null);
+  const [addError,    setAddError]    = useState<string | null>(null);
+
   // Seed state
   const [seeding,    setSeeding]    = useState(false);
   const [seedResult, setSeedResult] = useState<SeedMapAnchorsResult | null>(null);
@@ -806,6 +820,43 @@ function MapReconstructionPanel({
       setAssetMsg(`Error: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setAssetSaving(false);
+    }
+  }
+
+  async function handleAddAsset() {
+    if (!mallId || !token || !addUrl.trim() || !addFloor.trim()) return;
+    setAddSaving(true);
+    setAddMsg(null);
+    setAddError(null);
+    try {
+      const r = await addManualMapAsset(
+        {
+          mall_id:          mallId,
+          floor_label:      addFloor.trim(),
+          asset_type:       addType,
+          asset_url:        addUrl.trim(),
+          source_kind:      addKind,
+          is_base_map:      addBase,
+          is_corridor_ref:  addCorr,
+          notes:            addNotes.trim() || undefined,
+        },
+        token,
+      );
+      if (r.duplicate) {
+        setAddMsg("Already exists — asset is already registered for this floor.");
+      } else {
+        setAddMsg(`Asset added (${r.asset.id.slice(0, 8)}…)`);
+        setAddUrl("");
+        setAddFloor("");
+        setAddNotes("");
+        setAddBase(false);
+        setAddCorr(false);
+        onAssetsChanged();
+      }
+    } catch (e) {
+      setAddError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAddSaving(false);
     }
   }
 
@@ -910,13 +961,145 @@ function MapReconstructionPanel({
 
       {/* ── Tab: Map Assets ─────────────────────────────────────────────────── */}
       {activeTab === "assets" && (
-        <div className="space-y-2">
+        <div className="space-y-3">
+
+          {/* ── Add Manual Map Asset form ──────────────────────────────────── */}
+          <div className="rounded-md border bg-muted/10 p-3 space-y-3">
+            <div>
+              <p className="text-xs font-medium">Add Manual Map Asset</p>
+              <p className="text-[10px] text-muted-foreground mt-0.5">
+                Use this for physical map photos, evacuation maps, archive map images,
+                or manually hosted map references.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              {/* Floor label */}
+              <div>
+                <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                  Floor Label <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={addFloor}
+                  onChange={(e) => setAddFloor(e.target.value)}
+                  placeholder="e.g. Level 3"
+                  className="mt-0.5 w-full rounded border bg-background px-2 py-1.5 text-xs"
+                />
+              </div>
+              {/* Asset type */}
+              <div>
+                <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                  Asset Type
+                </label>
+                <select
+                  value={addType}
+                  onChange={(e) => setAddType(e.target.value as typeof addType)}
+                  className="mt-0.5 w-full rounded border bg-background px-2 py-1.5 text-xs"
+                >
+                  <option value="image">Image</option>
+                  <option value="photo">Photo</option>
+                  <option value="pdf">PDF</option>
+                </select>
+              </div>
+            </div>
+
+            {/* URL */}
+            <div>
+              <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                Asset URL <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="url"
+                value={addUrl}
+                onChange={(e) => setAddUrl(e.target.value)}
+                placeholder="https://…/level3-map.jpg"
+                className="mt-0.5 w-full rounded border bg-background px-2 py-1.5 text-xs"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              {/* Source kind */}
+              <div>
+                <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                  Source Kind
+                </label>
+                <select
+                  value={addKind}
+                  onChange={(e) => setAddKind(e.target.value as typeof addKind)}
+                  className="mt-0.5 w-full rounded border bg-background px-2 py-1.5 text-xs"
+                >
+                  <option value="physical_map_photo">Physical Map Photo</option>
+                  <option value="evacuation_map_photo">Evacuation Map</option>
+                  <option value="archive_map_asset">Archive Asset</option>
+                  <option value="manual_reconstruction">Manual Reconstruction</option>
+                </select>
+              </div>
+              {/* Notes */}
+              <div>
+                <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                  Notes
+                </label>
+                <input
+                  type="text"
+                  value={addNotes}
+                  onChange={(e) => setAddNotes(e.target.value)}
+                  placeholder="Optional description"
+                  className="mt-0.5 w-full rounded border bg-background px-2 py-1.5 text-xs"
+                />
+              </div>
+            </div>
+
+            {/* Flags */}
+            <div className="flex flex-wrap gap-4">
+              <label className="flex items-center gap-1.5 cursor-pointer select-none text-xs">
+                <input
+                  type="checkbox"
+                  checked={addBase}
+                  onChange={(e) => setAddBase(e.target.checked)}
+                  className="h-3.5 w-3.5 rounded accent-primary"
+                />
+                <span><span className="font-medium">Base map</span> — reference image for coordinate placement</span>
+              </label>
+              <label className="flex items-center gap-1.5 cursor-pointer select-none text-xs">
+                <input
+                  type="checkbox"
+                  checked={addCorr}
+                  onChange={(e) => setAddCorr(e.target.checked)}
+                  className="h-3.5 w-3.5 rounded accent-primary"
+                />
+                <span><span className="font-medium">Corridor / evacuation ref</span></span>
+              </label>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => void handleAddAsset()}
+                disabled={addSaving || !addUrl.trim() || !addFloor.trim()}
+                className="flex items-center gap-1.5 rounded bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
+              >
+                {addSaving
+                  ? <><Loader2 className="h-3 w-3 animate-spin" /> Adding…</>
+                  : <><Plus className="h-3 w-3" /> Add Asset</>}
+              </button>
+              {addMsg   && <span className="text-xs text-green-700 font-medium">✓ {addMsg}</span>}
+              {addError && <span className="text-xs text-red-700">✗ {addError}</span>}
+            </div>
+          </div>
+
+          {/* ── Divider ────────────────────────────────────────────────────── */}
+          <div className="border-t pt-1">
+            <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-2">
+              Registered Assets ({assets.length})
+            </p>
+          </div>
+
           {assetMsg && (
             <p className="text-xs text-green-700 font-medium">{assetMsg}</p>
           )}
           {assets.length === 0 ? (
             <p className="text-xs text-muted-foreground text-center py-6">
-              No map assets yet. Scan a website or register a source to discover assets.
+              No map assets yet. Add one above, or scan a website source to discover assets automatically.
             </p>
           ) : (
             assets.map((asset) => {

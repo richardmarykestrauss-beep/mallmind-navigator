@@ -1756,6 +1756,107 @@ router.post("/preview-route", async (req: Request, res: Response) => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ─────────────────────────────────────────────────────────────────────────────
+// POST /admin/mall-intelligence/map-assets/manual — Sprint 14A.1
+//
+// Register a physical map photo, evacuation map, or archive scan as a map asset
+// without going through the website scanner.
+//
+// Body: { mall_id, floor_label, asset_type, asset_url, source_kind,
+//         is_base_map?, is_corridor_ref?, confidence_score?, notes? }
+//
+// Dedup: if a row with the same (mall_id, asset_url, floor_label) already exists,
+//        returns it with duplicate=true — no second row is created.
+// ─────────────────────────────────────────────────────────────────────────────
+
+router.post("/map-assets/manual", async (req: Request, res: Response) => {
+  const admin = await requireAdmin(req, res);
+  if (!admin) return;
+
+  const {
+    mall_id, floor_label, asset_type, asset_url, source_kind,
+    is_base_map, is_corridor_ref, confidence_score, notes,
+  } = req.body as {
+    mall_id:           unknown;
+    floor_label:       unknown;
+    asset_type:        unknown;
+    asset_url:         unknown;
+    source_kind:       unknown;
+    is_base_map?:      boolean;
+    is_corridor_ref?:  boolean;
+    confidence_score?: number;
+    notes?:            string;
+  };
+
+  if (!mall_id    || typeof mall_id    !== "string" || !mall_id.trim())
+    return res.status(400).json({ error: "mall_id is required" });
+  if (!floor_label || typeof floor_label !== "string" || !floor_label.trim())
+    return res.status(400).json({ error: "floor_label is required" });
+  if (!asset_url  || typeof asset_url  !== "string" || !asset_url.trim())
+    return res.status(400).json({ error: "asset_url is required" });
+
+  const VALID_ASSET_TYPES = new Set(["image", "pdf", "photo", "svg", "html_embed"]);
+  const VALID_SOURCE_KINDS = new Set([
+    "physical_map_photo", "evacuation_map_photo", "archive_map_asset",
+    "manual_reconstruction", "web_scan",
+  ]);
+
+  const rawType = typeof asset_type === "string" ? asset_type : "image";
+  // Normalise "photo" → "image" (same storage format, distinction captured in source_kind)
+  const normType = rawType === "photo" ? "image" : VALID_ASSET_TYPES.has(rawType) ? rawType : "image";
+  const normKind = VALID_SOURCE_KINDS.has(typeof source_kind === "string" ? source_kind : "")
+    ? String(source_kind)
+    : "manual_reconstruction";
+
+  const supabase    = getSupabaseClient();
+  const mallIdStr   = mall_id.trim();
+  const floorStr    = floor_label.trim();
+  const urlStr      = asset_url.trim();
+
+  // ── Dedup check ───────────────────────────────────────────────────────────
+  const { data: existing } = await supabase
+    .from("mall_map_assets")
+    .select("*")
+    .eq("mall_id",    mallIdStr)
+    .eq("asset_url",  urlStr)
+    .eq("floor_label", floorStr)
+    .maybeSingle();
+
+  if (existing) {
+    return res.json({ ok: true, asset: existing, duplicate: true });
+  }
+
+  // ── Insert ────────────────────────────────────────────────────────────────
+  const { data: inserted, error } = await supabase
+    .from("mall_map_assets")
+    .insert({
+      mall_id:          mallIdStr,
+      mall_source_id:   null,
+      asset_type:       normType,
+      asset_url:        urlStr,
+      floor_label:      floorStr,
+      source_kind:      normKind,
+      is_base_map:      is_base_map      ?? false,
+      is_corridor_ref:  is_corridor_ref  ?? false,
+      confidence_score: confidence_score ?? null,
+      notes:            notes?.trim()    ?? null,
+      review_status:    "pending",
+    })
+    .select()
+    .single();
+
+  if (error) return res.status(500).json({ error: error.message });
+
+  fireAuditLog(admin.user.id, "mall_map_asset_manual_add", {
+    mall_id:     mallIdStr,
+    asset_id:    (inserted as Record<string, unknown>).id,
+    floor_label: floorStr,
+    source_kind: normKind,
+  });
+
+  return res.json({ ok: true, asset: inserted, duplicate: false });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // PATCH /admin/mall-intelligence/map-assets/:id
 //
 // Update a map asset's reconstruction metadata:

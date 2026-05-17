@@ -2444,3 +2444,46 @@ export async function seedMapAnchors(
     accessToken,
   );
 }
+
+// ── Manual Map Asset public API (Sprint 14A.1) ────────────────────────────────
+
+export interface AddManualMapAssetRequest {
+  mall_id:           string;
+  floor_label:       string;
+  asset_type:        "image" | "pdf" | "photo";
+  asset_url:         string;
+  source_kind:       "physical_map_photo" | "evacuation_map_photo" | "archive_map_asset" | "manual_reconstruction";
+  is_base_map?:      boolean;
+  is_corridor_ref?:  boolean;
+  confidence_score?: number;
+  notes?:            string;
+}
+
+export interface AddManualMapAssetResult {
+  ok:        boolean;
+  asset:     MallMapAsset;
+  duplicate: boolean;
+}
+
+/**
+ * POST /admin/mall-intelligence/map-assets/manual
+ *
+ * Register a physical map photo, evacuation map scan, or archive image as a
+ * mall_map_assets row without going through the website scanner.
+ *
+ * Dedup: if the same (mall_id, asset_url, floor_label) already exists,
+ * returns the existing row with duplicate=true — no second row is created.
+ *
+ * Requires admin bearer token.
+ */
+export async function addManualMapAsset(
+  payload:     AddManualMapAssetRequest,
+  accessToken: string,
+): Promise<AddManualMapAssetResult> {
+  if (!BASE_URL) throw new Error("VITE_GOOGLE_BACKEND_URL is not configured");
+  return postAuthWithResponse<AddManualMapAssetResult>(
+    "/admin/mall-intelligence/map-assets/manual",
+    payload,
+    accessToken,
+  );
+}
