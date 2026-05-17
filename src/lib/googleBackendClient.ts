@@ -1576,20 +1576,78 @@ export interface MallSource {
   geodir_api_url?:  string;
 }
 
+// ── Map Reconstruction types (Sprint 14A) ─────────────────────────────────────
+
+export type MapAssetSourceKind =
+  | "web_scan"
+  | "physical_map_photo"
+  | "evacuation_map_photo"
+  | "archive_map_asset"
+  | "manual_reconstruction";
+
+export type MapAnchorType =
+  | "shop"
+  | "entrance"
+  | "parking"
+  | "lift"
+  | "escalator"
+  | "stairs"
+  | "toilet"
+  | "corridor_node"
+  | "emergency_exit"
+  | "landmark";
+
+export interface MallManualMapAnchor {
+  id:               string;
+  created_at:       string;
+  mall_id:          string;
+  map_asset_id?:    string | null;
+  floor_label:      string;
+  label:            string;
+  anchor_type:      MapAnchorType;
+  raw_text?:        string | null;
+  x_percent?:       number | null;
+  y_percent?:       number | null;
+  confidence_score: number;
+  source_note?:     string | null;
+  review_status:    string;
+  reviewed_by?:     string | null;
+  reviewed_at?:     string | null;
+  notes?:           string | null;
+}
+
+export interface MapAnchorsResult {
+  anchors: MallManualMapAnchor[];
+  total:   number;
+}
+
+export interface SeedMapAnchorsResult {
+  ok:              boolean;
+  preset:          string;
+  total_in_preset: number;
+  inserted:        number;
+  skipped:         number;
+}
+
 export interface MallMapAsset {
-  id:             string;
+  id:              string;
   mall_source_id?: string;
-  mall_id?:       string;
-  asset_type:     "image" | "pdf" | "svg" | "html_embed";
-  asset_url:      string;
-  floor_label?:   string;
-  link_text?:     string;
+  mall_id?:        string;
+  asset_type:      "image" | "pdf" | "svg" | "html_embed";
+  asset_url:       string;
+  floor_label?:    string;
+  link_text?:      string;
   page_width_px?:  number;
   page_height_px?: number;
-  extracted_at:   string;
-  review_status:  string;
-  notes?:         string;
-  created_at:     string;
+  extracted_at:    string;
+  review_status:   string;
+  notes?:          string;
+  created_at:      string;
+  // Sprint 14A — Map Reconstruction metadata
+  source_kind?:    MapAssetSourceKind | null;
+  confidence_score?: number | null;
+  is_base_map?:    boolean;
+  is_corridor_ref?: boolean;
 }
 
 export interface MallStagedStoreLocation {
@@ -2240,6 +2298,149 @@ export async function previewRoute(
   return postAuthWithResponse<PreviewRouteResult>(
     "/admin/mall-intelligence/preview-route",
     { mall_id: mallId, from_node_id: fromNodeId, to_node_id: toNodeId },
+    accessToken,
+  );
+}
+
+// ── Map Reconstruction public API (Sprint 14A) ────────────────────────────────
+
+/**
+ * PATCH /admin/mall-intelligence/map-assets/:id
+ *
+ * Update a map asset's reconstruction metadata (source_kind, floor_label,
+ * is_base_map, is_corridor_ref, notes). Partial update — only provided keys
+ * are written. Safe: never touches asset_url, mall_id, or review_status.
+ * Requires admin bearer token.
+ */
+export async function updateMapAsset(
+  id:          string,
+  patch: {
+    source_kind?:    MapAssetSourceKind | null;
+    floor_label?:    string | null;
+    is_base_map?:    boolean;
+    is_corridor_ref?: boolean;
+    notes?:          string | null;
+  },
+  accessToken: string,
+): Promise<{ ok: boolean; asset: MallMapAsset }> {
+  if (!BASE_URL) throw new Error("VITE_GOOGLE_BACKEND_URL is not configured");
+  const url = `${BASE_URL}/admin/mall-intelligence/map-assets/${encodeURIComponent(id)}`;
+  const res = await fetch(url, {
+    method:  "PATCH",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+    body:    JSON.stringify(patch),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({})) as { error?: string };
+    throw new Error(body.error ?? `HTTP ${res.status}`);
+  }
+  return res.json() as Promise<{ ok: boolean; asset: MallMapAsset }>;
+}
+
+/**
+ * GET /admin/mall-intelligence/map-anchors
+ *
+ * List manual map anchors for a mall, ordered by floor → anchor_type → label.
+ * Optionally filter by floor_label or review_status.
+ * Requires admin bearer token.
+ */
+export async function getMapAnchors(
+  mallId:      string,
+  accessToken: string,
+  options?:    { floor_label?: string; review_status?: string },
+): Promise<MapAnchorsResult> {
+  if (!BASE_URL) throw new Error("VITE_GOOGLE_BACKEND_URL is not configured");
+  const params = new URLSearchParams({ mall_id: mallId });
+  if (options?.floor_label)   params.set("floor_label",   options.floor_label);
+  if (options?.review_status) params.set("review_status", options.review_status);
+  return getAuthenticated<MapAnchorsResult>(
+    `/admin/mall-intelligence/map-anchors?${params.toString()}`,
+    accessToken,
+  );
+}
+
+/**
+ * POST /admin/mall-intelligence/map-anchors
+ *
+ * Insert one or more manual map anchors. Idempotent — duplicate
+ * (mall_id, floor_label, label) combos are silently skipped.
+ * Requires admin bearer token.
+ */
+export async function insertMapAnchors(
+  mallId:      string,
+  anchors:     Array<{
+    floor_label:      string;
+    label:            string;
+    anchor_type?:     string;
+    raw_text?:        string | null;
+    source_note?:     string | null;
+    map_asset_id?:    string | null;
+    notes?:           string | null;
+    x_percent?:       number | null;
+    y_percent?:       number | null;
+    confidence_score?: number;
+  }>,
+  accessToken: string,
+): Promise<{ ok: boolean; inserted: number; anchors: MallManualMapAnchor[] }> {
+  if (!BASE_URL) throw new Error("VITE_GOOGLE_BACKEND_URL is not configured");
+  return postAuthWithResponse<{ ok: boolean; inserted: number; anchors: MallManualMapAnchor[] }>(
+    "/admin/mall-intelligence/map-anchors",
+    { mall_id: mallId, anchors },
+    accessToken,
+  );
+}
+
+/**
+ * PATCH /admin/mall-intelligence/map-anchors/:id
+ *
+ * Update an anchor's placement coordinates, notes, or review status.
+ * Coordinates are percentages of the reference image dimensions (0–100).
+ * Requires admin bearer token.
+ */
+export async function updateMapAnchor(
+  id:          string,
+  patch: {
+    x_percent?:     number | null;
+    y_percent?:     number | null;
+    review_status?: string;
+    notes?:         string | null;
+    source_note?:   string | null;
+    map_asset_id?:  string | null;
+  },
+  accessToken: string,
+): Promise<{ ok: boolean; anchor: MallManualMapAnchor }> {
+  if (!BASE_URL) throw new Error("VITE_GOOGLE_BACKEND_URL is not configured");
+  const url = `${BASE_URL}/admin/mall-intelligence/map-anchors/${encodeURIComponent(id)}`;
+  const res = await fetch(url, {
+    method:  "PATCH",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+    body:    JSON.stringify(patch),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({})) as { error?: string };
+    throw new Error(body.error ?? `HTTP ${res.status}`);
+  }
+  return res.json() as Promise<{ ok: boolean; anchor: MallManualMapAnchor }>;
+}
+
+/**
+ * POST /admin/mall-intelligence/seed-map-anchors
+ *
+ * Insert a preset anchor set for a known mall. Currently supports:
+ *   preset="mall_of_africa" — 25 anchors across Level 3 and Level 5.
+ *
+ * Idempotent — existing anchors for the same floor + label are skipped.
+ * Requires admin bearer token.
+ */
+export async function seedMapAnchors(
+  mallId:      string,
+  preset:      string,
+  accessToken: string,
+): Promise<SeedMapAnchorsResult> {
+  if (!BASE_URL) throw new Error("VITE_GOOGLE_BACKEND_URL is not configured");
+  return postAuthWithResponse<SeedMapAnchorsResult>(
+    "/admin/mall-intelligence/seed-map-anchors",
+    { mall_id: mallId, preset },
     accessToken,
   );
 }

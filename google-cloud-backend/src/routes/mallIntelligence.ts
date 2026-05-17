@@ -1751,4 +1751,307 @@ router.post("/preview-route", async (req: Request, res: Response) => {
   });
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Sprint 14A — Mall Map Reconstruction Foundation
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PATCH /admin/mall-intelligence/map-assets/:id
+//
+// Update a map asset's reconstruction metadata:
+//   source_kind, floor_label, is_base_map, is_corridor_ref, notes
+// Does NOT modify asset_url, mall_id, or review_status — safe for re-runs.
+// ─────────────────────────────────────────────────────────────────────────────
+
+router.patch("/map-assets/:id", async (req: Request, res: Response) => {
+  const admin = await requireAdmin(req, res);
+  if (!admin) return;
+
+  const assetId = (req.params.id as string)?.trim();
+  if (!assetId) return res.status(400).json({ error: "asset id is required" });
+
+  const { source_kind, floor_label, is_base_map, is_corridor_ref, notes } = req.body as {
+    source_kind?:    string | null;
+    floor_label?:    string | null;
+    is_base_map?:    boolean;
+    is_corridor_ref?: boolean;
+    notes?:          string | null;
+  };
+
+  const patch: Record<string, unknown> = {};
+  if (source_kind    !== undefined) patch.source_kind    = source_kind;
+  if (floor_label    !== undefined) patch.floor_label    = floor_label;
+  if (is_base_map    !== undefined) patch.is_base_map    = is_base_map;
+  if (is_corridor_ref !== undefined) patch.is_corridor_ref = is_corridor_ref;
+  if (notes          !== undefined) patch.notes          = notes;
+
+  if (Object.keys(patch).length === 0) {
+    return res.status(400).json({ error: "No updatable fields provided" });
+  }
+
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from("mall_map_assets")
+    .update(patch)
+    .eq("id", assetId)
+    .select()
+    .single();
+
+  if (error) return res.status(500).json({ error: error.message });
+  if (!data) return res.status(404).json({ error: "Asset not found" });
+
+  fireAuditLog(admin.user.id, "mall_map_asset_updated", { asset_id: assetId, ...patch });
+  return res.json({ ok: true, asset: data });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /admin/mall-intelligence/map-anchors
+//
+// List manual map anchors for a mall, ordered floor → anchor_type → label.
+// Query params: mall_id (required), floor_label (optional), review_status (optional)
+// ─────────────────────────────────────────────────────────────────────────────
+
+router.get("/map-anchors", async (req: Request, res: Response) => {
+  const admin = await requireAdmin(req, res);
+  if (!admin) return;
+
+  const mall_id       = req.query.mall_id       as string | undefined;
+  const floor_label   = req.query.floor_label   as string | undefined;
+  const review_status = req.query.review_status as string | undefined;
+
+  if (!mall_id?.trim()) return res.status(400).json({ error: "mall_id is required" });
+
+  const supabase = getSupabaseClient();
+  let query = supabase
+    .from("mall_manual_map_anchors_staged")
+    .select("*")
+    .eq("mall_id", mall_id.trim())
+    .order("floor_label", { ascending: true })
+    .order("anchor_type", { ascending: true })
+    .order("label",       { ascending: true });
+
+  if (floor_label)   query = query.eq("floor_label", floor_label);
+  if (review_status) query = query.eq("review_status", review_status);
+
+  const { data, error } = await query;
+  if (error) return res.status(500).json({ error: error.message });
+
+  return res.json({ anchors: data ?? [], total: (data ?? []).length });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /admin/mall-intelligence/map-anchors
+//
+// Insert one or more manual map anchors for a mall.
+// Duplicate (mall_id, floor_label, label) rows are silently skipped (upsert
+// ignoreDuplicates) so this endpoint is safe to call multiple times.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const VALID_ANCHOR_TYPES = new Set([
+  "shop", "entrance", "parking", "lift", "escalator", "stairs",
+  "toilet", "corridor_node", "emergency_exit", "landmark",
+]);
+
+router.post("/map-anchors", async (req: Request, res: Response) => {
+  const admin = await requireAdmin(req, res);
+  if (!admin) return;
+
+  const { mall_id, anchors } = req.body as { mall_id: unknown; anchors: unknown };
+
+  if (!mall_id || typeof mall_id !== "string" || !mall_id.trim()) {
+    return res.status(400).json({ error: "mall_id is required" });
+  }
+  if (!Array.isArray(anchors) || anchors.length === 0) {
+    return res.status(400).json({ error: "anchors must be a non-empty array" });
+  }
+
+  const rows = (anchors as Array<Record<string, unknown>>)
+    .map((a) => ({
+      mall_id:          mall_id.trim(),
+      map_asset_id:     (a.map_asset_id as string | null) ?? null,
+      floor_label:      String(a.floor_label ?? "").trim(),
+      label:            String(a.label       ?? "").trim(),
+      anchor_type:      VALID_ANCHOR_TYPES.has(String(a.anchor_type)) ? String(a.anchor_type) : "shop",
+      raw_text:         (a.raw_text     as string | null) ?? null,
+      x_percent:        typeof a.x_percent === "number" ? a.x_percent : null,
+      y_percent:        typeof a.y_percent === "number" ? a.y_percent : null,
+      confidence_score: typeof a.confidence_score === "number" ? a.confidence_score : 0.0,
+      source_note:      (a.source_note as string | null) ?? null,
+      notes:            (a.notes       as string | null) ?? null,
+      review_status:    "pending",
+    }))
+    .filter((r) => r.floor_label && r.label);
+
+  if (rows.length === 0) {
+    return res.status(400).json({ error: "All anchors were missing floor_label or label" });
+  }
+
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from("mall_manual_map_anchors_staged")
+    .upsert(rows, { onConflict: "mall_id,floor_label,label", ignoreDuplicates: true })
+    .select();
+
+  if (error) return res.status(500).json({ error: error.message });
+
+  fireAuditLog(admin.user.id, "mall_map_anchors_inserted", {
+    mall_id: mall_id.trim(), attempted: rows.length, inserted: (data ?? []).length,
+  });
+
+  return res.json({ ok: true, inserted: (data ?? []).length, anchors: data ?? [] });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PATCH /admin/mall-intelligence/map-anchors/:id
+//
+// Update an anchor's placement coordinates, notes, or review status.
+// Coordinates are expressed as percentages of the reference image dimensions.
+// ─────────────────────────────────────────────────────────────────────────────
+
+router.patch("/map-anchors/:id", async (req: Request, res: Response) => {
+  const admin = await requireAdmin(req, res);
+  if (!admin) return;
+
+  const anchorId = (req.params.id as string)?.trim();
+  if (!anchorId) return res.status(400).json({ error: "anchor id is required" });
+
+  const { x_percent, y_percent, review_status, notes, source_note, map_asset_id } = req.body as {
+    x_percent?:     number | null;
+    y_percent?:     number | null;
+    review_status?: string;
+    notes?:         string | null;
+    source_note?:   string | null;
+    map_asset_id?:  string | null;
+  };
+
+  const patch: Record<string, unknown> = {};
+  if (x_percent    !== undefined) patch.x_percent    = x_percent;
+  if (y_percent    !== undefined) patch.y_percent    = y_percent;
+  if (notes        !== undefined) patch.notes        = notes;
+  if (source_note  !== undefined) patch.source_note  = source_note;
+  if (map_asset_id !== undefined) patch.map_asset_id = map_asset_id;
+
+  if (review_status !== undefined) {
+    patch.review_status = review_status;
+    patch.reviewed_by   = admin.user.id;
+    patch.reviewed_at   = new Date().toISOString();
+  }
+
+  if (Object.keys(patch).length === 0) {
+    return res.status(400).json({ error: "No updatable fields provided" });
+  }
+
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from("mall_manual_map_anchors_staged")
+    .update(patch)
+    .eq("id", anchorId)
+    .select()
+    .single();
+
+  if (error) return res.status(500).json({ error: error.message });
+  if (!data) return res.status(404).json({ error: "Anchor not found" });
+
+  fireAuditLog(admin.user.id, "mall_map_anchor_updated", { anchor_id: anchorId, ...patch });
+  return res.json({ ok: true, anchor: data });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /admin/mall-intelligence/seed-map-anchors
+//
+// Insert a preset anchor set for a known mall.  Currently supports:
+//   preset="mall_of_africa" — Level 3 + Level 5 anchor set.
+//
+// Idempotent — existing (mall_id, floor_label, label) rows are skipped.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const MAP_ANCHOR_PRESETS: Record<
+  string,
+  Array<{ floor_label: string; label: string; anchor_type: string }>
+> = {
+  mall_of_africa: [
+    // ── Level 3 ──────────────────────────────────────────────────────────────
+    { floor_label: "Level 3", label: "Game",                       anchor_type: "shop"     },
+    { floor_label: "Level 3", label: "Edgars",                     anchor_type: "shop"     },
+    { floor_label: "Level 3", label: "Truworths",                  anchor_type: "shop"     },
+    { floor_label: "Level 3", label: "Checkers",                   anchor_type: "shop"     },
+    { floor_label: "Level 3", label: "Woolworths",                 anchor_type: "shop"     },
+    { floor_label: "Level 3", label: "Entrance 13",                anchor_type: "entrance" },
+    { floor_label: "Level 3", label: "Level 3 North West Parking", anchor_type: "parking"  },
+    { floor_label: "Level 3", label: "Level 3 North East Parking", anchor_type: "parking"  },
+    { floor_label: "Level 3", label: "Level 3 South West Parking", anchor_type: "parking"  },
+    { floor_label: "Level 3", label: "Level 3 South East Parking", anchor_type: "parking"  },
+    // ── Level 5 ──────────────────────────────────────────────────────────────
+    { floor_label: "Level 5", label: "Edgars",                     anchor_type: "shop"     },
+    { floor_label: "Level 5", label: "H&M",                        anchor_type: "shop"     },
+    { floor_label: "Level 5", label: "Zara",                       anchor_type: "shop"     },
+    { floor_label: "Level 5", label: "Woolworths",                 anchor_type: "shop"     },
+    { floor_label: "Level 5", label: "Town Square",                anchor_type: "landmark" },
+    { floor_label: "Level 5", label: "Entrance 10",                anchor_type: "entrance" },
+    { floor_label: "Level 5", label: "Entrance 11",                anchor_type: "entrance" },
+    { floor_label: "Level 5", label: "Entrance 12",                anchor_type: "entrance" },
+    { floor_label: "Level 5", label: "Entrance 22",                anchor_type: "entrance" },
+    { floor_label: "Level 5", label: "Entrance 23",                anchor_type: "entrance" },
+    { floor_label: "Level 5", label: "Entrance 24",                anchor_type: "entrance" },
+    { floor_label: "Level 5", label: "Level 5 North West Parking", anchor_type: "parking"  },
+    { floor_label: "Level 5", label: "Level 5 North East Parking", anchor_type: "parking"  },
+    { floor_label: "Level 5", label: "Level 5 South East Parking", anchor_type: "parking"  },
+    { floor_label: "Level 5", label: "Level 5 South West Parking", anchor_type: "parking"  },
+  ],
+};
+
+router.post("/seed-map-anchors", async (req: Request, res: Response) => {
+  const admin = await requireAdmin(req, res);
+  if (!admin) return;
+
+  const { mall_id, preset } = req.body as { mall_id: unknown; preset: unknown };
+
+  if (!mall_id || typeof mall_id !== "string" || !mall_id.trim()) {
+    return res.status(400).json({ error: "mall_id is required" });
+  }
+  if (!preset || typeof preset !== "string" || !preset.trim()) {
+    return res.status(400).json({
+      error: `preset is required. Available: ${Object.keys(MAP_ANCHOR_PRESETS).join(", ")}`,
+    });
+  }
+
+  const anchors = MAP_ANCHOR_PRESETS[preset];
+  if (!anchors) {
+    return res.status(400).json({
+      error: `Unknown preset "${preset}". Available: ${Object.keys(MAP_ANCHOR_PRESETS).join(", ")}`,
+    });
+  }
+
+  const rows = anchors.map((a) => ({
+    mall_id:          mall_id.trim(),
+    map_asset_id:     null,
+    floor_label:      a.floor_label,
+    label:            a.label,
+    anchor_type:      a.anchor_type,
+    confidence_score: 0.0,
+    source_note:      "preset seed",
+    review_status:    "pending",
+  }));
+
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from("mall_manual_map_anchors_staged")
+    .upsert(rows, { onConflict: "mall_id,floor_label,label", ignoreDuplicates: true })
+    .select();
+
+  if (error) return res.status(500).json({ error: error.message });
+
+  fireAuditLog(admin.user.id, "mall_map_anchors_seeded", {
+    mall_id: mall_id.trim(), preset, inserted: (data ?? []).length,
+  });
+
+  return res.json({
+    ok:              true,
+    preset,
+    total_in_preset: rows.length,
+    inserted:        (data ?? []).length,
+    skipped:         rows.length - (data ?? []).length,
+  });
+});
+
 export default router;

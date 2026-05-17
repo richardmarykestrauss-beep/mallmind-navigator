@@ -52,6 +52,14 @@ import {
   type PipelineStepStatus,
   type PipelineStepOutcome,
   type MallSetupPipelineResult,
+  type MapAssetSourceKind,
+  type MapAnchorType,
+  type MallManualMapAnchor,
+  type SeedMapAnchorsResult,
+  updateMapAsset,
+  getMapAnchors,
+  updateMapAnchor,
+  seedMapAnchors,
 } from "@/lib/googleBackendClient";
 import { cn } from "@/lib/utils";
 import {
@@ -77,6 +85,11 @@ import {
   Navigation,
   Clock,
   Zap,
+  ImagePlus,
+  Crosshair,
+  Pin,
+  Pencil,
+  ScanLine,
 } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -114,6 +127,40 @@ const SOURCE_TYPE_LABELS: Record<MallSourceType | string, string> = {
   tenant_list:      "Tenant List",
   social_media:     "Social Media",
   unknown:          "Unknown",
+};
+
+const SOURCE_KIND_LABELS: Record<MapAssetSourceKind | string, string> = {
+  web_scan:             "Web Scan",
+  physical_map_photo:   "Physical Map Photo",
+  evacuation_map_photo: "Evacuation Map",
+  archive_map_asset:    "Archive Asset",
+  manual_reconstruction:"Manual Reconstruction",
+};
+
+const ANCHOR_TYPE_LABELS: Record<MapAnchorType | string, string> = {
+  shop:           "🏪 Shop",
+  entrance:       "🚪 Entrance",
+  parking:        "🅿 Parking",
+  lift:           "🛗 Lift",
+  escalator:      "↗ Escalator",
+  stairs:         "🪜 Stairs",
+  toilet:         "🚻 Toilet",
+  corridor_node:  "〰 Corridor",
+  emergency_exit: "🚨 Emergency Exit",
+  landmark:       "📍 Landmark",
+};
+
+const ANCHOR_TYPE_COLORS: Record<MapAnchorType | string, string> = {
+  shop:           "bg-blue-100 text-blue-800",
+  entrance:       "bg-green-100 text-green-800",
+  parking:        "bg-slate-100 text-slate-800",
+  lift:           "bg-purple-100 text-purple-800",
+  escalator:      "bg-purple-100 text-purple-800",
+  stairs:         "bg-purple-100 text-purple-800",
+  toilet:         "bg-cyan-100 text-cyan-800",
+  corridor_node:  "bg-gray-100 text-gray-700",
+  emergency_exit: "bg-red-100 text-red-800",
+  landmark:       "bg-amber-100 text-amber-800",
 };
 
 function ConfidenceBadge({ value }: { value: number }) {
@@ -648,6 +695,627 @@ const FC_TYPE_LABELS: Record<FloorChangeNodeType, string> = {
   escalator: "↗ Escalator",
   stairs:    "🪜 Stairs",
 };
+
+// ── Sub-component: Map Reconstruction Panel (Sprint 14A) ─────────────────────
+
+const SOURCE_KIND_OPTIONS: Array<{ value: MapAssetSourceKind; label: string }> = [
+  { value: "web_scan",             label: "Web Scan"             },
+  { value: "physical_map_photo",   label: "Physical Map Photo"   },
+  { value: "evacuation_map_photo", label: "Evacuation Map"       },
+  { value: "archive_map_asset",    label: "Archive Asset"        },
+  { value: "manual_reconstruction",label: "Manual Reconstruction"},
+];
+
+function MapReconstructionPanel({
+  token,
+  mallId,
+  assets,
+  onAssetsChanged,
+}: {
+  token:           string;
+  mallId?:         string;
+  assets:          MallMapAsset[];
+  onAssetsChanged: () => void;
+}) {
+  const [activeTab,      setActiveTab]      = useState<"assets" | "anchors">("assets");
+  const [anchors,        setAnchors]        = useState<MallManualMapAnchor[]>([]);
+  const [loadingAnchors, setLoadingAnchors] = useState(false);
+
+  // Asset inline-edit state
+  const [editingId,   setEditingId]   = useState<string | null>(null);
+  const [editKind,    setEditKind]    = useState<string>("");
+  const [editFloor,   setEditFloor]   = useState<string>("");
+  const [editBase,    setEditBase]    = useState<boolean>(false);
+  const [editCorr,    setEditCorr]    = useState<boolean>(false);
+  const [editNotes,   setEditNotes]   = useState<string>("");
+  const [assetSaving, setAssetSaving] = useState(false);
+  const [assetMsg,    setAssetMsg]    = useState<string | null>(null);
+
+  // Seed state
+  const [seeding,    setSeeding]    = useState(false);
+  const [seedResult, setSeedResult] = useState<SeedMapAnchorsResult | null>(null);
+  const [seedError,  setSeedError]  = useState<string | null>(null);
+
+  // Anchor placement state
+  const [selectedAnchorId, setSelectedAnchorId] = useState<string>("");
+  const [selectedAssetId,  setSelectedAssetId]  = useState<string>("");
+  const [pendingCoord,     setPendingCoord]      = useState<{ x: number; y: number } | null>(null);
+  const [placingSaving,    setPlacingSaving]     = useState(false);
+  const [placeResult,      setPlaceResult]       = useState<string | null>(null);
+  const [placeError,       setPlaceError]        = useState<string | null>(null);
+  const [floorFilter,      setFloorFilter]       = useState<string>("all");
+
+  const loadAnchors = useCallback(async () => {
+    if (!mallId || !token) return;
+    setLoadingAnchors(true);
+    try {
+      const r = await getMapAnchors(mallId, token);
+      setAnchors(r.anchors);
+    } catch { setAnchors([]); }
+    finally { setLoadingAnchors(false); }
+  }, [mallId, token]);
+
+  useEffect(() => { void loadAnchors(); }, [loadAnchors]);
+
+  // Derive unique floors from anchors
+  const anchorFloors = [...new Set(anchors.map((a) => a.floor_label))].sort();
+
+  const displayedAnchors = floorFilter === "all"
+    ? anchors
+    : anchors.filter((a) => a.floor_label === floorFilter);
+
+  const imageAssets = assets.filter((a) => a.asset_type === "image");
+  const selectedAsset = assets.find((a) => a.id === selectedAssetId);
+  const selectedAnchor = anchors.find((a) => a.id === selectedAnchorId);
+
+  // Filter map images to match selected anchor's floor when known
+  const floorImageAssets = imageAssets.filter(
+    (a) => !selectedAnchor?.floor_label || !a.floor_label || a.floor_label === selectedAnchor.floor_label,
+  );
+
+  function startEditAsset(asset: MallMapAsset) {
+    setEditingId(asset.id);
+    setEditKind(asset.source_kind ?? "");
+    setEditFloor(asset.floor_label ?? "");
+    setEditBase(asset.is_base_map ?? false);
+    setEditCorr(asset.is_corridor_ref ?? false);
+    setEditNotes(asset.notes ?? "");
+    setAssetMsg(null);
+  }
+
+  async function saveAsset(assetId: string) {
+    if (!token) return;
+    setAssetSaving(true);
+    setAssetMsg(null);
+    try {
+      await updateMapAsset(
+        assetId,
+        {
+          source_kind:    (editKind || null) as MapAssetSourceKind | null,
+          floor_label:    editFloor.trim() || null,
+          is_base_map:    editBase,
+          is_corridor_ref: editCorr,
+          notes:          editNotes.trim() || null,
+        },
+        token,
+      );
+      setAssetMsg("Saved");
+      setEditingId(null);
+      onAssetsChanged();
+    } catch (e) {
+      setAssetMsg(`Error: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setAssetSaving(false);
+    }
+  }
+
+  async function handleSeed() {
+    if (!mallId || !token) return;
+    setSeeding(true);
+    setSeedError(null);
+    setSeedResult(null);
+    try {
+      const r = await seedMapAnchors(mallId, "mall_of_africa", token);
+      setSeedResult(r);
+      await loadAnchors();
+    } catch (e) {
+      setSeedError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSeeding(false);
+    }
+  }
+
+  function handleImageClick(e: React.MouseEvent<HTMLImageElement>) {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = parseFloat((((e.clientX - rect.left) / rect.width) * 100).toFixed(2));
+    const y = parseFloat((((e.clientY - rect.top)  / rect.height) * 100).toFixed(2));
+    setPendingCoord({ x, y });
+    setPlaceResult(null);
+    setPlaceError(null);
+  }
+
+  async function handlePlaceAnchor() {
+    if (!selectedAnchorId || !pendingCoord || !token) return;
+    setPlacingSaving(true);
+    setPlaceResult(null);
+    setPlaceError(null);
+    try {
+      await updateMapAnchor(selectedAnchorId, {
+        x_percent: pendingCoord.x,
+        y_percent: pendingCoord.y,
+        map_asset_id: selectedAssetId || null,
+      }, token);
+      setPlaceResult(
+        `Placed "${selectedAnchor?.label ?? selectedAnchorId}": x=${pendingCoord.x}%, y=${pendingCoord.y}%`,
+      );
+      setAnchors((prev) =>
+        prev.map((a) =>
+          a.id === selectedAnchorId
+            ? { ...a, x_percent: pendingCoord.x, y_percent: pendingCoord.y,
+                map_asset_id: selectedAssetId || null }
+            : a,
+        ),
+      );
+      setPendingCoord(null);
+      setSelectedAnchorId("");
+    } catch (e) {
+      setPlaceError(String(e));
+    } finally {
+      setPlacingSaving(false);
+    }
+  }
+
+  async function handleAnchorReview(anchorId: string, status: string) {
+    if (!token) return;
+    try {
+      await updateMapAnchor(anchorId, { review_status: status }, token);
+      setAnchors((prev) =>
+        prev.map((a) => a.id === anchorId ? { ...a, review_status: status } : a),
+      );
+    } catch { /* silent — anchor list still reflects old state */ }
+  }
+
+  if (!mallId) {
+    return (
+      <p className="text-xs text-muted-foreground text-center py-6">
+        Select a mall above to use Map Reconstruction tools.
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+
+      {/* ── Tabs ────────────────────────────────────────────────────────────── */}
+      <div className="flex gap-1 border-b">
+        {(["assets", "anchors"] as const).map((tab) => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            className={cn(
+              "px-3 py-1.5 text-xs font-medium transition-colors border-b-2 -mb-px",
+              activeTab === tab
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {tab === "assets" ? (
+              <><ImagePlus className="inline h-3 w-3 mr-1" />Map Assets ({assets.length})</>
+            ) : (
+              <><Crosshair className="inline h-3 w-3 mr-1" />Anchors ({anchors.length})</>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Tab: Map Assets ─────────────────────────────────────────────────── */}
+      {activeTab === "assets" && (
+        <div className="space-y-2">
+          {assetMsg && (
+            <p className="text-xs text-green-700 font-medium">{assetMsg}</p>
+          )}
+          {assets.length === 0 ? (
+            <p className="text-xs text-muted-foreground text-center py-6">
+              No map assets yet. Scan a website or register a source to discover assets.
+            </p>
+          ) : (
+            assets.map((asset) => {
+              const isEditing = editingId === asset.id;
+              return (
+                <div key={asset.id} className="rounded-md border bg-background">
+                  {/* Asset header row */}
+                  <div className="flex items-start gap-2 px-3 py-2">
+                    <div className="flex-1 min-w-0 space-y-0.5">
+                      {/* URL + type badges */}
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <a
+                          href={asset.asset_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs text-blue-600 hover:underline truncate max-w-xs"
+                        >
+                          {asset.asset_url.split("/").pop() ?? asset.asset_url}
+                        </a>
+                        <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                          {asset.asset_type}
+                        </span>
+                        {asset.source_kind && (
+                          <span className="rounded bg-blue-50 px-1.5 py-0.5 text-[10px] text-blue-700">
+                            {SOURCE_KIND_LABELS[asset.source_kind] ?? asset.source_kind}
+                          </span>
+                        )}
+                        {asset.is_base_map && (
+                          <span className="rounded bg-green-50 px-1.5 py-0.5 text-[10px] text-green-700 font-medium">
+                            <Pin className="inline h-2.5 w-2.5 mr-0.5" />Base Map
+                          </span>
+                        )}
+                        {asset.is_corridor_ref && (
+                          <span className="rounded bg-orange-50 px-1.5 py-0.5 text-[10px] text-orange-700">
+                            <ScanLine className="inline h-2.5 w-2.5 mr-0.5" />Corridor Ref
+                          </span>
+                        )}
+                        {asset.floor_label && (
+                          <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-700">
+                            {asset.floor_label}
+                          </span>
+                        )}
+                      </div>
+                      {/* Dims + notes */}
+                      {(asset.page_width_px || asset.notes) && (
+                        <p className="text-[10px] text-muted-foreground">
+                          {asset.page_width_px ? `${asset.page_width_px}×${asset.page_height_px}px` : ""}
+                          {asset.page_width_px && asset.notes ? " · " : ""}
+                          {asset.notes ?? ""}
+                        </p>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => isEditing ? setEditingId(null) : startEditAsset(asset)}
+                      className="shrink-0 rounded border px-2 py-1 text-[10px] hover:bg-muted transition-colors"
+                    >
+                      <Pencil className="inline h-3 w-3 mr-0.5" />
+                      {isEditing ? "Cancel" : "Edit"}
+                    </button>
+                  </div>
+
+                  {/* Inline edit form */}
+                  {isEditing && (
+                    <div className="border-t bg-muted/10 px-3 py-3 space-y-3">
+                      <div className="grid grid-cols-2 gap-2">
+                        {/* Source kind */}
+                        <div>
+                          <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                            Source Kind
+                          </label>
+                          <select
+                            value={editKind}
+                            onChange={(e) => setEditKind(e.target.value)}
+                            className="mt-0.5 w-full rounded border bg-background px-2 py-1.5 text-xs"
+                          >
+                            <option value="">— none —</option>
+                            {SOURCE_KIND_OPTIONS.map((o) => (
+                              <option key={o.value} value={o.value}>{o.label}</option>
+                            ))}
+                          </select>
+                        </div>
+                        {/* Floor label */}
+                        <div>
+                          <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                            Floor Label
+                          </label>
+                          <input
+                            type="text"
+                            value={editFloor}
+                            onChange={(e) => setEditFloor(e.target.value)}
+                            placeholder="e.g. Level 3"
+                            className="mt-0.5 w-full rounded border bg-background px-2 py-1.5 text-xs"
+                          />
+                        </div>
+                      </div>
+                      {/* Flags */}
+                      <div className="flex flex-wrap gap-4">
+                        <label className="flex items-center gap-1.5 cursor-pointer select-none text-xs">
+                          <input
+                            type="checkbox"
+                            checked={editBase}
+                            onChange={(e) => setEditBase(e.target.checked)}
+                            className="h-3.5 w-3.5 rounded accent-primary"
+                          />
+                          <span><span className="font-medium">Base map</span> — use as reference for coordinate placement</span>
+                        </label>
+                        <label className="flex items-center gap-1.5 cursor-pointer select-none text-xs">
+                          <input
+                            type="checkbox"
+                            checked={editCorr}
+                            onChange={(e) => setEditCorr(e.target.checked)}
+                            className="h-3.5 w-3.5 rounded accent-primary"
+                          />
+                          <span><span className="font-medium">Corridor/evacuation ref</span></span>
+                        </label>
+                      </div>
+                      {/* Notes */}
+                      <div>
+                        <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                          Notes
+                        </label>
+                        <input
+                          type="text"
+                          value={editNotes}
+                          onChange={(e) => setEditNotes(e.target.value)}
+                          placeholder="Optional notes about this asset"
+                          className="mt-0.5 w-full rounded border bg-background px-2 py-1.5 text-xs"
+                        />
+                      </div>
+                      <button
+                        onClick={() => void saveAsset(asset.id)}
+                        disabled={assetSaving}
+                        className="flex items-center gap-1.5 rounded bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
+                      >
+                        {assetSaving
+                          ? <><Loader2 className="h-3 w-3 animate-spin" /> Saving…</>
+                          : "Save Asset"}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
+      )}
+
+      {/* ── Tab: Anchors ────────────────────────────────────────────────────── */}
+      {activeTab === "anchors" && (
+        <div className="space-y-4">
+
+          {/* ── Seed controls ─────────────────────────────────────────────── */}
+          <div className="rounded-md border bg-muted/10 p-3 space-y-2">
+            <p className="text-xs text-muted-foreground">
+              Seed the Mall of Africa preset (Level 3 + Level 5 anchor points).
+              Existing anchors with the same name + floor are skipped.
+            </p>
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                onClick={() => void handleSeed()}
+                disabled={seeding}
+                className="flex items-center gap-1.5 rounded bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
+              >
+                {seeding
+                  ? <><Loader2 className="h-3 w-3 animate-spin" /> Seeding…</>
+                  : <><Plus className="h-3 w-3" /> Seed Mall of Africa Anchors</>}
+              </button>
+              {seedResult && (
+                <span className="text-xs text-green-700 font-medium">
+                  ✓ {seedResult.inserted} inserted, {seedResult.skipped} skipped
+                  ({seedResult.total_in_preset} in preset)
+                </span>
+              )}
+              {seedError && (
+                <span className="text-xs text-red-700">✗ {seedError}</span>
+              )}
+            </div>
+          </div>
+
+          {/* ── Floor filter + anchor list ─────────────────────────────────── */}
+          {loadingAnchors ? (
+            <p className="flex items-center gap-1 text-xs text-muted-foreground">
+              <Loader2 className="h-3 w-3 animate-spin" /> Loading anchors…
+            </p>
+          ) : anchors.length === 0 ? (
+            <p className="text-xs text-muted-foreground text-center py-4">
+              No anchors yet. Use the Seed button above or add anchors manually.
+            </p>
+          ) : (
+            <>
+              {/* Floor filter pills */}
+              <div className="flex flex-wrap gap-1">
+                {["all", ...anchorFloors].map((f) => (
+                  <button
+                    key={f}
+                    onClick={() => setFloorFilter(f)}
+                    className={cn(
+                      "rounded px-2.5 py-1 text-[10px] font-medium transition-colors",
+                      floorFilter === f
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted text-muted-foreground hover:bg-muted/70",
+                    )}
+                  >
+                    {f === "all" ? `All (${anchors.length})` : `${f} (${anchors.filter((a) => a.floor_label === f).length})`}
+                  </button>
+                ))}
+              </div>
+
+              {/* Anchor rows */}
+              <div className="space-y-1">
+                {displayedAnchors.map((anchor) => {
+                  const placed = anchor.x_percent != null && anchor.y_percent != null;
+                  return (
+                    <div
+                      key={anchor.id}
+                      className={cn(
+                        "flex items-center gap-2 rounded border px-3 py-2 text-xs",
+                        selectedAnchorId === anchor.id ? "border-primary bg-primary/5" : "bg-background",
+                      )}
+                    >
+                      <span className={cn(
+                        "shrink-0 rounded px-1.5 py-0.5 text-[10px]",
+                        ANCHOR_TYPE_COLORS[anchor.anchor_type] ?? "bg-gray-100 text-gray-700",
+                      )}>
+                        {ANCHOR_TYPE_LABELS[anchor.anchor_type] ?? anchor.anchor_type}
+                      </span>
+                      <span className="font-medium flex-1 truncate">{anchor.label}</span>
+                      <span className="shrink-0 text-[10px] text-muted-foreground">{anchor.floor_label}</span>
+                      {placed ? (
+                        <span className="shrink-0 text-[10px] text-green-700 tabular-nums">
+                          ✓ {anchor.x_percent?.toFixed(1)}%,{anchor.y_percent?.toFixed(1)}%
+                        </span>
+                      ) : (
+                        <span className="shrink-0 text-[10px] text-amber-600">unplaced</span>
+                      )}
+                      <span className={cn(
+                        "shrink-0 rounded px-1.5 py-0.5 text-[10px]",
+                        REVIEW_STATUS_COLORS[anchor.review_status] ?? "bg-gray-100 text-gray-600",
+                      )}>
+                        {anchor.review_status}
+                      </span>
+                      {/* Place / accept / reject actions */}
+                      <button
+                        onClick={() => {
+                          setSelectedAnchorId(anchor.id === selectedAnchorId ? "" : anchor.id);
+                          setPendingCoord(null);
+                          setPlaceResult(null);
+                          setPlaceError(null);
+                        }}
+                        className="shrink-0 rounded border px-2 py-0.5 text-[10px] hover:bg-muted transition-colors"
+                        title="Click to place on map"
+                      >
+                        <Crosshair className="inline h-3 w-3" />
+                      </button>
+                      {anchor.review_status === "pending" && (
+                        <>
+                          <button
+                            onClick={() => void handleAnchorReview(anchor.id, "accepted")}
+                            className="shrink-0 text-[10px] text-green-700 hover:text-green-900"
+                            title="Accept"
+                          >✓</button>
+                          <button
+                            onClick={() => void handleAnchorReview(anchor.id, "rejected")}
+                            className="shrink-0 text-[10px] text-red-600 hover:text-red-800"
+                            title="Reject"
+                          >✗</button>
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+
+          {/* ── Coordinate placement area ─────────────────────────────────── */}
+          {selectedAnchorId && (
+            <div className="space-y-3 rounded-md border border-primary/30 bg-primary/5 p-3">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-medium">
+                  Placing: <span className="text-primary">{selectedAnchor?.label}</span>
+                  {" "}·{" "}
+                  <span className="text-muted-foreground">{selectedAnchor?.floor_label}</span>
+                </p>
+                <button
+                  onClick={() => { setSelectedAnchorId(""); setPendingCoord(null); }}
+                  className="text-[10px] text-muted-foreground hover:text-foreground"
+                >
+                  Cancel
+                </button>
+              </div>
+
+              {/* Map image selector */}
+              <div>
+                <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                  Reference Map Image
+                  {selectedAnchor?.floor_label ? ` — filtered to "${selectedAnchor.floor_label}"` : ""}
+                </label>
+                {floorImageAssets.length === 0 ? (
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    No image assets found. Assign floor labels to assets in the Assets tab first.
+                  </p>
+                ) : (
+                  <select
+                    value={selectedAssetId}
+                    onChange={(e) => { setSelectedAssetId(e.target.value); setPendingCoord(null); }}
+                    className="mt-0.5 w-full rounded border bg-background px-2 py-1.5 text-xs"
+                  >
+                    <option value="">— select map image —</option>
+                    {floorImageAssets.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.is_base_map ? "📌 " : ""}{a.floor_label ?? a.link_text ?? a.asset_url.split("/").pop()}
+                        {a.page_width_px ? `  (${a.page_width_px}×${a.page_height_px})` : ""}
+                        {a.source_kind ? `  · ${SOURCE_KIND_LABELS[a.source_kind]}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+
+              {/* Clickable map image */}
+              {selectedAsset && (
+                <div className="space-y-2">
+                  <p className="text-[10px] text-muted-foreground">
+                    Click on the map to set the anchor position.
+                    {pendingCoord && (
+                      <span className="ml-2 font-medium text-primary">
+                        Selected: x={pendingCoord.x}%, y={pendingCoord.y}%
+                      </span>
+                    )}
+                  </p>
+                  <div className="relative w-full overflow-hidden rounded border">
+                    <img
+                      src={selectedAsset.asset_url}
+                      alt={selectedAsset.floor_label ?? "Map"}
+                      className="w-full cursor-crosshair select-none"
+                      draggable={false}
+                      onClick={handleImageClick}
+                    />
+                    {pendingCoord && (
+                      <div
+                        className="pointer-events-none absolute h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-primary shadow"
+                        style={{ left: `${pendingCoord.x}%`, top: `${pendingCoord.y}%` }}
+                      />
+                    )}
+                    {/* Show already-placed anchors for this floor as ghost dots */}
+                    {anchors
+                      .filter((a) =>
+                        a.id !== selectedAnchorId &&
+                        a.x_percent != null &&
+                        a.y_percent != null &&
+                        (!selectedAnchor?.floor_label || a.floor_label === selectedAnchor.floor_label),
+                      )
+                      .map((a) => (
+                        <div
+                          key={a.id}
+                          className="pointer-events-none absolute h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white bg-slate-400 opacity-60"
+                          style={{ left: `${a.x_percent!}%`, top: `${a.y_percent!}%` }}
+                          title={a.label}
+                        />
+                      ))}
+                  </div>
+
+                  {/* Save coord */}
+                  {pendingCoord && (
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => void handlePlaceAnchor()}
+                        disabled={placingSaving}
+                        className="flex items-center gap-1.5 rounded bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
+                      >
+                        {placingSaving
+                          ? <><Loader2 className="h-3 w-3 animate-spin" /> Saving…</>
+                          : <><Crosshair className="h-3 w-3" /> Save Position</>}
+                      </button>
+                      <button
+                        onClick={() => setPendingCoord(null)}
+                        className="text-xs text-muted-foreground hover:text-foreground"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {placeResult && (
+                <p className="text-xs text-green-700 font-medium">✓ {placeResult}</p>
+              )}
+              {placeError && (
+                <p className="text-xs text-red-700">✗ {placeError}</p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function RouteGraphPanel({
   token,
@@ -2383,6 +3051,22 @@ export default function MallIntelligenceTab({ token }: MallIntelligenceTabProps)
           mallId={selectedMallId || undefined}
           sources={sources}
           onComplete={() => void loadData()}
+        />
+      </Section>
+
+      {/* ── Section 0.6: Map Reconstruction ──────────────────────────────── */}
+      <Section
+        title="Map Reconstruction"
+        icon={<ImagePlus className="h-3.5 w-3.5" />}
+        action={
+          <span className="text-[10px] text-muted-foreground">manual / physical maps</span>
+        }
+      >
+        <MapReconstructionPanel
+          token={token ?? ""}
+          mallId={selectedMallId || undefined}
+          assets={assets}
+          onAssetsChanged={() => void loadData()}
         />
       </Section>
 
