@@ -92,6 +92,7 @@ import {
   Pin,
   Pencil,
   ScanLine,
+  UploadCloud,
 } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -745,6 +746,18 @@ function MapReconstructionPanel({
   const [addMsg,      setAddMsg]      = useState<string | null>(null);
   const [addError,    setAddError]    = useState<string | null>(null);
 
+  // File-upload form state (Sprint 14A.2)
+  const [uploadFile,        setUploadFile]        = useState<File | null>(null);
+  const [uploadFloor,       setUploadFloor]       = useState<string>("");
+  const [uploadKind,        setUploadKind]        = useState<AddManualMapAssetRequest["source_kind"]>("physical_map_photo");
+  const [uploadBase,        setUploadBase]        = useState<boolean>(false);
+  const [uploadCorr,        setUploadCorr]        = useState<boolean>(false);
+  const [uploadConfidence,  setUploadConfidence]  = useState<string>("0.8");
+  const [uploadNotes,       setUploadNotes]       = useState<string>("");
+  const [uploading,         setUploading]         = useState<boolean>(false);
+  const [uploadMsg,         setUploadMsg]         = useState<string | null>(null);
+  const [uploadError,       setUploadError]       = useState<string | null>(null);
+
   // Seed state
   const [seeding,    setSeeding]    = useState(false);
   const [seedResult, setSeedResult] = useState<SeedMapAnchorsResult | null>(null);
@@ -778,12 +791,16 @@ function MapReconstructionPanel({
     ? anchors
     : anchors.filter((a) => a.floor_label === floorFilter);
 
-  const imageAssets = assets.filter((a) => a.asset_type === "image");
+  // image + pdf + photo all appear in the placement selector; svg/html_embed are excluded.
+  // PDFs trigger a "not supported for click-to-place" warning when selected.
+  const placeableAssets = assets.filter((a) =>
+    a.asset_type === "image" || a.asset_type === "pdf" || (a.asset_type as string) === "photo",
+  );
   const selectedAsset = assets.find((a) => a.id === selectedAssetId);
   const selectedAnchor = anchors.find((a) => a.id === selectedAnchorId);
 
-  // Filter map images to match selected anchor's floor when known
-  const floorImageAssets = imageAssets.filter(
+  // Filter to the selected anchor's floor when known
+  const floorImageAssets = placeableAssets.filter(
     (a) => !selectedAnchor?.floor_label || !a.floor_label || a.floor_label === selectedAnchor.floor_label,
   );
 
@@ -857,6 +874,73 @@ function MapReconstructionPanel({
       setAddError(e instanceof Error ? e.message : String(e));
     } finally {
       setAddSaving(false);
+    }
+  }
+
+  /** Derive asset_type from the browser File object's MIME type. */
+  function detectAssetType(file: File): "image" | "pdf" {
+    if (file.type === "application/pdf") return "pdf";
+    return "image"; // jpeg / png / webp / gif / svg all render as images
+  }
+
+  /** Upload a physical map file to Supabase Storage then register it as a mall_map_assets row. */
+  async function handleUploadAsset() {
+    if (!mallId || !token || !uploadFile || !uploadFloor.trim()) return;
+    setUploading(true);
+    setUploadMsg(null);
+    setUploadError(null);
+    try {
+      // 1. Build a safe, unique storage path
+      const safeFilename = uploadFile.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+      const safeFloor    = uploadFloor.trim().replace(/\s+/g, "_");
+      const storagePath  = `${mallId}/${safeFloor}/${Date.now()}-${safeFilename}`;
+
+      // 2. Upload file to Supabase Storage (bucket: mall-map-assets)
+      const { error: uploadErr } = await supabase.storage
+        .from("mall-map-assets")
+        .upload(storagePath, uploadFile, { upsert: false });
+      if (uploadErr) throw new Error(uploadErr.message);
+
+      // 3. Get the public URL
+      const { data: urlData } = supabase.storage
+        .from("mall-map-assets")
+        .getPublicUrl(storagePath);
+      const publicUrl = urlData.publicUrl;
+
+      // 4. Register the asset row via the backend
+      const assetType = detectAssetType(uploadFile);
+      const r = await addManualMapAsset(
+        {
+          mall_id:          mallId,
+          floor_label:      uploadFloor.trim(),
+          asset_type:       assetType,
+          asset_url:        publicUrl,
+          source_kind:      uploadKind,
+          is_base_map:      uploadBase,
+          is_corridor_ref:  uploadCorr,
+          confidence_score: parseFloat(uploadConfidence) || 0,
+          notes:            uploadNotes.trim() || undefined,
+        },
+        token,
+      );
+
+      if (r.duplicate) {
+        setUploadMsg("File uploaded but this asset URL is already registered for this floor.");
+      } else {
+        setUploadMsg(`Uploaded and registered: ${safeFilename}`);
+        // Reset form
+        setUploadFile(null);
+        setUploadFloor("");
+        setUploadNotes("");
+        setUploadBase(false);
+        setUploadCorr(false);
+        setUploadConfidence("0.8");
+        onAssetsChanged();
+      }
+    } catch (e) {
+      setUploadError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setUploading(false);
     }
   }
 
@@ -963,13 +1047,154 @@ function MapReconstructionPanel({
       {activeTab === "assets" && (
         <div className="space-y-3">
 
+          {/* ── Upload Map Asset form (Sprint 14A.2) ──────────────────────── */}
+          <div className="rounded-md border bg-muted/10 p-3 space-y-3">
+            <div>
+              <p className="text-xs font-medium flex items-center gap-1.5">
+                <UploadCloud className="h-3.5 w-3.5 text-primary" />
+                Upload Map Asset
+              </p>
+              <p className="text-[10px] text-muted-foreground mt-0.5">
+                Upload a physical map photo, evacuation map scan, or archive PDF
+                directly to Supabase Storage. The public URL is registered automatically.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              {/* Floor label */}
+              <div>
+                <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                  Floor Label <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={uploadFloor}
+                  onChange={(e) => setUploadFloor(e.target.value)}
+                  placeholder="e.g. Level 3"
+                  className="mt-0.5 w-full rounded border bg-background px-2 py-1.5 text-xs"
+                />
+              </div>
+              {/* Source kind */}
+              <div>
+                <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                  Source Kind
+                </label>
+                <select
+                  value={uploadKind}
+                  onChange={(e) => setUploadKind(e.target.value as typeof uploadKind)}
+                  className="mt-0.5 w-full rounded border bg-background px-2 py-1.5 text-xs"
+                >
+                  <option value="physical_map_photo">Physical Map Photo</option>
+                  <option value="evacuation_map_photo">Evacuation Map</option>
+                  <option value="archive_map_asset">Archive Asset</option>
+                  <option value="manual_reconstruction">Manual Reconstruction</option>
+                </select>
+              </div>
+            </div>
+
+            {/* File picker — asset_type auto-detected from MIME */}
+            <div>
+              <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                File <span className="text-red-500">*</span>
+                <span className="ml-1 font-normal normal-case">(JPEG · PNG · WebP · GIF · SVG · PDF, max 20 MB)</span>
+              </label>
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/gif,image/svg+xml,application/pdf"
+                onChange={(e) => setUploadFile(e.target.files?.[0] ?? null)}
+                className="mt-0.5 w-full rounded border bg-background px-2 py-1.5 text-xs file:mr-2 file:rounded file:border-0 file:bg-muted file:px-2 file:py-0.5 file:text-xs file:font-medium"
+              />
+              {uploadFile && (
+                <p className="mt-0.5 text-[10px] text-muted-foreground">
+                  {uploadFile.name}
+                  {" · "}
+                  {uploadFile.type === "application/pdf" ? "PDF" : "image"}
+                  {" · "}
+                  {(uploadFile.size / 1024 / 1024).toFixed(2)} MB
+                  {uploadFile.type === "application/pdf" && (
+                    <span className="ml-2 text-amber-600 font-medium">
+                      ⚠ PDF uploaded successfully, but use image/JPG/PNG for coordinate placement.
+                    </span>
+                  )}
+                </p>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              {/* Confidence score */}
+              <div>
+                <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                  Confidence (0–1)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value={uploadConfidence}
+                  onChange={(e) => setUploadConfidence(e.target.value)}
+                  className="mt-0.5 w-full rounded border bg-background px-2 py-1.5 text-xs"
+                />
+              </div>
+              {/* Notes */}
+              <div>
+                <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                  Notes
+                </label>
+                <input
+                  type="text"
+                  value={uploadNotes}
+                  onChange={(e) => setUploadNotes(e.target.value)}
+                  placeholder="Optional description"
+                  className="mt-0.5 w-full rounded border bg-background px-2 py-1.5 text-xs"
+                />
+              </div>
+            </div>
+
+            {/* Flags */}
+            <div className="flex flex-wrap gap-4">
+              <label className="flex items-center gap-1.5 cursor-pointer select-none text-xs">
+                <input
+                  type="checkbox"
+                  checked={uploadBase}
+                  onChange={(e) => setUploadBase(e.target.checked)}
+                  className="h-3.5 w-3.5 rounded accent-primary"
+                />
+                <span><span className="font-medium">Base map</span> — use as reference for coordinate placement</span>
+              </label>
+              <label className="flex items-center gap-1.5 cursor-pointer select-none text-xs">
+                <input
+                  type="checkbox"
+                  checked={uploadCorr}
+                  onChange={(e) => setUploadCorr(e.target.checked)}
+                  className="h-3.5 w-3.5 rounded accent-primary"
+                />
+                <span><span className="font-medium">Corridor / evacuation ref</span></span>
+              </label>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => void handleUploadAsset()}
+                disabled={uploading || !uploadFile || !uploadFloor.trim()}
+                className="flex items-center gap-1.5 rounded bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
+              >
+                {uploading
+                  ? <><Loader2 className="h-3 w-3 animate-spin" /> Uploading…</>
+                  : <><UploadCloud className="h-3 w-3" /> Upload &amp; Register</>}
+              </button>
+              {uploadMsg   && <span className="text-xs text-green-700 font-medium">✓ {uploadMsg}</span>}
+              {uploadError && <span className="text-xs text-red-700">✗ {uploadError}</span>}
+            </div>
+          </div>
+
           {/* ── Add Manual Map Asset form ──────────────────────────────────── */}
           <div className="rounded-md border bg-muted/10 p-3 space-y-3">
             <div>
-              <p className="text-xs font-medium">Add Manual Map Asset</p>
+              <p className="text-xs font-medium">Register Asset by URL</p>
               <p className="text-[10px] text-muted-foreground mt-0.5">
                 Use this for physical map photos, evacuation maps, archive map images,
-                or manually hosted map references.
+                or manually hosted map references that are already publicly accessible.
               </p>
             </div>
 
@@ -1423,6 +1648,14 @@ function MapReconstructionPanel({
               {/* Clickable map image */}
               {selectedAsset && (
                 <div className="space-y-2">
+                  {/* PDF warning */}
+                  {selectedAsset.asset_type === "pdf" && (
+                    <div className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                      <span className="font-medium">⚠ PDF asset selected.</span>
+                      {" "}PDF rendering is not supported in the coordinate placement area.
+                      For click-to-place, upload or register a JPG/PNG image version of this map.
+                    </div>
+                  )}
                   <p className="text-[10px] text-muted-foreground">
                     Click on the map to set the anchor position.
                     {pendingCoord && (
@@ -1431,40 +1664,42 @@ function MapReconstructionPanel({
                       </span>
                     )}
                   </p>
-                  <div className="relative w-full overflow-hidden rounded border">
-                    <img
-                      src={selectedAsset.asset_url}
-                      alt={selectedAsset.floor_label ?? "Map"}
-                      className="w-full cursor-crosshair select-none"
-                      draggable={false}
-                      onClick={handleImageClick}
-                    />
-                    {pendingCoord && (
-                      <div
-                        className="pointer-events-none absolute h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-primary shadow"
-                        style={{ left: `${pendingCoord.x}%`, top: `${pendingCoord.y}%` }}
+                  {selectedAsset.asset_type !== "pdf" && (
+                    <div className="relative w-full overflow-hidden rounded border">
+                      <img
+                        src={selectedAsset.asset_url}
+                        alt={selectedAsset.floor_label ?? "Map"}
+                        className="w-full cursor-crosshair select-none"
+                        draggable={false}
+                        onClick={handleImageClick}
                       />
-                    )}
-                    {/* Show already-placed anchors for this floor as ghost dots */}
-                    {anchors
-                      .filter((a) =>
-                        a.id !== selectedAnchorId &&
-                        a.x_percent != null &&
-                        a.y_percent != null &&
-                        (!selectedAnchor?.floor_label || a.floor_label === selectedAnchor.floor_label),
-                      )
-                      .map((a) => (
+                      {pendingCoord && (
                         <div
-                          key={a.id}
-                          className="pointer-events-none absolute h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white bg-slate-400 opacity-60"
-                          style={{ left: `${a.x_percent!}%`, top: `${a.y_percent!}%` }}
-                          title={a.label}
+                          className="pointer-events-none absolute h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-primary shadow"
+                          style={{ left: `${pendingCoord.x}%`, top: `${pendingCoord.y}%` }}
                         />
-                      ))}
-                  </div>
+                      )}
+                      {/* Show already-placed anchors for this floor as ghost dots */}
+                      {anchors
+                        .filter((a) =>
+                          a.id !== selectedAnchorId &&
+                          a.x_percent != null &&
+                          a.y_percent != null &&
+                          (!selectedAnchor?.floor_label || a.floor_label === selectedAnchor.floor_label),
+                        )
+                        .map((a) => (
+                          <div
+                            key={a.id}
+                            className="pointer-events-none absolute h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white bg-slate-400 opacity-60"
+                            style={{ left: `${a.x_percent!}%`, top: `${a.y_percent!}%` }}
+                            title={a.label}
+                          />
+                        ))}
+                    </div>
+                  )}
 
-                  {/* Save coord */}
-                  {pendingCoord && (
+                  {/* Save coord — only shown when an image asset is selected */}
+                  {selectedAsset.asset_type !== "pdf" && pendingCoord && (
                     <div className="flex items-center gap-3">
                       <button
                         onClick={() => void handlePlaceAnchor()}
