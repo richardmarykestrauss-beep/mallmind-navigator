@@ -1982,17 +1982,19 @@ export async function placeRouteNodeCoordinate(
 export type PipelineStepStatus = "ok" | "skipped" | "warning" | "error";
 
 export interface PipelineStepOutcome {
-  step:     number;
-  name:     string;
-  status:   PipelineStepStatus;
-  message:  string;
-  data?:    Record<string, unknown>;
+  step:         number;
+  name:         string;
+  status:       PipelineStepStatus;
+  message:      string;
+  duration_ms?: number;
+  data?:        Record<string, unknown>;
 }
 
 export interface MallSetupPipelineResult {
   mall_id:                  string;
   source_id:                string;
   completed_steps:          PipelineStepOutcome[];
+  skipped_steps?:           string[];
   warnings:                 string[];
   errors:                   string[];
   health_report:            MallHealthReport | null;
@@ -2003,7 +2005,7 @@ export interface MallSetupPipelineResult {
 export interface RunSetupPipelineRequest {
   mall_id:    string;
   source_id:  string;
-  options?:   { max_pages?: number; per_page?: number };
+  options?:   { max_pages?: number; per_page?: number; force_import?: boolean; force_scan?: boolean };
 }
 
 export type FloorChangeNodeType = "lift" | "escalator" | "stairs";

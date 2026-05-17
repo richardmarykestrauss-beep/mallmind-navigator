@@ -326,13 +326,15 @@ function SetupPipelinePanel({
   sources:    MallSource[];
   onComplete: () => void;
 }) {
-  const [sourceId,  setSourceId]  = useState<string>("");
-  const [maxPages,  setMaxPages]  = useState<string>("10");
-  const [perPage,   setPerPage]   = useState<string>("100");
-  const [result,    setResult]    = useState<MallSetupPipelineResult | null>(null);
-  const [error,     setError]     = useState<string | null>(null);
-  const [running,   setRunning]   = useState(false);
-  const [expanded,  setExpanded]  = useState<Set<number>>(new Set());
+  const [sourceId,     setSourceId]     = useState<string>("");
+  const [maxPages,     setMaxPages]     = useState<string>("3");
+  const [perPage,      setPerPage]      = useState<string>("50");
+  const [forceImport,  setForceImport]  = useState<boolean>(false);
+  const [forceScan,    setForceScan]    = useState<boolean>(false);
+  const [result,       setResult]       = useState<MallSetupPipelineResult | null>(null);
+  const [error,        setError]        = useState<string | null>(null);
+  const [running,      setRunning]      = useState(false);
+  const [expanded,     setExpanded]     = useState<Set<number>>(new Set());
 
   const mallSources = sources.filter((s) =>
     !mallId || !s.mall_id || s.mall_id === mallId,
@@ -358,8 +360,10 @@ function SetupPipelinePanel({
           mall_id:   mallId,
           source_id: sourceId,
           options: {
-            max_pages: parseInt(maxPages, 10) || 10,
-            per_page:  parseInt(perPage, 10)  || 100,
+            max_pages:    parseInt(maxPages, 10) || 3,
+            per_page:     parseInt(perPage, 10)  || 50,
+            force_import: forceImport,
+            force_scan:   forceScan,
           },
         },
         token,
@@ -367,7 +371,15 @@ function SetupPipelinePanel({
       setResult(res);
       onComplete();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg.includes("Failed to fetch") || msg.includes("NetworkError") || msg.includes("ERR_")) {
+        setError(
+          "Network error — the request timed out or could not reach the backend. " +
+          "The pipeline may still be running. Wait 30s then check Staged Locations before re-running.",
+        );
+      } else {
+        setError(msg);
+      }
     } finally {
       setRunning(false);
     }
@@ -434,6 +446,34 @@ function SetupPipelinePanel({
           </div>
         </div>
 
+        {/* Force flags */}
+        <div className="flex flex-wrap items-center gap-4">
+          <label className="flex items-center gap-1.5 cursor-pointer select-none text-xs">
+            <input
+              type="checkbox"
+              checked={forceScan}
+              onChange={(e) => setForceScan(e.target.checked)}
+              className="h-3.5 w-3.5 rounded accent-primary"
+            />
+            <span className="text-muted-foreground">
+              <span className="font-medium text-foreground">Force re-scan</span>
+              {" "}— re-scan even if assets already exist
+            </span>
+          </label>
+          <label className="flex items-center gap-1.5 cursor-pointer select-none text-xs">
+            <input
+              type="checkbox"
+              checked={forceImport}
+              onChange={(e) => setForceImport(e.target.checked)}
+              className="h-3.5 w-3.5 rounded accent-primary"
+            />
+            <span className="text-muted-foreground">
+              <span className="font-medium text-foreground">Force re-import</span>
+              {" "}— re-import GeoDirectory even if stores exist
+            </span>
+          </label>
+        </div>
+
         <div className="flex items-center gap-3">
           <button
             onClick={() => void handleRun()}
@@ -447,7 +487,7 @@ function SetupPipelinePanel({
           </button>
           {running && (
             <p className="text-[10px] text-muted-foreground animate-pulse">
-              This may take 1–2 minutes. Do not close the tab.
+              Re-runs typically complete in seconds. First-time scans may take 30–60s.
             </p>
           )}
         </div>
@@ -467,6 +507,9 @@ function SetupPipelinePanel({
           {/* Summary bar */}
           <div className="flex flex-wrap items-center gap-3 rounded-md border bg-muted/20 px-3 py-2 text-xs">
             <span className="font-medium">{result.completed_steps.length} steps</span>
+            {(result.skipped_steps ?? []).length > 0 && (
+              <span className="text-slate-500">⏭ {(result.skipped_steps ?? []).length} skipped</span>
+            )}
             {result.errors.length   > 0 && (
               <span className="text-red-700 font-medium">✗ {result.errors.length} error(s)</span>
             )}
@@ -501,8 +544,15 @@ function SetupPipelinePanel({
                     </span>
                     <span className="font-medium shrink-0">{s.name}</span>
                     <span className="text-muted-foreground truncate">{s.message}</span>
+                    {s.duration_ms !== undefined && (
+                      <span className="ml-auto shrink-0 text-[10px] text-muted-foreground tabular-nums whitespace-nowrap">
+                        {s.duration_ms < 1000
+                          ? `${s.duration_ms}ms`
+                          : `${(s.duration_ms / 1000).toFixed(1)}s`}
+                      </span>
+                    )}
                     {hasData && (
-                      <span className="ml-auto shrink-0 text-muted-foreground">
+                      <span className={s.duration_ms !== undefined ? "shrink-0 text-muted-foreground" : "ml-auto shrink-0 text-muted-foreground"}>
                         {isOpen ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
                       </span>
                     )}
@@ -518,6 +568,14 @@ function SetupPipelinePanel({
               );
             })}
           </div>
+
+          {/* Skipped steps */}
+          {(result.skipped_steps ?? []).length > 0 && (
+            <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+              <span className="font-medium">Skipped: </span>
+              {(result.skipped_steps ?? []).join(" · ")}
+            </div>
+          )}
 
           {/* Warnings */}
           {result.warnings.length > 0 && (

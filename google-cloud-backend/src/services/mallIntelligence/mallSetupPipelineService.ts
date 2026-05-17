@@ -13,17 +13,21 @@
 export type PipelineStepStatus = "ok" | "skipped" | "warning" | "error";
 
 export interface PipelineStepOutcome {
-  step:     number;
-  name:     string;
-  status:   PipelineStepStatus;
-  message:  string;
-  data?:    Record<string, unknown>;
+  step:         number;
+  name:         string;
+  status:       PipelineStepStatus;
+  message:      string;
+  /** Wall-clock milliseconds the step took to execute. */
+  duration_ms?: number;
+  data?:        Record<string, unknown>;
 }
 
 export interface MallSetupPipelineResult {
   mall_id:                  string;
   source_id:                string;
   completed_steps:          PipelineStepOutcome[];
+  /** Names of steps that were explicitly skipped (derived from completed_steps). */
+  skipped_steps:            string[];
   warnings:                 string[];
   errors:                   string[];
   health_report:            unknown | null;

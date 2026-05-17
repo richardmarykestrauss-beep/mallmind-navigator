@@ -1012,8 +1012,8 @@ router.post("/route-node-coordinate", async (req: Request, res: Response) => {
 //   ✓  Duplicate assets are reported, not deleted.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const PIPELINE_DEFAULT_MAX_PAGES = 10;
-const PIPELINE_DEFAULT_PER_PAGE  = 100;
+const PIPELINE_DEFAULT_MAX_PAGES = 3;
+const PIPELINE_DEFAULT_PER_PAGE  = 50;
 const PIPELINE_IMAGE_DIM_CAP     = 8;   // max images to dimension per run
 
 router.post("/run-setup-pipeline", async (req: Request, res: Response) => {
@@ -1023,7 +1023,7 @@ router.post("/run-setup-pipeline", async (req: Request, res: Response) => {
   const { mall_id, source_id, options } = req.body as {
     mall_id:   unknown;
     source_id: unknown;
-    options?:  { max_pages?: number; per_page?: number };
+    options?:  { max_pages?: number; per_page?: number; force_import?: boolean; force_scan?: boolean };
   };
 
   // ── Step 1: Validate input ────────────────────────────────────────────────
@@ -1032,8 +1032,10 @@ router.post("/run-setup-pipeline", async (req: Request, res: Response) => {
     return res.status(400).json({ error: validation.error });
   }
 
-  const mallId   = (mall_id   as string).trim();
-  const sourceId = (source_id as string).trim();
+  const mallId      = (mall_id   as string).trim();
+  const sourceId    = (source_id as string).trim();
+  const forceImport = options?.force_import === true;
+  const forceScan   = options?.force_scan   === true;
 
   const supabase        = getSupabaseClient();
   const completedSteps: PipelineStepOutcome[] = [];
@@ -1045,21 +1047,35 @@ router.post("/run-setup-pipeline", async (req: Request, res: Response) => {
 
   /** Record a step outcome and optionally collect warnings/errors. */
   function step(
-    name:    string,
-    status:  PipelineStepOutcome["status"],
-    message: string,
-    data?:   Record<string, unknown>,
+    name:     string,
+    status:   PipelineStepOutcome["status"],
+    message:  string,
+    data?:    Record<string, unknown>,
+    startMs?: number,
   ): void {
-    completedSteps.push({ step: stepNum++, name, status, message, ...(data ? { data } : {}) });
+    const duration_ms = startMs !== undefined ? Date.now() - startMs : undefined;
+    completedSteps.push({
+      step: stepNum++, name, status, message,
+      ...(duration_ms !== undefined ? { duration_ms } : {}),
+      ...(data ? { data } : {}),
+    });
     if (status === "warning") warnings.push(message);
     if (status === "error")   errors.push(message);
   }
 
   step("Input validation", "ok", `mall_id and source_id accepted`);
 
+  // ── Steps 2–10: individual try/catch per step, outer safety net catches any
+  //   unexpected throw so the pipeline always returns structured JSON. ────────
+  let sourceUrl:              string | null = null;
+  let rawHtml:                string | null = null;
+  let geodirAlreadyDetected:  boolean       = false;
+  let geodirApiUrlFromSource: string | null = null;
+  let geodirApiUrl:           string | null = null;
+
+  try {
+
   // ── Step 2: Load source + link to mall ────────────────────────────────────
-  let sourceUrl: string | null   = null;
-  let rawHtml:   string | null   = null;
 
   try {
     const { data: srcRow, error: srcErr } = await supabase
@@ -1072,7 +1088,9 @@ router.post("/run-setup-pipeline", async (req: Request, res: Response) => {
       step("Link source to mall", "error", `Source "${sourceId}" not found — check source_id`);
     } else {
       const src = srcRow as Record<string, unknown>;
-      sourceUrl = src.url as string;
+      sourceUrl              = src.url as string;
+      geodirAlreadyDetected  = src.geodir_detected === true;
+      geodirApiUrlFromSource = (src.geodir_api_url as string | null) ?? null;
 
       if (!src.mall_id) {
         await supabase.from("mall_sources").update({ mall_id: mallId }).eq("id", sourceId);
@@ -1092,99 +1110,120 @@ router.post("/run-setup-pipeline", async (req: Request, res: Response) => {
 
   // ── Step 3: Scan website ──────────────────────────────────────────────────
   if (sourceUrl) {
-    try {
-      await supabase.from("mall_sources").update({ scan_status: "scanning" }).eq("id", sourceId);
-      const scanResult = await scanMallWebsite({ source_id: sourceId, url: sourceUrl });
-      rawHtml = scanResult.raw_html ?? null;
+    // Skip scan if assets already exist for this source (unless force_scan=true).
+    const { count: existingAssetCount } = await supabase
+      .from("mall_map_assets")
+      .select("id", { count: "exact", head: true })
+      .eq("mall_source_id", sourceId);
 
-      const newStatus = scanResult.error ? "failed" : "scanned";
-      await supabase.from("mall_sources").update({
-        scan_status:     newStatus,
-        last_scanned_at: new Date().toISOString(),
-        page_title:      scanResult.page_title ?? null,
-      }).eq("id", sourceId);
+    if ((existingAssetCount ?? 0) > 0 && !forceScan) {
+      step("Scan website", "skipped",
+        `${existingAssetCount} asset(s) already stored for this source — skipped. Use force_scan=true to re-scan.`,
+        { existing_assets: existingAssetCount });
+    } else {
+      const scanStartMs = Date.now();
+      try {
+        await supabase.from("mall_sources").update({ scan_status: "scanning" }).eq("id", sourceId);
+        const scanResult = await scanMallWebsite({ source_id: sourceId, url: sourceUrl });
+        rawHtml = scanResult.raw_html ?? null;
 
-      if (scanResult.error) {
-        step("Scan website", "warning",
-          `Scan completed with error: ${scanResult.error}. ${scanResult.discovered_assets.length} assets found before error.`,
-          { assets_found: scanResult.discovered_assets.length });
-      } else {
-        // Persist newly discovered assets, skipping exact duplicates
-        // (same asset_type + floor_label + link_text + asset_url already in DB).
-        const { data: existingPipelineAssets } = await supabase
-          .from("mall_map_assets")
-          .select("asset_type, floor_label, link_text, asset_url")
-          .eq("mall_source_id", sourceId);
+        const newStatus = scanResult.error ? "failed" : "scanned";
+        await supabase.from("mall_sources").update({
+          scan_status:     newStatus,
+          last_scanned_at: new Date().toISOString(),
+          page_title:      scanResult.page_title ?? null,
+        }).eq("id", sourceId);
 
-        const pipelineAssetDedup = new Set<string>(
-          ((existingPipelineAssets ?? []) as Array<{
-            asset_type: string; floor_label: string | null;
-            link_text:  string | null; asset_url: string;
-          }>).map(
-            (a) => `${a.asset_type}::${a.floor_label ?? ""}::${a.link_text ?? ""}::${a.asset_url}`,
-          ),
-        );
+        if (scanResult.error) {
+          step("Scan website", "warning",
+            `Scan completed with error: ${scanResult.error}. ${scanResult.discovered_assets.length} assets found before error.`,
+            { assets_found: scanResult.discovered_assets.length }, scanStartMs);
+        } else {
+          // Persist newly discovered assets, skipping exact duplicates
+          // (same asset_type + floor_label + link_text + asset_url already in DB).
+          const { data: existingPipelineAssets } = await supabase
+            .from("mall_map_assets")
+            .select("asset_type, floor_label, link_text, asset_url")
+            .eq("mall_source_id", sourceId);
 
-        let savedAssets     = 0;
-        let dupAssets       = 0;
-        for (const asset of scanResult.discovered_assets) {
-          const dk = `${asset.asset_type}::${asset.floor_label ?? ""}::${asset.link_text ?? ""}::${asset.url}`;
-          if (pipelineAssetDedup.has(dk)) { dupAssets++; continue; }
-          pipelineAssetDedup.add(dk);
+          const pipelineAssetDedup = new Set<string>(
+            ((existingPipelineAssets ?? []) as Array<{
+              asset_type: string; floor_label: string | null;
+              link_text:  string | null; asset_url: string;
+            }>).map(
+              (a) => `${a.asset_type}::${a.floor_label ?? ""}::${a.link_text ?? ""}::${a.asset_url}`,
+            ),
+          );
 
-          let pw: number | null = null;
-          let ph: number | null = null;
-          if (asset.asset_type === "image") {
-            const dim = await fetchImageDimensions(asset.url);
-            if (dim.dimensions) { pw = dim.dimensions.width; ph = dim.dimensions.height; }
+          let savedAssets = 0;
+          let dupAssets   = 0;
+          for (const asset of scanResult.discovered_assets) {
+            const dk = `${asset.asset_type}::${asset.floor_label ?? ""}::${asset.link_text ?? ""}::${asset.url}`;
+            if (pipelineAssetDedup.has(dk)) { dupAssets++; continue; }
+            pipelineAssetDedup.add(dk);
+
+            let pw: number | null = null;
+            let ph: number | null = null;
+            if (asset.asset_type === "image") {
+              const dim = await fetchImageDimensions(asset.url);
+              if (dim.dimensions) { pw = dim.dimensions.width; ph = dim.dimensions.height; }
+            }
+            const { error: assetErr } = await supabase.from("mall_map_assets").insert({
+              mall_source_id:  sourceId,
+              mall_id:         mallId,
+              asset_type:      asset.asset_type,
+              asset_url:       asset.url,
+              floor_label:     asset.floor_label  ?? null,
+              link_text:       asset.link_text    ?? null,
+              review_status:   "pending",
+              page_width_px:   pw,
+              page_height_px:  ph,
+            });
+            if (!assetErr) savedAssets++;
           }
-          const { error: assetErr } = await supabase.from("mall_map_assets").insert({
-            mall_source_id:  sourceId,
-            mall_id:         mallId,
-            asset_type:      asset.asset_type,
-            asset_url:       asset.url,
-            floor_label:     asset.floor_label  ?? null,
-            link_text:       asset.link_text    ?? null,
-            review_status:   "pending",
-            page_width_px:   pw,
-            page_height_px:  ph,
-          });
-          if (!assetErr) savedAssets++;
+          step("Scan website", "ok",
+            `Scan complete — ${scanResult.discovered_assets.length} asset(s) found, ${savedAssets} saved, ${dupAssets} duplicate(s) skipped`,
+            { assets_found: scanResult.discovered_assets.length, assets_saved: savedAssets,
+              assets_duplicates_skipped: dupAssets, scan_duration_ms: scanResult.scan_duration_ms },
+            scanStartMs);
+          warnings.push(...scanResult.warnings);
         }
-        step("Scan website", "ok",
-          `Scan complete — ${scanResult.discovered_assets.length} asset(s) found, ${savedAssets} saved, ${dupAssets} duplicate(s) skipped`,
-          { assets_found: scanResult.discovered_assets.length, assets_saved: savedAssets,
-            assets_duplicates_skipped: dupAssets, duration_ms: scanResult.scan_duration_ms });
-        warnings.push(...scanResult.warnings);
+      } catch (e) {
+        step("Scan website", "error", `Scan failed: ${e instanceof Error ? e.message : String(e)}`,
+          undefined, scanStartMs);
       }
-    } catch (e) {
-      step("Scan website", "error", `Scan failed: ${e instanceof Error ? e.message : String(e)}`);
     }
   } else {
     step("Scan website", "skipped", "Skipped — source URL unavailable (see step 2)");
   }
 
   // ── Step 4: Detect GeoDirectory ───────────────────────────────────────────
-  let geodirApiUrl: string | null = null;
-
   if (sourceUrl) {
-    try {
-      const gdResult = await detectGeoDirectoryApi(sourceUrl);
-      geodirApiUrl   = gdResult.detected ? gdResult.api_url : null;
-      if (gdResult.detected && gdResult.api_url) {
-        await supabase.from("mall_sources").update({
-          geodir_detected: true,
-          geodir_api_url:  gdResult.api_url,
-        }).eq("id", sourceId);
+    if (geodirAlreadyDetected && geodirApiUrlFromSource) {
+      // Use cached value from source row — skip the HTTP detection call.
+      geodirApiUrl = geodirApiUrlFromSource;
+      step("Detect GeoDirectory", "ok",
+        `GeoDirectory API already detected at ${geodirApiUrl} (cached — use force_scan to re-detect)`,
+        { detected: true, api_url: geodirApiUrl, cached: true });
+    } else {
+      try {
+        const gdResult = await detectGeoDirectoryApi(sourceUrl);
+        geodirApiUrl   = gdResult.detected ? gdResult.api_url : null;
+        if (gdResult.detected && gdResult.api_url) {
+          await supabase.from("mall_sources").update({
+            geodir_detected: true,
+            geodir_api_url:  gdResult.api_url,
+          }).eq("id", sourceId);
+        }
+        step("Detect GeoDirectory", gdResult.detected ? "ok" : "skipped",
+          gdResult.detected
+            ? `GeoDirectory API detected at ${gdResult.api_url}`
+            : "GeoDirectory not found — source may use a different store directory format",
+          { detected: gdResult.detected, api_url: gdResult.api_url });
+      } catch (e) {
+        step("Detect GeoDirectory", "warning",
+          `Detection attempt failed: ${e instanceof Error ? e.message : String(e)}`);
       }
-      step("Detect GeoDirectory", gdResult.detected ? "ok" : "skipped",
-        gdResult.detected
-          ? `GeoDirectory API detected at ${gdResult.api_url}`
-          : "GeoDirectory not found — source may use a different store directory format",
-        { detected: gdResult.detected, api_url: gdResult.api_url });
-    } catch (e) {
-      step("Detect GeoDirectory", "warning",
-        `Detection attempt failed: ${e instanceof Error ? e.message : String(e)}`);
     }
   } else {
     step("Detect GeoDirectory", "skipped", "Skipped — source URL unavailable");
@@ -1192,37 +1231,51 @@ router.post("/run-setup-pipeline", async (req: Request, res: Response) => {
 
   // ── Step 5: Import GeoDirectory stores ────────────────────────────────────
   if (geodirApiUrl) {
-    try {
-      const maxPages = Math.min(
-        typeof options?.max_pages === "number" && options.max_pages > 0
-          ? options.max_pages : PIPELINE_DEFAULT_MAX_PAGES,
-        ABSOLUTE_MAX_PAGES,
-      );
-      const perPage = Math.min(
-        typeof options?.per_page === "number" && options.per_page > 0
-          ? options.per_page : PIPELINE_DEFAULT_PER_PAGE,
-        ABSOLUTE_MAX_PER_PAGE,
-      );
+    // Skip import if geodir stores already staged for this source (unless force_import=true).
+    const { count: existingGeoStoreCount } = await supabase
+      .from("mall_store_locations_staged")
+      .select("id", { count: "exact", head: true })
+      .eq("mall_source_id", sourceId)
+      .not("geodir_store_id", "is", null);
 
-      const importResult = await importGeoDirectoryStoresForSource(
-        sourceId, supabase, { maxPages, perPage },
-      );
-      step("Import GeoDirectory stores", "ok",
-        `${importResult.records_found} records fetched across ${importResult.pages_fetched} page(s); ` +
-        `${importResult.stores_staged} staged, ${importResult.stores_updated} updated`,
-        {
-          records_found:  importResult.records_found,
-          stores_staged:  importResult.stores_staged,
-          stores_updated: importResult.stores_updated,
-          pages_fetched:  importResult.pages_fetched,
-        });
-      warnings.push(...importResult.warnings);
-      if (importResult.insert_errors.length > 0) {
-        warnings.push(`${importResult.insert_errors.length} store(s) failed to insert during GeoDirectory import`);
+    if ((existingGeoStoreCount ?? 0) > 0 && !forceImport) {
+      step("Import GeoDirectory stores", "skipped",
+        `${existingGeoStoreCount} GeoDirectory store(s) already staged — skipped. Use force_import=true to re-import.`,
+        { existing_geodir_stores: existingGeoStoreCount });
+    } else {
+      const importStartMs = Date.now();
+      try {
+        const maxPages = Math.min(
+          typeof options?.max_pages === "number" && options.max_pages > 0
+            ? options.max_pages : PIPELINE_DEFAULT_MAX_PAGES,
+          ABSOLUTE_MAX_PAGES,
+        );
+        const perPage = Math.min(
+          typeof options?.per_page === "number" && options.per_page > 0
+            ? options.per_page : PIPELINE_DEFAULT_PER_PAGE,
+          ABSOLUTE_MAX_PER_PAGE,
+        );
+
+        const importResult = await importGeoDirectoryStoresForSource(
+          sourceId, supabase, { maxPages, perPage },
+        );
+        step("Import GeoDirectory stores", "ok",
+          `${importResult.records_found} records fetched across ${importResult.pages_fetched} page(s); ` +
+          `${importResult.stores_staged} staged, ${importResult.stores_updated} updated`,
+          {
+            records_found:  importResult.records_found,
+            stores_staged:  importResult.stores_staged,
+            stores_updated: importResult.stores_updated,
+            pages_fetched:  importResult.pages_fetched,
+          }, importStartMs);
+        warnings.push(...importResult.warnings);
+        if (importResult.insert_errors.length > 0) {
+          warnings.push(`${importResult.insert_errors.length} store(s) failed to insert during GeoDirectory import`);
+        }
+      } catch (e) {
+        step("Import GeoDirectory stores", "error",
+          `Import failed: ${e instanceof Error ? e.message : String(e)}`, undefined, importStartMs);
       }
-    } catch (e) {
-      step("Import GeoDirectory stores", "error",
-        `Import failed: ${e instanceof Error ? e.message : String(e)}`);
     }
   } else {
     step("Import GeoDirectory stores", "skipped",
@@ -1384,7 +1437,14 @@ router.post("/run-setup-pipeline", async (req: Request, res: Response) => {
       `Duplicate check skipped: ${e instanceof Error ? e.message : String(e)}`);
   }
 
-  // ── Step 11: Run mall health report ───────────────────────────────────────
+  } catch (unexpectedErr) {
+    // Outer safety net — ensures any uncaught throw still returns JSON.
+    const msg = `Unexpected pipeline error: ${unexpectedErr instanceof Error ? unexpectedErr.message : String(unexpectedErr)}`;
+    errors.push(msg);
+    completedSteps.push({ step: stepNum++, name: "Pipeline error", status: "error", message: msg });
+  }
+
+  // ── Step 11: Run mall health report (always runs, outside outer try) ───────
   try {
     healthReport = await getMallHealth(mallId, supabase);
     const report = healthReport as { readiness_status: string; next_recommended_action: string };
@@ -1419,6 +1479,7 @@ router.post("/run-setup-pipeline", async (req: Request, res: Response) => {
     mall_id:                 mallId,
     source_id:               sourceId,
     completed_steps:         completedSteps,
+    skipped_steps:           completedSteps.filter((s) => s.status === "skipped").map((s) => s.name),
     warnings,
     errors,
     health_report:           healthReport,
