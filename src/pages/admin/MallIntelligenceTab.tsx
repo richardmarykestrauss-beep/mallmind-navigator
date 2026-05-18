@@ -770,6 +770,10 @@ function MapReconstructionPanel({
   const [seedResult, setSeedResult] = useState<SeedMapAnchorsResult | null>(null);
   const [seedError,  setSeedError]  = useState<string | null>(null);
 
+  // Anchor review action state (shared across Anchors tab + AI tab)
+  const [anchorActionLoading, setAnchorActionLoading] = useState<string | null>(null);
+  const [anchorActionError,   setAnchorActionError]   = useState<string | null>(null);
+
   // AI extraction tab state (Sprint 14B)
   const [aiFloor,      setAiFloor]      = useState<string>("");
   const [aiAssetId,    setAiAssetId]    = useState<string>("");
@@ -1066,13 +1070,32 @@ function MapReconstructionPanel({
   }
 
   async function handleAnchorReview(anchorId: string, status: string) {
-    if (!token) return;
+    if (!token) {
+      setAnchorActionError("Not authenticated — bearer token is missing. Please reload and sign in.");
+      return;
+    }
+    setAnchorActionLoading(anchorId);
+    setAnchorActionError(null);
     try {
       await updateMapAnchor(anchorId, { review_status: status }, token);
+      if (import.meta.env.DEV) {
+        console.log("[AnchorReview] ok", { anchorId, status });
+      }
+      // Optimistic update so the UI responds instantly
       setAnchors((prev) =>
         prev.map((a) => a.id === anchorId ? { ...a, review_status: status } : a),
       );
-    } catch { /* silent — anchor list still reflects old state */ }
+      // Server reload to sync reviewed_by / reviewed_at fields
+      await loadAnchors();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (import.meta.env.DEV) {
+        console.error("[AnchorReview] failed", { anchorId, status, error: msg });
+      }
+      setAnchorActionError(`Update failed: ${msg}`);
+    } finally {
+      setAnchorActionLoading(null);
+    }
   }
 
   if (!mallId) {
@@ -1571,6 +1594,19 @@ function MapReconstructionPanel({
             </div>
           </div>
 
+          {/* ── Anchor action error banner ─────────────────────────────────── */}
+          {anchorActionError && (
+            <div className="flex items-start gap-2 rounded border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700">
+              <span className="shrink-0 font-semibold">✗</span>
+              <span className="flex-1">{anchorActionError}</span>
+              <button
+                onClick={() => setAnchorActionError(null)}
+                className="shrink-0 text-red-400 hover:text-red-700"
+                aria-label="Dismiss"
+              >×</button>
+            </div>
+          )}
+
           {/* ── Floor filter + anchor list ─────────────────────────────────── */}
           {loadingAnchors ? (
             <p className="flex items-center gap-1 text-xs text-muted-foreground">
@@ -1603,13 +1639,17 @@ function MapReconstructionPanel({
               {/* Anchor rows */}
               <div className="space-y-1">
                 {displayedAnchors.map((anchor) => {
-                  const placed = anchor.x_percent != null && anchor.y_percent != null;
+                  const placed   = anchor.x_percent != null && anchor.y_percent != null;
+                  const actioning = anchorActionLoading === anchor.id;
                   return (
                     <div
                       key={anchor.id}
                       className={cn(
                         "flex items-center gap-2 rounded border px-3 py-2 text-xs",
-                        selectedAnchorId === anchor.id ? "border-primary bg-primary/5" : "bg-background",
+                        selectedAnchorId === anchor.id ? "border-primary bg-primary/5" :
+                        anchor.review_status === "accepted" ? "bg-green-50 border-green-200" :
+                        anchor.review_status === "rejected" ? "bg-red-50/40 border-red-100" :
+                        "bg-background",
                       )}
                     >
                       <span className={cn(
@@ -1631,9 +1671,11 @@ function MapReconstructionPanel({
                         "shrink-0 rounded px-1.5 py-0.5 text-[10px]",
                         REVIEW_STATUS_COLORS[anchor.review_status] ?? "bg-gray-100 text-gray-600",
                       )}>
-                        {anchor.review_status}
+                        {actioning
+                          ? <Loader2 className="inline h-3 w-3 animate-spin" />
+                          : anchor.review_status}
                       </span>
-                      {/* Place / accept / reject actions */}
+                      {/* Place button */}
                       <button
                         onClick={() => {
                           setSelectedAnchorId(anchor.id === selectedAnchorId ? "" : anchor.id);
@@ -1641,24 +1683,42 @@ function MapReconstructionPanel({
                           setPlaceResult(null);
                           setPlaceError(null);
                         }}
-                        className="shrink-0 rounded border px-2 py-0.5 text-[10px] hover:bg-muted transition-colors"
-                        title="Click to place on map"
+                        disabled={actioning}
+                        className="shrink-0 rounded border px-2 py-0.5 text-[10px] hover:bg-muted disabled:opacity-40 transition-colors"
+                        title="Place on map"
                       >
                         <Crosshair className="inline h-3 w-3" />
                       </button>
-                      {anchor.review_status === "pending" && (
-                        <>
-                          <button
-                            onClick={() => void handleAnchorReview(anchor.id, "accepted")}
-                            className="shrink-0 text-[10px] text-green-700 hover:text-green-900"
-                            title="Accept"
-                          >✓</button>
-                          <button
-                            onClick={() => void handleAnchorReview(anchor.id, "rejected")}
-                            className="shrink-0 text-[10px] text-red-600 hover:text-red-800"
-                            title="Reject"
-                          >✗</button>
-                        </>
+                      {/* Accept / reject / reset */}
+                      {anchor.review_status !== "accepted" && (
+                        <button
+                          onClick={() => void handleAnchorReview(anchor.id, "accepted")}
+                          disabled={actioning}
+                          className="shrink-0 rounded border border-green-300 bg-green-50 px-1.5 py-0.5 text-[10px] text-green-700 hover:bg-green-100 disabled:opacity-40 transition-colors"
+                          title="Accept"
+                        >
+                          {actioning ? <Loader2 className="inline h-3 w-3 animate-spin" /> : "✓"}
+                        </button>
+                      )}
+                      {anchor.review_status !== "rejected" && (
+                        <button
+                          onClick={() => void handleAnchorReview(anchor.id, "rejected")}
+                          disabled={actioning}
+                          className="shrink-0 rounded border border-red-300 bg-red-50 px-1.5 py-0.5 text-[10px] text-red-700 hover:bg-red-100 disabled:opacity-40 transition-colors"
+                          title="Reject"
+                        >
+                          {actioning ? <Loader2 className="inline h-3 w-3 animate-spin" /> : "✗"}
+                        </button>
+                      )}
+                      {anchor.review_status !== "pending" && (
+                        <button
+                          onClick={() => void handleAnchorReview(anchor.id, "pending")}
+                          disabled={actioning}
+                          className="shrink-0 rounded border px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-muted disabled:opacity-40 transition-colors"
+                          title="Reset to pending"
+                        >
+                          {actioning ? <Loader2 className="inline h-3 w-3 animate-spin" /> : "↩"}
+                        </button>
                       )}
                     </div>
                   );
@@ -1992,7 +2052,22 @@ function MapReconstructionPanel({
                     <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
                       Anchor Review — {aiResult.floor_label} ({floorAnchors.length})
                     </p>
-                    {floorAnchors.map((a) => (
+                    {/* Anchor action error banner */}
+                    {anchorActionError && (
+                      <div className="flex items-start gap-2 rounded border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700">
+                        <span className="shrink-0 font-semibold">✗</span>
+                        <span className="flex-1">{anchorActionError}</span>
+                        <button
+                          onClick={() => setAnchorActionError(null)}
+                          className="shrink-0 text-red-400 hover:text-red-700"
+                          aria-label="Dismiss"
+                        >×</button>
+                      </div>
+                    )}
+
+                    {floorAnchors.map((a) => {
+                      const actioning = anchorActionLoading === a.id;
+                      return (
                       <div
                         key={a.id}
                         className={cn(
@@ -2025,7 +2100,9 @@ function MapReconstructionPanel({
                             "shrink-0 rounded px-1.5 py-0.5 text-[10px]",
                             REVIEW_STATUS_COLORS[a.review_status] ?? "bg-gray-100 text-gray-600",
                           )}>
-                            {a.review_status}
+                            {actioning
+                              ? <Loader2 className="inline h-3 w-3 animate-spin" />
+                              : a.review_status}
                           </span>
                         </div>
 
@@ -2038,25 +2115,28 @@ function MapReconstructionPanel({
                           {a.review_status !== "accepted" && (
                             <button
                               onClick={() => void handleAnchorReview(a.id, "accepted")}
-                              className="rounded border border-green-300 bg-green-50 px-2 py-0.5 text-[10px] text-green-800 hover:bg-green-100 transition-colors"
+                              disabled={actioning}
+                              className="rounded border border-green-300 bg-green-50 px-2 py-0.5 text-[10px] text-green-800 hover:bg-green-100 disabled:opacity-40 transition-colors"
                             >
-                              ✓ Accept
+                              {actioning ? <Loader2 className="inline h-3 w-3 animate-spin" /> : "✓ Accept"}
                             </button>
                           )}
                           {a.review_status !== "rejected" && (
                             <button
                               onClick={() => void handleAnchorReview(a.id, "rejected")}
-                              className="rounded border border-red-300 bg-red-50 px-2 py-0.5 text-[10px] text-red-700 hover:bg-red-100 transition-colors"
+                              disabled={actioning}
+                              className="rounded border border-red-300 bg-red-50 px-2 py-0.5 text-[10px] text-red-700 hover:bg-red-100 disabled:opacity-40 transition-colors"
                             >
-                              ✗ Reject
+                              {actioning ? <Loader2 className="inline h-3 w-3 animate-spin" /> : "✗ Reject"}
                             </button>
                           )}
-                          {a.review_status === "rejected" && (
+                          {a.review_status !== "pending" && (
                             <button
                               onClick={() => void handleAnchorReview(a.id, "pending")}
-                              className="rounded border px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-muted transition-colors"
+                              disabled={actioning}
+                              className="rounded border px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-muted disabled:opacity-40 transition-colors"
                             >
-                              ↩ Reset
+                              {actioning ? <Loader2 className="inline h-3 w-3 animate-spin" /> : "↩ Reset"}
                             </button>
                           )}
                           <button
@@ -2065,14 +2145,16 @@ function MapReconstructionPanel({
                               setSelectedAnchorId(a.id);
                               setPendingCoord(null);
                             }}
-                            className="rounded border px-2 py-0.5 text-[10px] hover:bg-muted transition-colors"
+                            disabled={actioning}
+                            className="rounded border px-2 py-0.5 text-[10px] hover:bg-muted disabled:opacity-40 transition-colors"
                             title="Place manually on map"
                           >
                             <Crosshair className="inline h-3 w-3 mr-0.5" />Place
                           </button>
                         </div>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 );
               })()}
