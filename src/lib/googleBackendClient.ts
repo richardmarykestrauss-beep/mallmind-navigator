@@ -2445,6 +2445,61 @@ export async function seedMapAnchors(
   );
 }
 
+// ── AI Map Extraction types (Sprint 14B) ──────────────────────────────────────
+
+export type AiExtractionMode = "anchors" | "corridors" | "full";
+
+export interface AiDetectedAnchor {
+  label:            string;
+  anchor_type:      MapAnchorType | string;
+  raw_text:         string;
+  x_percent:        number | null;
+  y_percent:        number | null;
+  confidence_score: number;
+  source_note:      string;
+}
+
+export interface AiDetectedCorridor {
+  label:            string;
+  x_percent:        number;
+  y_percent:        number;
+  confidence_score: number;
+}
+
+export interface AiExtractRequest {
+  mall_id:          string;
+  floor_label:      string;
+  extraction_mode?: AiExtractionMode;
+  notes?:           string;
+}
+
+export interface AiExtractResult {
+  ok:                  boolean;
+  asset_id:            string;
+  floor_label:         string;
+  extraction_mode:     AiExtractionMode;
+  provider:            string;
+  detected_anchors:    AiDetectedAnchor[];
+  detected_corridors:  AiDetectedCorridor[];
+  anchors_saved:       number;
+  anchors_skipped:     number;
+  warnings:            string[];
+}
+
+export interface ConvertAnchorsToNodesRequest {
+  mall_id:      string;
+  floor_label?: string;
+}
+
+export interface ConvertAnchorsToNodesResult {
+  ok:            boolean;
+  mall_id:       string;
+  floor_label?:  string;
+  nodes_created: number;
+  nodes_skipped: number;
+  warnings:      string[];
+}
+
 // ── Manual Map Asset public API (Sprint 14A.1) ────────────────────────────────
 
 export interface AddManualMapAssetRequest {
@@ -2483,6 +2538,57 @@ export async function addManualMapAsset(
   if (!BASE_URL) throw new Error("VITE_GOOGLE_BACKEND_URL is not configured");
   return postAuthWithResponse<AddManualMapAssetResult>(
     "/admin/mall-intelligence/map-assets/manual",
+    payload,
+    accessToken,
+  );
+}
+
+// ── AI Map Extraction public API (Sprint 14B) ──────────────────────────────────
+
+/**
+ * POST /admin/mall-intelligence/map-assets/:assetId/ai-extract
+ *
+ * Run AI-assisted anchor extraction on an uploaded map image asset.
+ * All suggestions are saved as pending entries in mall_manual_map_anchors_staged.
+ * Accepted anchors are never overwritten.
+ *
+ * Requires admin bearer token.
+ */
+export async function runMapAssetAiExtract(
+  assetId:     string,
+  payload:     AiExtractRequest,
+  accessToken: string,
+): Promise<AiExtractResult> {
+  if (!BASE_URL) throw new Error("VITE_GOOGLE_BACKEND_URL is not configured");
+  const url = `${BASE_URL}/admin/mall-intelligence/map-assets/${encodeURIComponent(assetId)}/ai-extract`;
+  const res = await fetch(url, {
+    method:  "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+    body:    JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({})) as { error?: string };
+    throw new Error(body.error ?? `HTTP ${res.status}`);
+  }
+  return res.json() as Promise<AiExtractResult>;
+}
+
+/**
+ * POST /admin/mall-intelligence/convert-anchors-to-nodes
+ *
+ * Promote accepted mall_manual_map_anchors_staged entries into
+ * mall_route_nodes_staged. Skips anchors that already have a matching node.
+ * Optionally scoped to a single floor.
+ *
+ * Requires admin bearer token.
+ */
+export async function convertAnchorsToRouteNodes(
+  payload:     ConvertAnchorsToNodesRequest,
+  accessToken: string,
+): Promise<ConvertAnchorsToNodesResult> {
+  if (!BASE_URL) throw new Error("VITE_GOOGLE_BACKEND_URL is not configured");
+  return postAuthWithResponse<ConvertAnchorsToNodesResult>(
+    "/admin/mall-intelligence/convert-anchors-to-nodes",
     payload,
     accessToken,
   );

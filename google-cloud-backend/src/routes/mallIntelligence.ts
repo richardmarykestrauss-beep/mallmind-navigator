@@ -52,6 +52,7 @@ import {
   dijkstra,
   FLOOR_CHANGE_NODE_TYPES,
 } from "../services/mallIntelligence/routeEdgeService.js";
+import { getMapImageExtractionProvider } from "../services/mapImageExtractionService.js";
 
 const router = Router();
 
@@ -2152,6 +2153,309 @@ router.post("/seed-map-anchors", async (req: Request, res: Response) => {
     total_in_preset: rows.length,
     inserted:        (data ?? []).length,
     skipped:         rows.length - (data ?? []).length,
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /admin/mall-intelligence/map-assets/:assetId/ai-extract — Sprint 14B
+//
+// Run AI-assisted anchor extraction on an uploaded map image asset.
+// All results are saved as pending suggestions in mall_manual_map_anchors_staged.
+// Accepted anchors are NEVER overwritten.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// anchor_type → node_type mapping for convert-anchors-to-nodes
+const ANCHOR_TO_NODE_TYPE: Record<string, string> = {
+  shop:           "shop",
+  entrance:       "entrance",
+  parking:        "parking",
+  lift:           "lift",
+  escalator:      "escalator",
+  stairs:         "entrance",
+  toilet:         "toilet",
+  corridor_node:  "entrance",
+  emergency_exit: "entrance",
+  landmark:       "info_desk",
+};
+
+router.post("/map-assets/:assetId/ai-extract", async (req: Request, res: Response) => {
+  const admin = await requireAdmin(req, res);
+  if (!admin) return;
+
+  const assetId = (req.params.assetId as string)?.trim();
+  const { mall_id, floor_label, extraction_mode, notes } = req.body as {
+    mall_id?:         unknown;
+    floor_label?:     unknown;
+    extraction_mode?: unknown;
+    notes?:           unknown;
+  };
+
+  if (!assetId) {
+    return res.status(400).json({ error: "assetId path param is required" });
+  }
+  if (!mall_id || typeof mall_id !== "string" || !mall_id.trim()) {
+    return res.status(400).json({ error: "mall_id is required" });
+  }
+  if (!floor_label || typeof floor_label !== "string" || !floor_label.trim()) {
+    return res.status(400).json({ error: "floor_label is required" });
+  }
+
+  const mode: "anchors" | "corridors" | "full" =
+    extraction_mode === "anchors" || extraction_mode === "corridors" ? extraction_mode : "full";
+
+  const supabase = getSupabaseClient();
+
+  // 1. Look up asset to get asset_url
+  const { data: asset, error: assetErr } = await supabase
+    .from("mall_map_assets")
+    .select("id, asset_url, asset_type, floor_label")
+    .eq("id", assetId)
+    .maybeSingle();
+
+  if (assetErr || !asset) {
+    return res.status(404).json({ error: "Map asset not found" });
+  }
+
+  // 2. Run AI extraction
+  const provider = getMapImageExtractionProvider("mock");
+  let extractionResult;
+  try {
+    extractionResult = await provider.extract({
+      asset_url:       asset.asset_url,
+      floor_label:     (floor_label as string).trim(),
+      extraction_mode: mode,
+      mall_id:         (mall_id as string).trim(),
+      notes:           typeof notes === "string" ? notes.trim() : undefined,
+    });
+  } catch (extractErr) {
+    return res.status(500).json({
+      error: `Extraction provider error: ${extractErr instanceof Error ? extractErr.message : String(extractErr)}`,
+    });
+  }
+
+  // 3. Fetch existing anchors for this (mall_id, floor_label) to respect review_status
+  const { data: existingAnchors } = await supabase
+    .from("mall_manual_map_anchors_staged")
+    .select("id, label, review_status, x_percent, y_percent")
+    .eq("mall_id",     (mall_id as string).trim())
+    .eq("floor_label", (floor_label as string).trim());
+
+  const existingMap = new Map(
+    (existingAnchors ?? []).map((a: { label: string; review_status: string; id: string; x_percent: number | null; y_percent: number | null }) => [a.label, a]),
+  );
+
+  // 4. Process detected anchors: save pending, skip accepted, add corridor_node anchors
+  const allDetected = [
+    ...extractionResult.detected_anchors,
+    ...extractionResult.detected_corridors.map((c) => ({
+      label:            c.label,
+      anchor_type:      "corridor_node",
+      raw_text:         `Corridor node detected on ${(floor_label as string).trim()}`,
+      x_percent:        c.x_percent,
+      y_percent:        c.y_percent,
+      confidence_score: c.confidence_score,
+      source_note:      `AI-suggested corridor node (mock provider, floor: ${(floor_label as string).trim()})`,
+    })),
+  ];
+
+  let anchors_saved   = 0;
+  let anchors_skipped = 0;
+  const saveWarnings: string[] = [];
+
+  for (const detected of allDetected) {
+    const existing = existingMap.get(detected.label);
+
+    if (existing?.review_status === "accepted") {
+      // Never overwrite accepted anchors
+      anchors_skipped++;
+      continue;
+    }
+
+    if (existing) {
+      // Update pending anchor — preserve manually placed coordinates
+      const hasManualCoords = existing.x_percent != null && existing.y_percent != null;
+      const updatePayload: Record<string, unknown> = {
+        anchor_type:      detected.anchor_type,
+        raw_text:         detected.raw_text,
+        confidence_score: detected.confidence_score,
+        source_note:      detected.source_note,
+        map_asset_id:     assetId,
+      };
+      if (!hasManualCoords) {
+        updatePayload.x_percent = detected.x_percent;
+        updatePayload.y_percent = detected.y_percent;
+      }
+      const { error: updateErr } = await supabase
+        .from("mall_manual_map_anchors_staged")
+        .update(updatePayload)
+        .eq("id", existing.id);
+      if (updateErr) {
+        saveWarnings.push(`Could not update anchor "${detected.label}": ${updateErr.message}`);
+        anchors_skipped++;
+      } else {
+        anchors_saved++;
+      }
+    } else {
+      // Insert new anchor
+      const { error: insertErr } = await supabase
+        .from("mall_manual_map_anchors_staged")
+        .insert({
+          mall_id:          (mall_id as string).trim(),
+          map_asset_id:     assetId,
+          floor_label:      (floor_label as string).trim(),
+          label:            detected.label,
+          anchor_type:      detected.anchor_type,
+          raw_text:         detected.raw_text,
+          x_percent:        detected.x_percent,
+          y_percent:        detected.y_percent,
+          confidence_score: detected.confidence_score,
+          source_note:      detected.source_note,
+          review_status:    "pending",
+        });
+      if (insertErr) {
+        saveWarnings.push(`Could not insert anchor "${detected.label}": ${insertErr.message}`);
+        anchors_skipped++;
+      } else {
+        anchors_saved++;
+      }
+    }
+  }
+
+  fireAuditLog(admin.user.id, "mall_map_ai_extract", {
+    mall_id:         (mall_id as string).trim(),
+    asset_id:        assetId,
+    floor_label:     (floor_label as string).trim(),
+    extraction_mode: mode,
+    provider:        provider.name,
+    anchors_saved,
+    anchors_skipped,
+  });
+
+  return res.json({
+    ok:                  true,
+    asset_id:            assetId,
+    floor_label:         (floor_label as string).trim(),
+    extraction_mode:     mode,
+    provider:            provider.name,
+    detected_anchors:    extractionResult.detected_anchors,
+    detected_corridors:  extractionResult.detected_corridors,
+    anchors_saved,
+    anchors_skipped,
+    warnings:            [...extractionResult.warnings, ...saveWarnings],
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /admin/mall-intelligence/convert-anchors-to-nodes — Sprint 14B
+//
+// Promote accepted mall_manual_map_anchors_staged entries into
+// mall_route_nodes_staged. Skips anchors that already have a matching node.
+// ─────────────────────────────────────────────────────────────────────────────
+
+router.post("/convert-anchors-to-nodes", async (req: Request, res: Response) => {
+  const admin = await requireAdmin(req, res);
+  if (!admin) return;
+
+  const { mall_id, floor_label } = req.body as {
+    mall_id?:     unknown;
+    floor_label?: unknown;
+  };
+
+  if (!mall_id || typeof mall_id !== "string" || !mall_id.trim()) {
+    return res.status(400).json({ error: "mall_id is required" });
+  }
+
+  const supabase = getSupabaseClient();
+
+  // 1. Fetch accepted anchors for this mall (+ optional floor)
+  let anchorQuery = supabase
+    .from("mall_manual_map_anchors_staged")
+    .select("id, label, anchor_type, floor_label, x_percent, y_percent")
+    .eq("mall_id",      (mall_id as string).trim())
+    .eq("review_status", "accepted");
+
+  if (floor_label && typeof floor_label === "string" && floor_label.trim()) {
+    anchorQuery = anchorQuery.eq("floor_label", floor_label.trim());
+  }
+
+  const { data: anchors, error: anchorsErr } = await anchorQuery;
+  if (anchorsErr) {
+    return res.status(500).json({ error: anchorsErr.message });
+  }
+  if (!anchors || anchors.length === 0) {
+    return res.json({
+      ok:            true,
+      mall_id:       (mall_id as string).trim(),
+      floor_label:   typeof floor_label === "string" ? floor_label.trim() : undefined,
+      nodes_created: 0,
+      nodes_skipped: 0,
+      warnings:      ["No accepted anchors found for this selection."],
+    });
+  }
+
+  // 2. Fetch existing route nodes so we can detect duplicates
+  const { data: existingNodes } = await supabase
+    .from("mall_route_nodes_staged")
+    .select("label, floor_label")
+    .eq("mall_id", (mall_id as string).trim());
+
+  // Build a set of existing (floor_label||label) keys for O(1) lookup
+  const existingNodeKeys = new Set(
+    (existingNodes ?? []).map(
+      (n: { label: string; floor_label: string | null }) =>
+        `${n.floor_label ?? ""}||${n.label}`,
+    ),
+  );
+
+  let nodes_created = 0;
+  let nodes_skipped = 0;
+  const warnings: string[] = [];
+
+  for (const anchor of anchors as Array<{ id: string; label: string; anchor_type: string; floor_label: string; x_percent: number | null; y_percent: number | null }>) {
+    const key = `${anchor.floor_label ?? ""}||${anchor.label}`;
+    if (existingNodeKeys.has(key)) {
+      nodes_skipped++;
+      continue;
+    }
+
+    const node_type = ANCHOR_TO_NODE_TYPE[anchor.anchor_type] ?? "shop";
+
+    const { error: insertErr } = await supabase
+      .from("mall_route_nodes_staged")
+      .insert({
+        mall_id:           (mall_id as string).trim(),
+        staged_location_id: null,
+        node_type,
+        label:             anchor.label,
+        floor_label:       anchor.floor_label,
+        x_percent:         anchor.x_percent,
+        y_percent:         anchor.y_percent,
+        review_status:     "pending",
+      });
+
+    if (insertErr) {
+      warnings.push(`Could not create node for "${anchor.label}": ${insertErr.message}`);
+      nodes_skipped++;
+    } else {
+      nodes_created++;
+      existingNodeKeys.add(key); // prevent re-insert within same request
+    }
+  }
+
+  fireAuditLog(admin.user.id, "mall_anchors_converted_to_nodes", {
+    mall_id:       (mall_id as string).trim(),
+    floor_label:   typeof floor_label === "string" ? floor_label.trim() : null,
+    nodes_created,
+    nodes_skipped,
+  });
+
+  return res.json({
+    ok:            true,
+    mall_id:       (mall_id as string).trim(),
+    floor_label:   typeof floor_label === "string" ? floor_label.trim() : undefined,
+    nodes_created,
+    nodes_skipped,
+    warnings,
   });
 });
 

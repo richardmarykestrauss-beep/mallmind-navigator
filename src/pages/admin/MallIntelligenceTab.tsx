@@ -61,7 +61,12 @@ import {
   updateMapAnchor,
   seedMapAnchors,
   addManualMapAsset,
+  runMapAssetAiExtract,
+  convertAnchorsToRouteNodes,
   type AddManualMapAssetRequest,
+  type AiExtractResult,
+  type AiExtractionMode,
+  type ConvertAnchorsToNodesResult,
 } from "@/lib/googleBackendClient";
 import { cn } from "@/lib/utils";
 import {
@@ -93,6 +98,8 @@ import {
   Pencil,
   ScanLine,
   UploadCloud,
+  Sparkles,
+  GitMerge,
 } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -720,7 +727,7 @@ function MapReconstructionPanel({
   assets:          MallMapAsset[];
   onAssetsChanged: () => void;
 }) {
-  const [activeTab,      setActiveTab]      = useState<"assets" | "anchors">("assets");
+  const [activeTab,      setActiveTab]      = useState<"assets" | "anchors" | "ai_extract">("assets");
   const [anchors,        setAnchors]        = useState<MallManualMapAnchor[]>([]);
   const [loadingAnchors, setLoadingAnchors] = useState(false);
 
@@ -762,6 +769,19 @@ function MapReconstructionPanel({
   const [seeding,    setSeeding]    = useState(false);
   const [seedResult, setSeedResult] = useState<SeedMapAnchorsResult | null>(null);
   const [seedError,  setSeedError]  = useState<string | null>(null);
+
+  // AI extraction tab state (Sprint 14B)
+  const [aiFloor,      setAiFloor]      = useState<string>("");
+  const [aiAssetId,    setAiAssetId]    = useState<string>("");
+  const [aiMode,       setAiMode]       = useState<AiExtractionMode>("full");
+  const [aiNotes,      setAiNotes]      = useState<string>("");
+  const [aiRunning,    setAiRunning]    = useState<boolean>(false);
+  const [aiResult,     setAiResult]     = useState<AiExtractResult | null>(null);
+  const [aiError,      setAiError]      = useState<string | null>(null);
+  // Convert anchors → route nodes state
+  const [convertBusy,  setConvertBusy]  = useState<boolean>(false);
+  const [convertRes,   setConvertRes]   = useState<ConvertAnchorsToNodesResult | null>(null);
+  const [convertErr,   setConvertErr]   = useState<string | null>(null);
 
   // Anchor placement state
   const [selectedAnchorId, setSelectedAnchorId] = useState<string>("");
@@ -944,6 +964,51 @@ function MapReconstructionPanel({
     }
   }
 
+  async function handleRunAiExtract() {
+    if (!mallId || !token || !aiAssetId || !aiFloor.trim()) return;
+    setAiRunning(true);
+    setAiResult(null);
+    setAiError(null);
+    setConvertRes(null);
+    setConvertErr(null);
+    try {
+      const r = await runMapAssetAiExtract(
+        aiAssetId,
+        {
+          mall_id:         mallId,
+          floor_label:     aiFloor.trim(),
+          extraction_mode: aiMode,
+          notes:           aiNotes.trim() || undefined,
+        },
+        token,
+      );
+      setAiResult(r);
+      await loadAnchors(); // refresh to pick up newly-saved pending suggestions
+    } catch (e) {
+      setAiError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAiRunning(false);
+    }
+  }
+
+  async function handleConvertToNodes() {
+    if (!mallId || !token) return;
+    setConvertBusy(true);
+    setConvertRes(null);
+    setConvertErr(null);
+    try {
+      const r = await convertAnchorsToRouteNodes(
+        { mall_id: mallId, floor_label: aiFloor.trim() || undefined },
+        token,
+      );
+      setConvertRes(r);
+    } catch (e) {
+      setConvertErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setConvertBusy(false);
+    }
+  }
+
   async function handleSeed() {
     if (!mallId || !token) return;
     setSeeding(true);
@@ -1023,7 +1088,7 @@ function MapReconstructionPanel({
 
       {/* ── Tabs ────────────────────────────────────────────────────────────── */}
       <div className="flex gap-1 border-b">
-        {(["assets", "anchors"] as const).map((tab) => (
+        {(["assets", "anchors", "ai_extract"] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -1036,8 +1101,10 @@ function MapReconstructionPanel({
           >
             {tab === "assets" ? (
               <><ImagePlus className="inline h-3 w-3 mr-1" />Map Assets ({assets.length})</>
-            ) : (
+            ) : tab === "anchors" ? (
               <><Crosshair className="inline h-3 w-3 mr-1" />Anchors ({anchors.length})</>
+            ) : (
+              <><Sparkles className="inline h-3 w-3 mr-1" />AI Extraction</>
             )}
           </button>
         ))}
@@ -1729,6 +1796,333 @@ function MapReconstructionPanel({
               )}
             </div>
           )}
+        </div>
+      )}
+
+      {/* ── Tab: AI Map Extraction ────────────────────────────────────────── */}
+      {activeTab === "ai_extract" && (
+        <div className="space-y-4">
+
+          {/* Warning banners (req 10) */}
+          <div className="rounded border border-amber-300 bg-amber-50 px-3 py-2.5 space-y-1 text-xs text-amber-800">
+            <p>
+              <span className="font-semibold">⚠ AI extraction is approximate.</span>
+              {" "}All suggestions are saved as <span className="font-medium">pending</span> — review before accepting.
+            </p>
+            <p className="text-[10px] text-amber-700">
+              Do not use copyrighted map artwork as customer-facing content.
+              Use the extracted factual layout data to build a simplified MallMind navigation layer.
+            </p>
+          </div>
+
+          {/* Extraction controls */}
+          <div className="rounded-md border bg-muted/10 p-3 space-y-3">
+            <p className="text-xs font-medium flex items-center gap-1.5">
+              <Sparkles className="h-3.5 w-3.5 text-primary" />
+              Run AI Extraction
+            </p>
+
+            <div className="grid grid-cols-2 gap-2">
+              {/* Floor label */}
+              <div>
+                <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                  Floor Label <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={aiFloor}
+                  onChange={(e) => setAiFloor(e.target.value)}
+                  placeholder="e.g. Level 3"
+                  className="mt-0.5 w-full rounded border bg-background px-2 py-1.5 text-xs"
+                />
+              </div>
+              {/* Extraction mode */}
+              <div>
+                <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                  Extraction Mode
+                </label>
+                <select
+                  value={aiMode}
+                  onChange={(e) => setAiMode(e.target.value as AiExtractionMode)}
+                  className="mt-0.5 w-full rounded border bg-background px-2 py-1.5 text-xs"
+                >
+                  <option value="full">Full (anchors + corridors)</option>
+                  <option value="anchors">Anchors only</option>
+                  <option value="corridors">Corridors only</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Image asset selector */}
+            <div>
+              <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                Map Image Asset <span className="text-red-500">*</span>
+              </label>
+              {assets.length === 0 ? (
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  No assets registered. Upload or register a map image in the Map Assets tab first.
+                </p>
+              ) : (
+                <select
+                  value={aiAssetId}
+                  onChange={(e) => setAiAssetId(e.target.value)}
+                  className="mt-0.5 w-full rounded border bg-background px-2 py-1.5 text-xs"
+                >
+                  <option value="">— select map asset —</option>
+                  {assets
+                    .filter((a) => !aiFloor.trim() || !a.floor_label || a.floor_label === aiFloor.trim())
+                    .map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.is_base_map ? "📌 " : ""}
+                        {a.floor_label ?? a.link_text ?? a.asset_url.split("/").pop()}
+                        {" · "}
+                        {a.asset_type.toUpperCase()}
+                        {a.source_kind ? ` · ${SOURCE_KIND_LABELS[a.source_kind] ?? a.source_kind}` : ""}
+                      </option>
+                    ))}
+                </select>
+              )}
+            </div>
+
+            {/* Notes */}
+            <div>
+              <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                Notes (optional)
+              </label>
+              <input
+                type="text"
+                value={aiNotes}
+                onChange={(e) => setAiNotes(e.target.value)}
+                placeholder="e.g. Level 3 evacuation photo taken 2024-11"
+                className="mt-0.5 w-full rounded border bg-background px-2 py-1.5 text-xs"
+              />
+            </div>
+
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => void handleRunAiExtract()}
+                disabled={aiRunning || !aiAssetId || !aiFloor.trim()}
+                className="flex items-center gap-1.5 rounded bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
+              >
+                {aiRunning
+                  ? <><Loader2 className="h-3 w-3 animate-spin" /> Extracting…</>
+                  : <><Sparkles className="h-3 w-3" /> Run AI Extraction</>}
+              </button>
+              {aiError && <span className="text-xs text-red-700">✗ {aiError}</span>}
+            </div>
+          </div>
+
+          {/* Extraction results */}
+          {aiResult && (
+            <div className="space-y-3">
+
+              {/* Summary bar */}
+              <div className="flex flex-wrap items-center gap-3 rounded border bg-green-50 px-3 py-2 text-xs">
+                <span className="font-medium text-green-800">
+                  ✓ Extraction complete — {aiResult.provider} provider
+                </span>
+                <span className="text-green-700">
+                  {aiResult.detected_anchors.length} anchors + {aiResult.detected_corridors.length} corridors detected
+                </span>
+                <span className="text-muted-foreground">
+                  {aiResult.anchors_saved} saved · {aiResult.anchors_skipped} skipped
+                </span>
+              </div>
+
+              {aiResult.warnings.length > 0 && (
+                <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700 space-y-0.5">
+                  {aiResult.warnings.map((w, i) => <p key={i}>⚠ {w}</p>)}
+                </div>
+              )}
+
+              {/* ── Overlay image with color-coded anchor dots ──────────────── */}
+              {(() => {
+                const aiAsset = assets.find((a) => a.id === aiAssetId);
+                if (!aiAsset || aiAsset.asset_type === "pdf") return null;
+                const floorAnchors = anchors.filter(
+                  (a) => a.floor_label === aiResult.floor_label && a.x_percent != null && a.y_percent != null,
+                );
+                if (floorAnchors.length === 0) return null;
+                return (
+                  <div className="space-y-1">
+                    <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                      Map Preview — {aiResult.floor_label}
+                    </p>
+                    <div className="relative w-full overflow-hidden rounded border">
+                      <img
+                        src={aiAsset.asset_url}
+                        alt={aiAsset.floor_label ?? "Map"}
+                        className="w-full select-none"
+                        draggable={false}
+                      />
+                      {floorAnchors.map((a) => {
+                        const dotColor =
+                          a.review_status === "accepted" ? "bg-green-500 border-white" :
+                          a.review_status === "rejected" ? "bg-red-500 border-white" :
+                          "bg-yellow-400 border-white";
+                        return (
+                          <div
+                            key={a.id}
+                            title={`${a.label} (${a.review_status})`}
+                            className={`pointer-events-none absolute h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 shadow ${dotColor}`}
+                            style={{ left: `${a.x_percent!}%`, top: `${a.y_percent!}%` }}
+                          />
+                        );
+                      })}
+                    </div>
+                    <div className="flex gap-3 text-[10px] text-muted-foreground">
+                      <span><span className="inline-block h-2 w-2 rounded-full bg-green-500 mr-1" />Accepted</span>
+                      <span><span className="inline-block h-2 w-2 rounded-full bg-yellow-400 mr-1" />Pending</span>
+                      <span><span className="inline-block h-2 w-2 rounded-full bg-red-500 mr-1" />Rejected</span>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* ── Anchor review table ─────────────────────────────────────── */}
+              {(() => {
+                const floorAnchors = anchors.filter((a) => a.floor_label === aiResult.floor_label);
+                if (floorAnchors.length === 0) return (
+                  <p className="text-xs text-muted-foreground text-center py-2">
+                    No anchors found for {aiResult.floor_label}.
+                  </p>
+                );
+                return (
+                  <div className="space-y-1">
+                    <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                      Anchor Review — {aiResult.floor_label} ({floorAnchors.length})
+                    </p>
+                    {floorAnchors.map((a) => (
+                      <div
+                        key={a.id}
+                        className={cn(
+                          "rounded border px-3 py-2 text-xs space-y-1",
+                          a.review_status === "accepted" ? "bg-green-50 border-green-200" :
+                          a.review_status === "rejected" ? "bg-red-50 border-red-200" :
+                          "bg-background",
+                        )}
+                      >
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className={cn(
+                            "shrink-0 rounded px-1.5 py-0.5 text-[10px]",
+                            ANCHOR_TYPE_COLORS[a.anchor_type] ?? "bg-gray-100 text-gray-700",
+                          )}>
+                            {ANCHOR_TYPE_LABELS[a.anchor_type] ?? a.anchor_type}
+                          </span>
+                          <span className="font-medium flex-1">{a.label}</span>
+                          <span className="text-[10px] text-muted-foreground">{a.floor_label}</span>
+                          {a.x_percent != null ? (
+                            <span className="text-[10px] text-green-700 tabular-nums">
+                              ✓ {a.x_percent.toFixed(1)}%,{a.y_percent?.toFixed(1)}%
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-amber-600">unplaced</span>
+                          )}
+                          <span className="text-[10px] text-muted-foreground">
+                            conf: {(a.confidence_score * 100).toFixed(0)}%
+                          </span>
+                          <span className={cn(
+                            "shrink-0 rounded px-1.5 py-0.5 text-[10px]",
+                            REVIEW_STATUS_COLORS[a.review_status] ?? "bg-gray-100 text-gray-600",
+                          )}>
+                            {a.review_status}
+                          </span>
+                        </div>
+
+                        {a.source_note && (
+                          <p className="text-[10px] text-muted-foreground">{a.source_note}</p>
+                        )}
+
+                        {/* Action buttons */}
+                        <div className="flex flex-wrap gap-2">
+                          {a.review_status !== "accepted" && (
+                            <button
+                              onClick={() => void handleAnchorReview(a.id, "accepted")}
+                              className="rounded border border-green-300 bg-green-50 px-2 py-0.5 text-[10px] text-green-800 hover:bg-green-100 transition-colors"
+                            >
+                              ✓ Accept
+                            </button>
+                          )}
+                          {a.review_status !== "rejected" && (
+                            <button
+                              onClick={() => void handleAnchorReview(a.id, "rejected")}
+                              className="rounded border border-red-300 bg-red-50 px-2 py-0.5 text-[10px] text-red-700 hover:bg-red-100 transition-colors"
+                            >
+                              ✗ Reject
+                            </button>
+                          )}
+                          {a.review_status === "rejected" && (
+                            <button
+                              onClick={() => void handleAnchorReview(a.id, "pending")}
+                              className="rounded border px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-muted transition-colors"
+                            >
+                              ↩ Reset
+                            </button>
+                          )}
+                          <button
+                            onClick={() => {
+                              setActiveTab("anchors");
+                              setSelectedAnchorId(a.id);
+                              setPendingCoord(null);
+                            }}
+                            className="rounded border px-2 py-0.5 text-[10px] hover:bg-muted transition-colors"
+                            title="Place manually on map"
+                          >
+                            <Crosshair className="inline h-3 w-3 mr-0.5" />Place
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+
+              {/* ── Convert accepted anchors to route nodes ─────────────────── */}
+              <div className="rounded-md border bg-muted/10 p-3 space-y-2">
+                <p className="text-xs font-medium flex items-center gap-1.5">
+                  <GitMerge className="h-3.5 w-3.5 text-primary" />
+                  Convert Accepted Anchors to Route Nodes
+                </p>
+                <p className="text-[10px] text-muted-foreground">
+                  Creates <code className="bg-muted px-0.5 rounded">mall_route_nodes_staged</code> entries from
+                  all accepted anchors{aiFloor.trim() ? ` on ${aiFloor.trim()}` : " across all floors"}.
+                  Skips anchors that already have a matching node.
+                </p>
+                <div className="flex flex-wrap items-center gap-3">
+                  <button
+                    onClick={() => void handleConvertToNodes()}
+                    disabled={convertBusy}
+                    className="flex items-center gap-1.5 rounded bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
+                  >
+                    {convertBusy
+                      ? <><Loader2 className="h-3 w-3 animate-spin" /> Converting…</>
+                      : <><GitMerge className="h-3 w-3" /> Convert to Route Nodes</>}
+                  </button>
+                  {convertRes && (
+                    <span className="text-xs text-green-700 font-medium">
+                      ✓ {convertRes.nodes_created} created · {convertRes.nodes_skipped} skipped
+                    </span>
+                  )}
+                  {convertErr && (
+                    <span className="text-xs text-red-700">✗ {convertErr}</span>
+                  )}
+                </div>
+                {convertRes?.warnings && convertRes.warnings.length > 0 && (
+                  <div className="text-[10px] text-amber-700 space-y-0.5">
+                    {convertRes.warnings.map((w, i) => <p key={i}>⚠ {w}</p>)}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Empty state when no extraction has been run */}
+          {!aiResult && !aiRunning && !aiError && (
+            <p className="text-xs text-muted-foreground text-center py-6">
+              Select a floor and an uploaded map image, then click "Run AI Extraction" to get started.
+            </p>
+          )}
+
         </div>
       )}
     </div>
