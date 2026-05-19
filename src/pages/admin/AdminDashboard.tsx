@@ -66,6 +66,7 @@ import {
 } from "lucide-react";
 import RetailDataExpansion   from "./RetailDataExpansion";
 import MallIntelligenceTab   from "./MallIntelligenceTab";
+import MapFactoryTab         from "./MapFactoryTab";
 import {
   verifyProductPrice,
   checkBackendHealth,
@@ -4324,7 +4325,8 @@ type AdminTab =
   | "bots"
   | "research"
   | "expansion"
-  | "mall-intelligence";
+  | "mall-intelligence"
+  | "map-factory";
 
 interface AdminTabDef {
   id:               AdminTab;
@@ -4344,6 +4346,7 @@ const ADMIN_TABS: AdminTabDef[] = [
   { id: "research",    label: "Research Batches", icon: <ClipboardList  className="h-3.5 w-3.5" />, requiresBackend: true },
   { id: "expansion",        label: "Data Expansion",     icon: <TrendingUp className="h-3.5 w-3.5" /> },
   { id: "mall-intelligence", label: "Mall Intelligence",  icon: <MapPin     className="h-3.5 w-3.5" />, requiresBackend: true },
+  { id: "map-factory",      label: "Map Factory",        icon: <Layers     className="h-3.5 w-3.5" />, requiresBackend: true },
 ];
 
 function AdminDashboardContent() {
@@ -4778,6 +4781,11 @@ function AdminDashboardContent() {
         {/* ── Mall Intelligence ────────────────────────────────────────────── */}
         {activeTab === "mall-intelligence" && backendOk && (
           <MallIntelligenceTab token={session?.access_token} />
+        )}
+
+        {/* ── Map Factory ──────────────────────────────────────────────────── */}
+        {activeTab === "map-factory" && backendOk && (
+          <MapFactoryTab token={session?.access_token} />
         )}
 
         {/* ── Backend-required tab but backend not configured ──────────────── */}

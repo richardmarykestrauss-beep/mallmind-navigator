@@ -17,6 +17,7 @@ import dataGuardianRouter        from "./routes/dataGuardian.js";
 import dataBotsRouter            from "./routes/dataBots.js";
 import mallResearchBatchesRouter from "./routes/mallResearchBatches.js";
 import mallIntelligenceRouter    from "./routes/mallIntelligence.js";
+import mapFactoryRouter          from "./routes/mapFactory.js";
 
 // ── Validate required environment variables at startup ────────────────────────
 const REQUIRED_ENV = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"];
@@ -41,7 +42,7 @@ app.use(
     origin: process.env.NODE_ENV === "production"
       ? (process.env.ALLOWED_ORIGIN ?? false)
       : "*",
-    methods: ["GET", "POST", "OPTIONS"],
+    methods: ["GET", "POST", "PATCH", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
@@ -67,6 +68,7 @@ app.use("/admin/data-guardian",   dataGuardianRouter);
 app.use("/admin/data-bots",       dataBotsRouter);
 app.use("/admin/mall-research",     mallResearchBatchesRouter);
 app.use("/admin/mall-intelligence", mallIntelligenceRouter);
+app.use("/admin/map-factory",      mapFactoryRouter);
 app.use("/admin",                 adminVerifyProductRouter);
 app.use("/analytics",           analyticsEventRouter);
 app.use("/price-corrections",   priceCorrectionsRouter);
