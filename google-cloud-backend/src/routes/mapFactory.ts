@@ -32,6 +32,7 @@ import { generateFloorPlan }         from "../services/mapFactory/artificialFloo
 import { buildRouteGraph, repairNodeFloors } from "../services/mapFactory/mapFactoryRouteGraphBuilderService.js";
 import { runQaChecks }               from "../services/mapFactory/mapFactoryQaService.js";
 import { publishJob, getNextBestStep } from "../services/mapFactory/mapFactoryPublishService.js";
+import { getProviderStatus, getExtractionProviderChain } from "../services/mapFactory/mapFactoryProviderRegistry.js";
 
 const router = Router();
 
@@ -455,6 +456,32 @@ router.post("/jobs/:jobId/next-step", async (req: Request, res: Response) => {
     default:
       return res.status(400).json({ error: `Unknown stage: ${stage}` });
   }
+});
+
+// ── POST /jobs/:jobId/extraction/provider-test ────────────────────────────────
+// Returns the configured status of every AI provider.
+// Does NOT expose API keys or other secrets.
+
+router.post("/jobs/:jobId/extraction/provider-test", async (req: Request, res: Response) => {
+  const auth = await requireAdmin(req, res); if (!auth) return;
+  const jobId = req.params.jobId as string;
+
+  const supabase = getSupabaseClient();
+  const { data: job } = await supabase.from("map_factory_jobs").select("id").eq("id", jobId).single();
+  if (!job) return res.status(404).json({ error: "Job not found" });
+
+  const status        = getProviderStatus();
+  const defaultChain  = getExtractionProviderChain();
+  const imageChain    = getExtractionProviderChain("image/jpeg");
+
+  res.json({
+    ok: true,
+    providers: status,
+    default_chain:   defaultChain,
+    image_chain:     imageChain,
+    google_ai_enabled: process.env.MAP_FACTORY_ENABLE_GOOGLE_AI === "true",
+    active_provider:   process.env.MAP_FACTORY_AI_PROVIDER ?? "mock",
+  });
 });
 
 export default router;

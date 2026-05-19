@@ -147,14 +147,15 @@ export async function buildRouteGraph(
 
   try {
     // ── 1. Load layout models ─────────────────────────────────────────────────
-    let modelQ = supabase
+    // Note: do NOT filter by floor_label here. The floorLabel param is a
+    // fallback used by resolveFloorLabel() when a model's own floor_label is
+    // null. Filtering would exclude null-floor models that should resolve to
+    // the fallback floor.
+    const { data: models, error: modelErr } = await supabase
       .from("map_factory_layout_models")
       .select("merged_anchors, floor_label")
       .eq("job_id", jobId)
       .eq("status", "complete");
-    if (floorLabel) modelQ = modelQ.eq("floor_label", floorLabel);
-
-    const { data: models, error: modelErr } = await modelQ;
     if (modelErr) throw new Error(modelErr.message);
 
     // ── 2. Pre-load existing edges for dedup ──────────────────────────────────

@@ -36,9 +36,11 @@ import {
   publishJob,
   runNextStep,
   repairNodeFloors,
+  testProviders,
   type MapFactoryJob,
   type MapFactoryJobDetail,
   type MapFactoryQaCheck,
+  type MapFactoryProviderTestResult,
 } from "@/lib/mapFactoryClient";
 
 // ── Props ─────────────────────────────────────────────────────────────────────
@@ -192,6 +194,11 @@ export default function MapFactoryTab({ token }: Props) {
   // Floor label field (used by generate-floorplan + build-route-graph)
   const [stageFloor, setStageFloor]   = useState("Level 5");
 
+  // Provider status panel
+  const [providerStatus, setProviderStatus]     = useState<MapFactoryProviderTestResult | null>(null);
+  const [providerLoading, setProviderLoading]   = useState(false);
+  const [providerError, setProviderError]       = useState<string | null>(null);
+
   // ── Load malls ──────────────────────────────────────────────────────────────
   useEffect(() => {
     supabase.from("malls").select("id, name").order("name").then(({ data }) => {
@@ -251,6 +258,21 @@ export default function MapFactoryTab({ token }: Props) {
       setCreateErr(String(e));
     } finally {
       setCreating(false);
+    }
+  }
+
+  // ── Provider Status ─────────────────────────────────────────────────────────
+  async function handleTestProviders() {
+    if (!token || !selectedJobId) return;
+    setProviderLoading(true);
+    setProviderError(null);
+    try {
+      const res = await testProviders(selectedJobId, token);
+      setProviderStatus(res);
+    } catch (e) {
+      setProviderError(String(e));
+    } finally {
+      setProviderLoading(false);
     }
   }
 
@@ -554,6 +576,68 @@ export default function MapFactoryTab({ token }: Props) {
                   <p className="text-[10px] text-muted-foreground">{s.label}</p>
                 </div>
               ))}
+            </div>
+
+            {/* Provider Status panel — near AI Extraction stage */}
+            <div className="rounded-lg border border-border bg-card">
+              <div className="flex items-center justify-between p-3 border-b border-border">
+                <h3 className="text-xs font-semibold flex items-center gap-2">
+                  <Cpu className="h-3.5 w-3.5" />
+                  AI Extraction Providers
+                </h3>
+                <button
+                  onClick={handleTestProviders}
+                  disabled={providerLoading || !selectedJobId}
+                  className="flex items-center gap-1 px-2 py-0.5 rounded border border-border text-xs hover:bg-muted disabled:opacity-40"
+                >
+                  {providerLoading
+                    ? <Loader2 className="h-3 w-3 animate-spin" />
+                    : <RefreshCw className="h-3 w-3" />}
+                  Check
+                </button>
+              </div>
+              <div className="p-3">
+                {providerError && (
+                  <p className="text-xs text-red-600 mb-2">{providerError}</p>
+                )}
+                {!providerStatus && !providerError && (
+                  <p className="text-xs text-muted-foreground italic">Click Check to query provider status.</p>
+                )}
+                {providerStatus && (() => {
+                  const PROVIDER_LABELS: Array<{ key: keyof MapFactoryProviderTestResult["providers"]; label: string }> = [
+                    { key: "mock",                      label: "Mock (always available)" },
+                    { key: "gemini_vision_extraction",  label: "Gemini Vision Extraction" },
+                    { key: "google_vision_ocr",         label: "Google Vision OCR" },
+                    { key: "google_document_ai_layout", label: "Document AI Layout" },
+                    { key: "gemini_embedding",          label: "Gemini Embedding" },
+                  ];
+                  return (
+                    <div className="flex flex-col gap-1.5">
+                      <div className="flex items-center gap-4 text-[10px] text-muted-foreground mb-1">
+                        <span>Google AI: <span className={providerStatus.google_ai_enabled ? "text-emerald-600 font-medium" : "text-amber-600 font-medium"}>{providerStatus.google_ai_enabled ? "ENABLED" : "DISABLED"}</span></span>
+                        <span>Active provider: <span className="font-mono font-medium">{providerStatus.active_provider}</span></span>
+                      </div>
+                      {PROVIDER_LABELS.map(({ key, label }) => {
+                        const configured = providerStatus.providers[key];
+                        return (
+                          <div key={key} className="flex items-center justify-between text-xs">
+                            <span className="text-muted-foreground">{label}</span>
+                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium
+                              ${configured
+                                ? "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300"
+                                : "bg-muted text-muted-foreground"}`}>
+                              {configured ? "✓ Ready" : "Not configured"}
+                            </span>
+                          </div>
+                        );
+                      })}
+                      <div className="mt-1 pt-1 border-t border-border text-[10px] text-muted-foreground">
+                        Chain: <span className="font-mono">{providerStatus.image_chain.join(" → ")}</span>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
             </div>
 
             {/* Floor label input (used by several stages) */}

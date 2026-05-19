@@ -12,11 +12,13 @@
 
 import { classifySourceUrl, discoverSourcesForMall } from "../services/mapFactory/mapFactorySourceDiscoveryService.js";
 import { harvestSource } from "../services/mapFactory/mapFactoryHarvestService.js";
-import { getNextBestStep } from "../services/mapFactory/mapFactoryPublishService.js";
+import { getNextBestStep, publishJob } from "../services/mapFactory/mapFactoryPublishService.js";
 import { canonicalNodeType, nodeTypeFromLabel } from "../services/mapFactory/mapFactoryNodeTypeMapper.js";
 import { buildRouteGraph, repairNodeFloors, isStaleFloor, isRepairable } from "../services/mapFactory/mapFactoryRouteGraphBuilderService.js";
 import { normalizeFloorLabel, resolveFloorLabel } from "../services/mapFactory/mapFactoryFloorLabelService.js";
-import { publishJob } from "../services/mapFactory/mapFactoryPublishService.js";
+import { getProviderStatus, getExtractionProviderChain, getActiveExtractionProvider } from "../services/mapFactory/mapFactoryProviderRegistry.js";
+import { isGoogleAiEnabled, isGeminiConfigured, isVisionConfigured } from "../services/mapFactory/googleAiProviderService.js";
+import { extractAsset } from "../services/mapFactory/mapFactoryExtractionService.js";
 
 // ── Colours ───────────────────────────────────────────────────────────────────
 const GREEN  = "\x1b[32m";
@@ -113,16 +115,28 @@ function makeMockSupabase(tables: Record<string, MockRow[]>) {
             error: null,
           };
         },
-        update: (updatePayload: MockRow) => ({
-          // Actually mutate matching rows so subsequent queries see updated values
-          eq: (eqKey: string, eqVal: unknown) => {
+        update: (updatePayload: MockRow) => {
+          // Accumulate eq filters, then apply all on terminal call or await
+          const updateFilters: Array<{ key: string; val: unknown }> = [];
+          function applyUpdate() {
             for (const row of rows) {
-              if (row[eqKey] === eqVal) Object.assign(row, updatePayload);
+              const match = updateFilters.every((f) => row[f.key] === f.val);
+              if (match) Object.assign(row, updatePayload);
             }
-            return { error: null };
-          },
-          error: null,
-        }),
+          }
+          const updateChain: Record<string, unknown> = {
+            eq: (eqKey: string, eqVal: unknown) => {
+              updateFilters.push({ key: eqKey, val: eqVal });
+              return updateChain; // supports chained .eq().eq()
+            },
+            error: null,
+            then: (resolve: (v: { error: null }) => void) => {
+              applyUpdate();
+              resolve({ error: null });
+            },
+          };
+          return updateChain;
+        },
         then: (resolve: (v: { data: MockRow[]; error: null; count?: number }) => void) => {
           const matched = applyFilters(rows);
           resolve({ data: matched, error: null, count: matched.length });
@@ -310,7 +324,8 @@ section("Node Type Mapper — nodeTypeFromLabel (SA retailers + heuristics)");
   assertEqual(nodeTypeFromLabel("Clicks"),     "shop",    "Clicks → shop");
   assertEqual(nodeTypeFromLabel("entrance north"), "entrance", "entrance north → entrance");
   assertEqual(nodeTypeFromLabel("Parking Deck P3"), "parking", "Parking Deck P3 → parking");
-  assertEqual(nodeTypeFromLabel("Food Court"),  "food_court", "Food Court → food_court");
+  // Food Court maps to "landmark" — "food_court" is not in the DB CHECK constraint (mall_nodes.type)
+  assertEqual(nodeTypeFromLabel("Food Court"),  "landmark",   "Food Court → landmark");
   assertEqual(nodeTypeFromLabel("Toilet Block"), "toilet",    "Toilet Block → toilet");
 }
 
@@ -712,6 +727,229 @@ section("repairNodeFloors — standalone repair endpoint function");
   const admin  = repairFloorTables.mall_nodes.find((n) => n.name === "Admin Node");
   assert(menlyn?.floor === "L1",  `Menlyn Shop floor unchanged "L1" (got ${menlyn?.floor})`);
   assert(admin?.floor  == null,   `Admin Node floor unchanged null (got ${admin?.floor})`);
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// SUITE 7 — Sprint 16: Google AI Provider Registry & Extraction Cache
+// ═════════════════════════════════════════════════════════════════════════════
+
+section("Suite 7 — Provider Registry: defaults with no env vars");
+
+{
+  // In the harness environment MAP_FACTORY_ENABLE_GOOGLE_AI is not set
+  // All Google providers should report not configured
+  const status = getProviderStatus();
+
+  assert(status.mock === true, "mock provider always ready");
+  assert(isGoogleAiEnabled() === false || status.gemini_vision_extraction === false,
+    "gemini_vision_extraction off when ENABLE_GOOGLE_AI not set or GEMINI_API_KEY absent");
+  assert(isGoogleAiEnabled() === false || status.google_vision_ocr === false,
+    "google_vision_ocr off when ENABLE_GOOGLE_AI not set or VISION_API_KEY absent");
+  assert(isGoogleAiEnabled() === false || status.google_document_ai_layout === false,
+    "google_document_ai_layout off when ENABLE_GOOGLE_AI not set or project vars absent");
+
+  // mock is always configured regardless
+  assert(status.mock, "mock is true regardless of env");
+}
+
+section("Suite 7 — Provider Chain: mock is always the terminal fallback");
+
+{
+  const defaultChain = getExtractionProviderChain();
+  assert(defaultChain.length >= 1, `Chain has ≥1 entry (got ${defaultChain.length})`);
+  assert(defaultChain[defaultChain.length - 1] === "mock",
+    `Last entry in chain is "mock" (got "${defaultChain[defaultChain.length - 1]}")`);
+
+  const imageChain = getExtractionProviderChain("image/jpeg");
+  assert(imageChain.includes("mock"), `image/jpeg chain includes "mock" fallback`);
+
+  const pdfChain = getExtractionProviderChain("application/pdf");
+  assert(pdfChain.includes("mock"), `PDF chain includes "mock" fallback`);
+  // Vision OCR should NOT be in PDF chain (images only)
+  if (!isVisionConfigured()) {
+    assert(!pdfChain.includes("google_vision_ocr"),
+      `google_vision_ocr not in PDF chain when not configured`);
+  }
+}
+
+section("Suite 7 — Active Provider: defaults to mock when env var absent");
+
+{
+  const saved = process.env.MAP_FACTORY_AI_PROVIDER;
+  delete process.env.MAP_FACTORY_AI_PROVIDER;
+
+  const active = getActiveExtractionProvider();
+  assertEqual(active, "mock", "Default active provider is mock");
+
+  // Requesting an unconfigured provider falls back to mock
+  process.env.MAP_FACTORY_AI_PROVIDER = "gemini_vision_extraction";
+  // Unless ENABLE_GOOGLE_AI is true AND GEMINI_API_KEY is set, this must resolve to mock
+  const fallback = getActiveExtractionProvider();
+  assert(
+    fallback === "mock" || (isGeminiConfigured() && fallback === "gemini_vision_extraction"),
+    `Unconfigured provider falls back to mock (got "${fallback}")`,
+  );
+
+  // Restore
+  if (saved !== undefined) process.env.MAP_FACTORY_AI_PROVIDER = saved;
+  else delete process.env.MAP_FACTORY_AI_PROVIDER;
+}
+
+section("Suite 7 — Provider Status: no secrets in response shape");
+
+{
+  const status = getProviderStatus();
+  const statusStr = JSON.stringify(status);
+
+  // API keys must not appear in status output
+  const sensitivePatterns = [
+    process.env.GEMINI_API_KEY,
+    process.env.GOOGLE_CLOUD_VISION_API_KEY,
+    process.env.GOOGLE_CLOUD_PROJECT,
+    process.env.GOOGLE_DOCUMENT_AI_PROCESSOR_ID,
+  ].filter(Boolean);
+
+  let noSecretsLeaked = true;
+  for (const secret of sensitivePatterns) {
+    if (statusStr.includes(secret as string)) {
+      noSecretsLeaked = false;
+      break;
+    }
+  }
+  assert(noSecretsLeaked, "getProviderStatus() does not leak API keys or project IDs");
+
+  // Shape check: all expected keys present
+  assert("mock"                      in status, "status has 'mock' key");
+  assert("gemini_vision_extraction"  in status, "status has 'gemini_vision_extraction' key");
+  assert("google_vision_ocr"         in status, "status has 'google_vision_ocr' key");
+  assert("google_document_ai_layout" in status, "status has 'google_document_ai_layout' key");
+  assert("gemini_embedding"          in status, "status has 'gemini_embedding' key");
+  assert(typeof status.mock === "boolean", "mock value is boolean");
+}
+
+section("Suite 7 — Extraction Service: mock fallback works end-to-end");
+
+{
+  const ext7Tables: Record<string, MockRow[]> = {
+    map_factory_extractions: [],
+    map_factory_sources:     [
+      { id: "src-7a", job_id: "job-7", asset_id: "asset-7a", status: "discovered" },
+    ],
+  };
+  const supabase7 = makeMockSupabase(ext7Tables);
+
+  const r = await extractAsset({
+    jobId:      "job-7",
+    mallId:     "mall-7",
+    assetId:    "asset-7a",
+    assetUrl:   "https://cdn/level3-map.jpg",
+    floorLabel: "level 3",
+    provider:   "mock",
+    supabase:   supabase7,
+  });
+
+  assert(r.ok,                `extractAsset ok (error: ${r.error ?? "none"})`);
+  assert(r.anchorsFound > 0,  `anchorsFound > 0 (got ${r.anchorsFound})`);
+  assert(r.cacheHit === false, "first extraction is not a cache hit");
+  assertEqual(r.providerUsed, "mock", "provider_used = mock");
+
+  // Extraction row persisted
+  const rows = ext7Tables.map_factory_extractions;
+  assert(rows.length === 1, `1 extraction row persisted (got ${rows.length})`);
+  assertEqual(rows[0].provider_used as string, "mock", "extraction row.provider_used = mock");
+  assert(Array.isArray(rows[0].provider_chain), "provider_chain is array");
+  assert((rows[0].provider_chain as string[]).includes("mock"), "provider_chain contains 'mock'");
+
+  // Standard warnings are appended
+  const warnings = rows[0].warnings as string[];
+  assert(Array.isArray(warnings), "warnings is array");
+  assert(warnings.some((w: string) => w.includes("Google AI provider not configured")),
+    "mock extraction has 'Google AI provider not configured' warning");
+  assert(warnings.some((w: string) => w.includes("AI extraction is approximate")),
+    "mock extraction has standard accuracy disclaimer");
+}
+
+section("Suite 7 — Extraction Cache: cache hit skips re-extraction");
+
+{
+  const cacheHash = "sha256-abc123";
+
+  const cacheTables: Record<string, MockRow[]> = {
+    map_factory_extractions: [
+      {
+        id:            "cached-row-1",
+        job_id:        "job-cache",
+        content_hash:  cacheHash,
+        provider_used: "mock",
+        status:        "complete",
+        anchors_saved: 10,
+        warnings:      ["AI extraction is approximate"],
+      },
+    ],
+    map_factory_sources: [],
+  };
+  const cacheSupabase = makeMockSupabase(cacheTables);
+
+  const cached = await extractAsset({
+    jobId:       "job-cache",
+    mallId:      "mall-cache",
+    assetId:     "asset-cache",
+    assetUrl:    "https://cdn/level5-map.jpg",
+    floorLabel:  "Level 5",
+    contentHash: cacheHash,
+    supabase:    cacheSupabase,
+  });
+
+  assert(cached.ok,           `cache hit ok (error: ${cached.error ?? "none"})`);
+  assert(cached.cacheHit === true, "cacheHit = true when content_hash matches");
+  assertEqual(cached.anchorsFound, 10, "cached anchorsFound matches stored anchors_saved");
+
+  // No new extraction row should have been inserted
+  const allRows = cacheTables.map_factory_extractions;
+  assertEqual(allRows.length, 1, "No new extraction row inserted for cache hit");
+}
+
+section("Suite 7 — Extraction Cache: forceExtract bypasses cache");
+
+{
+  const forceHash = "sha256-force-test";
+
+  const forceTables: Record<string, MockRow[]> = {
+    map_factory_extractions: [
+      {
+        id:            "old-row-1",
+        job_id:        "job-force",
+        content_hash:  forceHash,
+        provider_used: "mock",
+        status:        "complete",
+        anchors_saved: 5,
+        warnings:      [],
+      },
+    ],
+    map_factory_sources: [
+      { id: "src-force", job_id: "job-force", asset_id: "asset-force", status: "discovered" },
+    ],
+  };
+  const forceSupabase = makeMockSupabase(forceTables);
+
+  const forced = await extractAsset({
+    jobId:        "job-force",
+    mallId:       "mall-force",
+    assetId:      "asset-force",
+    assetUrl:     "https://cdn/level3-map.jpg",
+    floorLabel:   "level 3",
+    contentHash:  forceHash,
+    forceExtract: true,
+    supabase:     forceSupabase,
+  });
+
+  assert(forced.ok,             `forceExtract ok (error: ${forced.error ?? "none"})`);
+  assert(forced.cacheHit === false, "cacheHit = false when forceExtract=true");
+  assert(forced.anchorsFound > 0,   `forceExtract produced anchors (got ${forced.anchorsFound})`);
+
+  // A new row should have been inserted (total = 2: old + new)
+  const afterRows = forceTables.map_factory_extractions;
+  assert(afterRows.length === 2, `New extraction row created on forceExtract (total rows: ${afterRows.length})`);
 }
 
 // ═════════════════════════════════════════════════════════════════════════════

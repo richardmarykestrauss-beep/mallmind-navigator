@@ -206,3 +206,28 @@ export function runNextStep(jobId: string, accessToken: string, floorLabel?: str
     `/jobs/${encodeURIComponent(jobId)}/next-step`, "POST", accessToken,
     floorLabel ? { floor_label: floorLabel } : {});
 }
+
+// ── Provider types ────────────────────────────────────────────────────────────
+
+export interface MapFactoryProviderStatus {
+  mock:                      boolean;
+  gemini_vision_extraction:  boolean;
+  google_vision_ocr:         boolean;
+  google_document_ai_layout: boolean;
+  gemini_embedding:          boolean;
+}
+
+export interface MapFactoryProviderTestResult {
+  ok:                boolean;
+  providers:         MapFactoryProviderStatus;
+  default_chain:     string[];
+  image_chain:       string[];
+  google_ai_enabled: boolean;
+  active_provider:   string;
+}
+
+/** Query AI provider status (does not expose API keys) */
+export function testProviders(jobId: string, accessToken: string) {
+  return apiFetch<MapFactoryProviderTestResult>(
+    `/jobs/${encodeURIComponent(jobId)}/extraction/provider-test`, "POST", accessToken);
+}
