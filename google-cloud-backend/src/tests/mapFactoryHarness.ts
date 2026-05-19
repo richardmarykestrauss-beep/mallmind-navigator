@@ -13,6 +13,8 @@
 import { classifySourceUrl, discoverSourcesForMall } from "../services/mapFactory/mapFactorySourceDiscoveryService.js";
 import { harvestSource } from "../services/mapFactory/mapFactoryHarvestService.js";
 import { getNextBestStep } from "../services/mapFactory/mapFactoryPublishService.js";
+import { canonicalNodeType, nodeTypeFromLabel } from "../services/mapFactory/mapFactoryNodeTypeMapper.js";
+import { buildRouteGraph } from "../services/mapFactory/mapFactoryRouteGraphBuilderService.js";
 
 // ── Colours ───────────────────────────────────────────────────────────────────
 const GREEN  = "\x1b[32m";
@@ -257,6 +259,110 @@ section("Publish Service — getNextBestStep");
 
   const s4 = getNextBestStep("publish", 100);
   assertEqual(s4.nextStage, "complete", "publish → complete");
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// SUITE 4 — Node Type Mapper + Route Graph Builder
+// ═════════════════════════════════════════════════════════════════════════════
+
+section("Node Type Mapper — canonicalNodeType");
+
+{
+  // anchor_type-level resolution
+  assertEqual(canonicalNodeType("shop",     "Game"),                  "shop",     "shop anchor_type → shop");
+  assertEqual(canonicalNodeType("entrance", "Entrance 13"),           "entrance", "entrance anchor_type → entrance");
+  assertEqual(canonicalNodeType("parking",  "Level 5 North East Parking"), "parking", "parking anchor_type → parking");
+  assertEqual(canonicalNodeType("landmark", "Town Square"),           "landmark", "landmark anchor_type → landmark");
+  assertEqual(canonicalNodeType("corridor_node", "Main Corridor"),   "corridor", "corridor_node anchor_type → corridor");
+  assertEqual(canonicalNodeType("escalator", "Up Escalator"),        "escalator","escalator anchor_type → escalator");
+  assertEqual(canonicalNodeType("lift",      "Lift A"),              "lift",     "lift anchor_type → lift");
+  assertEqual(canonicalNodeType("toilet",    "Restroom"),            "toilet",   "toilet anchor_type → toilet");
+  assertEqual(canonicalNodeType("stairs",    "Stairwell 1"),         "stairs",   "stairs anchor_type → stairs");
+}
+
+section("Node Type Mapper — nodeTypeFromLabel (SA retailers + heuristics)");
+
+{
+  assertEqual(nodeTypeFromLabel("Edgars"),     "shop",    "Edgars → shop");
+  assertEqual(nodeTypeFromLabel("H&M"),        "shop",    "H&M → shop");
+  assertEqual(nodeTypeFromLabel("Woolworths"), "shop",    "Woolworths → shop");
+  assertEqual(nodeTypeFromLabel("Checkers"),   "shop",    "Checkers → shop");
+  assertEqual(nodeTypeFromLabel("Clicks"),     "shop",    "Clicks → shop");
+  assertEqual(nodeTypeFromLabel("entrance north"), "entrance", "entrance north → entrance");
+  assertEqual(nodeTypeFromLabel("Parking Deck P3"), "parking", "Parking Deck P3 → parking");
+  assertEqual(nodeTypeFromLabel("Food Court"),  "food_court", "Food Court → food_court");
+  assertEqual(nodeTypeFromLabel("Toilet Block"), "toilet",    "Toilet Block → toilet");
+}
+
+section("Route Graph Builder — Mall of Africa mock layout");
+
+{
+  // Mock layout model with SA store labels + entrance + parking
+  const MOA_ANCHORS = [
+    { label: "Game",         anchor_type: "shop",     x_percent: 20, y_percent: 30, confidence_score: 0.9 },
+    { label: "Edgars",       anchor_type: "shop",     x_percent: 40, y_percent: 30, confidence_score: 0.85 },
+    { label: "Woolworths",   anchor_type: "shop",     x_percent: 60, y_percent: 30, confidence_score: 0.9 },
+    { label: "Entrance North", anchor_type: "entrance", x_percent: 50, y_percent: 5,  confidence_score: 0.95 },
+    { label: "Entrance South", anchor_type: "entrance", x_percent: 50, y_percent: 95, confidence_score: 0.9 },
+    { label: "Parking P1",   anchor_type: "parking",  x_percent: 10, y_percent: 50, confidence_score: 0.8 },
+    { label: "Main Corridor A", anchor_type: "corridor_node", x_percent: 40, y_percent: 50, confidence_score: 0.85 },
+    { label: "Main Corridor B", anchor_type: "corridor_node", x_percent: 60, y_percent: 50, confidence_score: 0.85 },
+  ];
+
+  const moaTables: Record<string, MockRow[]> = {
+    map_factory_layout_models: [
+      { id: "model-1", job_id: "job-moa", mall_id: "mall-moa", floor_label: "Level 1", status: "complete", merged_anchors: MOA_ANCHORS },
+    ],
+    mall_nodes: [],
+    mall_edges: [],
+  };
+
+  const moaSupabase = makeMockSupabase(moaTables);
+  const result = await buildRouteGraph("job-moa", "mall-moa", null, moaSupabase);
+
+  assert(result.ok, `buildRouteGraph ok=true (error: ${result.error ?? "none"})`);
+
+  const shopCount   = moaTables.mall_nodes.filter((n) => n.type === "shop").length;
+  const entranceCount = moaTables.mall_nodes.filter((n) => n.type === "entrance").length;
+  const edgeCount   = moaTables.mall_edges.length;
+
+  assert(shopCount >= 3,   `≥3 shop nodes created (got ${shopCount})`);
+  assert(entranceCount >= 1, `≥1 entrance node created (got ${entranceCount})`);
+  assert(edgeCount >= 2,   `≥2 edges created (got ${edgeCount})`);
+  assert((result.floorsProcessed ?? []).includes("Level 1"), "Level 1 in floorsProcessed");
+  assert(result.nodesCreated >= 6, `≥6 nodes created total (got ${result.nodesCreated})`);
+}
+
+section("Route Graph Builder — fallback spine (no corridor nodes)");
+
+{
+  const SPINE_ANCHORS = [
+    { label: "Nike",   anchor_type: "shop", x_percent: 15, y_percent: 50, confidence_score: 0.9 },
+    { label: "Zara",   anchor_type: "shop", x_percent: 45, y_percent: 50, confidence_score: 0.9 },
+    { label: "H&M",    anchor_type: "shop", x_percent: 75, y_percent: 50, confidence_score: 0.9 },
+    { label: "Main Entrance", anchor_type: "entrance", x_percent: 50, y_percent: 5, confidence_score: 0.95 },
+    // Intentionally NO corridor_node anchors
+  ];
+
+  const spineTables: Record<string, MockRow[]> = {
+    map_factory_layout_models: [
+      { id: "model-spine", job_id: "job-spine", mall_id: "mall-spine", floor_label: "Ground", status: "complete", merged_anchors: SPINE_ANCHORS },
+    ],
+    mall_nodes: [],
+    mall_edges: [],
+  };
+
+  const spineSupabase = makeMockSupabase(spineTables);
+  const sr = await buildRouteGraph("job-spine", "mall-spine", null, spineSupabase);
+
+  assert(sr.ok, `fallback spine buildRouteGraph ok=true (error: ${sr.error ?? "none"})`);
+
+  const spineNodes  = spineTables.mall_nodes.filter((n) => n.type === "corridor");
+  const spineEdges  = spineTables.mall_edges.length;
+
+  assert(spineNodes.length >= 3, `≥3 synthetic spine (corridor) nodes created (got ${spineNodes.length})`);
+  assert(spineEdges >= 2,        `≥2 edges created via fallback spine (got ${spineEdges})`);
+  assert(sr.nodesCreated >= 4,   `≥4 nodes total (shops + entrance + spine) (got ${sr.nodesCreated})`);
 }
 
 // ═════════════════════════════════════════════════════════════════════════════

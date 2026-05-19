@@ -47,8 +47,9 @@ async function checkHasNodes(mallId: string, supabase: unknown): Promise<QaCheck
 }
 
 async function checkHasEntrance(mallId: string, supabase: unknown): Promise<QaCheck> {
+  // mall_nodes.type is the correct column (not node_type)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { count } = await (supabase as any).from("mall_nodes").select("id", { count: "exact", head: true }).eq("mall_id", mallId).eq("node_type", "entrance");
+  const { count } = await (supabase as any).from("mall_nodes").select("id", { count: "exact", head: true }).eq("mall_id", mallId).eq("type", "entrance");
   return {
     check_name: "has_entrance_node",
     passed:     (count ?? 0) >= 1,
@@ -58,8 +59,9 @@ async function checkHasEntrance(mallId: string, supabase: unknown): Promise<QaCh
 }
 
 async function checkHasShops(mallId: string, supabase: unknown): Promise<QaCheck> {
+  // mall_nodes.type is the correct column (not node_type)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { count } = await (supabase as any).from("mall_nodes").select("id", { count: "exact", head: true }).eq("mall_id", mallId).eq("node_type", "shop");
+  const { count } = await (supabase as any).from("mall_nodes").select("id", { count: "exact", head: true }).eq("mall_id", mallId).eq("type", "shop");
   return {
     check_name: "has_shop_nodes",
     passed:     (count ?? 0) >= 3,
@@ -69,8 +71,9 @@ async function checkHasShops(mallId: string, supabase: unknown): Promise<QaCheck
 }
 
 async function checkHasEdges(mallId: string, supabase: unknown): Promise<QaCheck> {
+  // Correct table: mall_edges (not mall_node_edges)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { count } = await (supabase as any).from("mall_node_edges").select("id", { count: "exact", head: true }).eq("mall_id", mallId);
+  const { count } = await (supabase as any).from("mall_edges").select("id", { count: "exact", head: true }).eq("mall_id", mallId);
   return {
     check_name: "has_edges",
     passed:     (count ?? 0) >= 2,

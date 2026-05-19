@@ -308,7 +308,13 @@ export default function MapFactoryTab({ token }: Props) {
         }
         case "route_graph_build": {
           const r = await buildRouteGraph(selectedJobId, stageFloor || undefined, token);
-          msg = `Nodes +${r.nodesCreated} (${r.nodesSkipped} skipped), edges +${r.edgesCreated}`;
+          const typeSummary = Object.entries(r.nodeTypeCounts ?? {})
+            .map(([t, n]) => `${n} ${t}`)
+            .join(", ");
+          msg = `Nodes +${r.nodesCreated} (${r.nodesSkipped} skipped)`
+            + `, edges +${r.edgesCreated} (${r.skippedEdges ?? 0} dupes skipped)`
+            + (typeSummary ? ` — types: ${typeSummary}` : "")
+            + (r.floorsProcessed?.length ? ` — floors: ${r.floorsProcessed.join(", ")}` : "");
           if (r.validationIssues.length) msg += ` ⚠ ${r.validationIssues.length} issue(s)`;
           break;
         }

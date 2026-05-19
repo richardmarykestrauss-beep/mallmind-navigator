@@ -160,11 +160,24 @@ export async function buildLayoutModel(
     const { data: extractions, error } = await query;
     if (error) throw new Error(error.message);
 
-    // Collect all anchors across all extractions
+    // Collect all anchors across all extractions (anchors + corridors)
     const allAnchors: RawAnchor[] = [];
     for (const ext of (extractions ?? [])) {
       if (Array.isArray(ext.detected_anchors)) {
         allAnchors.push(...(ext.detected_anchors as RawAnchor[]));
+      }
+      // Include corridor nodes — give them anchor_type "corridor_node" so the
+      // node type mapper produces "corridor" and the graph builder uses them as hubs.
+      if (Array.isArray(ext.detected_corridors)) {
+        for (const c of (ext.detected_corridors as { label: string; x_percent: number; y_percent: number; confidence_score: number }[])) {
+          allAnchors.push({
+            label:            c.label,
+            anchor_type:      "corridor_node",
+            x_percent:        c.x_percent,
+            y_percent:        c.y_percent,
+            confidence_score: c.confidence_score,
+          });
+        }
       }
     }
 

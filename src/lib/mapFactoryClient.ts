@@ -157,7 +157,14 @@ export function generateFloorPlan(jobId: string, floorLabel: string, accessToken
 
 /** Stage 6: Build route graph */
 export function buildRouteGraph(jobId: string, floorLabel: string | undefined, accessToken: string) {
-  return apiFetch<{ ok: boolean; nodesCreated: number; nodesSkipped: number; edgesCreated: number; validationIssues: string[] }>(
+  return apiFetch<{
+    ok: boolean;
+    nodesCreated: number; nodesSkipped: number;
+    edgesCreated: number; skippedEdges: number;
+    nodeTypeCounts: Record<string, number>;
+    floorsProcessed: string[];
+    validationIssues: string[];
+  }>(
     `/jobs/${encodeURIComponent(jobId)}/build-route-graph`, "POST", accessToken,
     floorLabel ? { floor_label: floorLabel } : {});
 }
