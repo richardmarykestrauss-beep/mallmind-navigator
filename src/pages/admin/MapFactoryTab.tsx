@@ -35,6 +35,7 @@ import {
   runQaChecks,
   publishJob,
   runNextStep,
+  repairNodeFloors,
   type MapFactoryJob,
   type MapFactoryJobDetail,
   type MapFactoryQaCheck,
@@ -253,6 +254,27 @@ export default function MapFactoryTab({ token }: Props) {
     }
   }
 
+  // ── Repair Floor Labels ─────────────────────────────────────────────────────
+  async function handleRepairFloors() {
+    if (!token || !selectedJobId) return;
+    setActionBusy("repair-floors");
+    setActionError(null);
+    setActionMsg(null);
+    try {
+      const r = await repairNodeFloors(selectedJobId, token, stageFloor || undefined);
+      setActionMsg(
+        `Floor repair: ${r.repaired} node(s) updated to "${r.floor_label}", `
+        + `${r.protected_nodes} protected (geodirectory/admin), ${r.skipped} already correct`
+      );
+      await loadDetail(selectedJobId);
+      await loadJobs();
+    } catch (e) {
+      setActionError(String(e));
+    } finally {
+      setActionBusy(null);
+    }
+  }
+
   // ── Run Next Best Step ──────────────────────────────────────────────────────
   async function handleNextStep() {
     if (!token || !selectedJobId) return;
@@ -308,14 +330,14 @@ export default function MapFactoryTab({ token }: Props) {
         }
         case "route_graph_build": {
           const r = await buildRouteGraph(selectedJobId, stageFloor || undefined, token);
-          const typeSummary = Object.entries(r.nodeTypeCounts ?? {})
+          const typeSummary = Object.entries(r.node_type_counts ?? {})
             .map(([t, n]) => `${n} ${t}`)
             .join(", ");
-          msg = `Nodes +${r.nodesCreated} (${r.nodesSkipped} skipped)`
-            + `, edges +${r.edgesCreated} (${r.skippedEdges ?? 0} dupes skipped)`
+          msg = `+${r.created_nodes} new, ${r.repaired_floor_nodes} repaired, ${r.updated_nodes} updated, ${r.skipped_nodes} skipped`
+            + ` | edges +${r.created_edges} (${r.skipped_edges ?? 0} dupes)`
             + (typeSummary ? ` — types: ${typeSummary}` : "")
-            + (r.floorsProcessed?.length ? ` — floors: ${r.floorsProcessed.join(", ")}` : "");
-          if (r.validationIssues.length) msg += ` ⚠ ${r.validationIssues.length} issue(s)`;
+            + (r.floors_processed?.length ? ` — floors: ${r.floors_processed.join(", ")}` : "");
+          if (r.validation_issues?.length) msg += ` ⚠ ${r.validation_issues.length} issue(s)`;
           break;
         }
         case "qa_review": {
@@ -544,6 +566,17 @@ export default function MapFactoryTab({ token }: Props) {
                 className="border border-input rounded px-2 py-1 text-xs bg-background flex-1 max-w-[180px]"
               />
               <span className="text-xs text-muted-foreground">(used for floorplan gen + route graph)</span>
+              <button
+                onClick={handleRepairFloors}
+                disabled={!!actionBusy || !selectedJobId}
+                title="Update stale floor labels (null/G/L1/L2) on Map Factory-generated nodes to the current floor label"
+                className="flex items-center gap-1 px-2 py-1 rounded border border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-400 text-xs hover:bg-amber-50 dark:hover:bg-amber-950/30 disabled:opacity-40"
+              >
+                {actionBusy === "repair-floors"
+                  ? <Loader2 className="h-3 w-3 animate-spin" />
+                  : <RefreshCw className="h-3 w-3" />}
+                Repair Floors
+              </button>
             </div>
 
             {/* Stage actions */}

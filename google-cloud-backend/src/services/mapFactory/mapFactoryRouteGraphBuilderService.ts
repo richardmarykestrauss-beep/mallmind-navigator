@@ -1,23 +1,19 @@
 /**
- * mapFactoryRouteGraphBuilderService.ts — Sprint 15.4
+ * mapFactoryRouteGraphBuilderService.ts — Sprint 15.5
  *
  * Builds the route graph from merged layout model anchors.
  *
- * Sprint 15.3 fixes:
- *  - Correct mall_nodes column names: name/type/floor/x_coordinate/y_coordinate
- *  - Correct edge table: mall_edges (not mall_node_edges)
- *  - Edge generation now works on ALL floor nodes (not just newly inserted ones)
- *  - Uses mapFactoryNodeTypeMapper for canonical types
- *  - Corridor hub topology: corridor nodes are connection hubs
- *  - Fallback corridor spine when no corridor nodes exist
- *  - Edge deduplication via in-memory Set
- *  - Extended result: nodeTypeCounts, skippedEdges, floorsProcessed
- *
- * Sprint 15.4 fixes:
- *  - Uses resolveFloorLabel() so nodes always inherit the job/stage floor_label
- *    when the layout model lacks its own floor_label (fixes NULL floor).
- *  - Explicit floor_label from job ("Level 5") is preserved exactly — never
- *    silently converted to G/L1/L2.
+ * Sprint 15.5 additions over v15.4:
+ *  - isStaleFloor(): detects dev-artifact floors (null / G / L1 / L2 / "unknown")
+ *  - isRepairable(): protects geodirectory/admin/manual nodes from auto-repair
+ *  - Loads ALL mall nodes up front → three-way dedup:
+ *      exactByKey     — correct floor, update type/coords if changed
+ *      staleByName    — stale floor + repairable → repair floor + type + coords
+ *      protectedByName — stale floor + protected source → skip, no duplicate
+ *  - source = 'map_factory' stamped on all created/repaired nodes
+ *  - Response uses snake_case field names; adds updated_nodes, repaired_floor_nodes,
+ *    floor_counts (per-floor node tally for this run)
+ *  - repairNodeFloors() exported for the /repair-node-floors REST endpoint
  */
 
 import { canonicalNodeType } from "./mapFactoryNodeTypeMapper.js";
@@ -26,40 +22,88 @@ import { resolveFloorLabel } from "./mapFactoryFloorLabelService.js";
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface GraphBuildResult {
+  ok:                   boolean;
+  created_nodes:        number;
+  updated_nodes:        number;
+  skipped_nodes:        number;
+  repaired_floor_nodes: number;
+  created_edges:        number;
+  skipped_edges:        number;
+  node_type_counts:     Record<string, number>;
+  floor_counts:         Record<string, number>;
+  floors_processed:     string[];
+  validation_issues:    string[];
+  error?:               string;
+}
+
+export interface RepairFloorsResult {
   ok:              boolean;
-  nodesCreated:    number;
-  nodesSkipped:    number;
-  edgesCreated:    number;
-  skippedEdges:    number;
-  nodeTypeCounts:  Record<string, number>;
-  floorsProcessed: string[];
-  validationIssues: string[];
+  repaired:        number;
+  skipped:         number;
+  protected_nodes: number;
   error?:          string;
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+type ExistingNode = {
+  id:           string;
+  name:         string;
+  type:         string;
+  floor:        string | null;
+  x_coordinate: number | null;
+  y_coordinate: number | null;
+  source:       string | null;
+};
+
+type DbNode = { id: string; name: string; type: string; x: number; y: number };
+
+// ── Floor / repairability helpers ─────────────────────────────────────────────
+
+/**
+ * Returns true for floor values that are clearly dev artifacts and safe to
+ * replace with an explicit floor label:
+ *   null / undefined / "" / "unknown" / short codes (G, L1, L2, B1, …)
+ *
+ * Well-formed labels like "Level 5", "Ground Floor", "Lower Level" are NOT stale.
+ */
+export function isStaleFloor(floor: string | null | undefined): boolean {
+  if (floor == null) return true;
+  const t = floor.trim();
+  if (!t || t.toLowerCase() === "unknown") return true;
+  // Single letter G (ground)
+  if (/^[Gg]$/.test(t)) return true;
+  // Short codes: L1–L9, B1–B9, UG, LG, etc.
+  if (/^[A-Za-z]{1,2}\d+$/.test(t)) return true;
+  return false;
+}
+
+/**
+ * Returns true if a node's source allows Map Factory to auto-repair it.
+ * Protected sources: 'geodirectory', 'admin', 'manual'
+ * Safe sources: 'map_factory', null (legacy / unknown origin)
+ */
+export function isRepairable(node: { source?: string | null }): boolean {
+  const s = (node.source ?? "").toLowerCase();
+  return s !== "geodirectory" && s !== "admin" && s !== "manual";
+}
+
+// ── Geometry helpers ──────────────────────────────────────────────────────────
 
 function dist(ax: number, ay: number, bx: number, by: number): number {
   return Math.sqrt((ax - bx) ** 2 + (ay - by) ** 2);
 }
 
-/** Normalised edge key (smaller id first) for dedup. */
 function edgeKey(a: string, b: string): string {
   return a < b ? `${a}||${b}` : `${b}||${a}`;
 }
 
-type DbNode = { id: string; name: string; type: string; x: number; y: number };
-
-// ── Insert one edge (with dedup) ──────────────────────────────────────────────
-
 async function insertEdge(
-  mallId:          string,
-  a:               DbNode,
-  b:               DbNode,
-  instruction:     string,
-  existingKeys:    Set<string>,
+  mallId:       string,
+  a:            DbNode,
+  b:            DbNode,
+  instruction:  string,
+  existingKeys: Set<string>,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  supabase:        any,
+  supabase:     any,
 ): Promise<"created" | "skipped" | "error"> {
   const key = edgeKey(a.id, b.id);
   if (existingKeys.has(key)) return "skipped";
@@ -78,8 +122,6 @@ async function insertEdge(
   return "created";
 }
 
-// ── Nearest hub finder ────────────────────────────────────────────────────────
-
 function nearestHub(node: DbNode, hubs: DbNode[]): DbNode | null {
   if (hubs.length === 0) return null;
   return hubs
@@ -90,16 +132,18 @@ function nearestHub(node: DbNode, hubs: DbNode[]): DbNode | null {
 // ── Main function ─────────────────────────────────────────────────────────────
 
 export async function buildRouteGraph(
-  jobId:       string,
-  mallId:      string,
-  floorLabel:  string | null,
+  jobId:      string,
+  mallId:     string,
+  floorLabel: string | null,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  supabase:    any,
+  supabase:   any,
 ): Promise<GraphBuildResult> {
-  const validationIssues: string[] = [];
-  const nodeTypeCounts:   Record<string, number> = {};
-  const floorsProcessed:  string[] = [];
-  let nodesCreated = 0, nodesSkipped = 0, edgesCreated = 0, skippedEdges = 0;
+  const validation_issues: string[]            = [];
+  const node_type_counts:  Record<string, number> = {};
+  const floor_counts:      Record<string, number> = {};
+  const floors_processed:  string[]            = [];
+  let created_nodes = 0, updated_nodes = 0, skipped_nodes = 0, repaired_floor_nodes = 0;
+  let created_edges = 0, skipped_edges = 0;
 
   try {
     // ── 1. Load layout models ─────────────────────────────────────────────────
@@ -126,13 +170,40 @@ export async function buildRouteGraph(
       ),
     );
 
-    // ── Per-floor processing ──────────────────────────────────────────────────
+    // ── 3. Load ALL existing nodes for this mall ──────────────────────────────
+    // Three-way classification:
+    //   exactByKey     — non-stale floor; key = "${floor}||${nameLower}"
+    //   staleByName    — stale floor + repairable (safe to repair)
+    //   protectedByName — stale floor + NOT repairable (skip, no duplicate)
+    const { data: allMallNodes } = await supabase
+      .from("mall_nodes")
+      .select("id, name, type, floor, x_coordinate, y_coordinate, source")
+      .eq("mall_id", mallId);
+
+    const exactByKey     = new Map<string, ExistingNode>();
+    const staleByName    = new Map<string, ExistingNode>();
+    const protectedByName = new Map<string, ExistingNode>();
+
+    for (const n of (allMallNodes ?? []) as ExistingNode[]) {
+      const nameLower = n.name.toLowerCase().trim();
+      if (!isStaleFloor(n.floor)) {
+        // Well-formed floor: register as exact match
+        exactByKey.set(`${n.floor}||${nameLower}`, n);
+      } else if (isRepairable(n)) {
+        // Stale floor, safe to repair (keep only the first found per name)
+        if (!staleByName.has(nameLower)) staleByName.set(nameLower, n);
+      } else {
+        // Stale floor, protected source — note it so we don't create a duplicate
+        if (!protectedByName.has(nameLower)) protectedByName.set(nameLower, n);
+      }
+    }
+
+    // ── Per-model processing ──────────────────────────────────────────────────
     for (const model of (models ?? [])) {
-      // Sprint 15.4: prefer model's own floor_label; fall back to the job-level
-      // floorLabel so we never stamp nodes with NULL or "unknown" when the admin
-      // explicitly passed a floor (e.g. "Level 5").
+      // Sprint 15.4: use resolveFloorLabel so nodes inherit the job floor_label
+      // when the layout model lacks its own (prevents NULL floor on output).
       const floor = resolveFloorLabel(model.floor_label, floorLabel);
-      if (!floorsProcessed.includes(floor)) floorsProcessed.push(floor);
+      if (!floors_processed.includes(floor)) floors_processed.push(floor);
 
       const rawAnchors: Array<{
         label:       string;
@@ -141,55 +212,100 @@ export async function buildRouteGraph(
         y_percent:   number | null;
       }> = Array.isArray(model.merged_anchors) ? model.merged_anchors : [];
 
-      // ── 3. Load existing nodes for this floor (dedup) ─────────────────────
-      const { data: existingFloorNodes } = await supabase
-        .from("mall_nodes")
-        .select("id, name, type, floor, x_coordinate, y_coordinate")
-        .eq("mall_id", mallId)
-        .eq("floor", floor);
-
-      const existingNodeKeys = new Set<string>(
-        (existingFloorNodes ?? []).map(
-          (n: { floor: string; name: string }) => `${n.floor}||${n.name}`,
-        ),
-      );
-
-      // ── 4. Insert missing nodes ───────────────────────────────────────────
+      // ── 4. Insert / repair / update / skip per anchor ─────────────────────
       for (const anchor of rawAnchors) {
         if (anchor.x_percent == null || anchor.y_percent == null) continue;
 
-        const nodeKey = `${floor}||${anchor.label}`;
-        if (existingNodeKeys.has(nodeKey)) {
-          nodesSkipped++;
-          continue;
+        const ntype     = canonicalNodeType(anchor.anchor_type, anchor.label);
+        const nameLower = anchor.label.toLowerCase().trim();
+        const exactKey  = `${floor}||${nameLower}`;
+
+        if (exactByKey.has(exactKey)) {
+          // ── Exact floor match ───────────────────────────────────────────────
+          const existing     = exactByKey.get(exactKey)!;
+          const typeChanged  = existing.type !== ntype;
+          const coordChanged =
+            Math.abs((existing.x_coordinate ?? 0) - anchor.x_percent) > 0.5 ||
+            Math.abs((existing.y_coordinate ?? 0) - anchor.y_percent) > 0.5;
+
+          if ((typeChanged || coordChanged) && isRepairable(existing)) {
+            await supabase.from("mall_nodes")
+              .update({ type: ntype, x_coordinate: anchor.x_percent, y_coordinate: anchor.y_percent })
+              .eq("id", existing.id);
+            updated_nodes++;
+            node_type_counts[ntype] = (node_type_counts[ntype] ?? 0) + 1;
+          } else {
+            skipped_nodes++;
+          }
+          floor_counts[floor] = (floor_counts[floor] ?? 0) + 1;
+
+        } else if (staleByName.has(nameLower)) {
+          // ── Stale floor match: repair floor + type + coords ─────────────────
+          const existing = staleByName.get(nameLower)!;
+          const { error: repairErr } = await supabase.from("mall_nodes")
+            .update({
+              floor:        floor,
+              type:         ntype,
+              x_coordinate: anchor.x_percent,
+              y_coordinate: anchor.y_percent,
+              source:       "map_factory",
+            })
+            .eq("id", existing.id);
+
+          if (!repairErr) {
+            repaired_floor_nodes++;
+            node_type_counts[ntype] = (node_type_counts[ntype] ?? 0) + 1;
+            floor_counts[floor]     = (floor_counts[floor] ?? 0) + 1;
+            // Promote to exactByKey; remove from stale so future anchors don't re-match
+            exactByKey.set(exactKey, {
+              ...existing, floor, type: ntype,
+              x_coordinate: anchor.x_percent, y_coordinate: anchor.y_percent,
+              source: "map_factory",
+            });
+            staleByName.delete(nameLower);
+          } else {
+            validation_issues.push(`Repair failed for "${anchor.label}": ${repairErr.message}`);
+            skipped_nodes++;
+          }
+
+        } else if (protectedByName.has(nameLower)) {
+          // ── Protected node: skip to avoid creating a duplicate ──────────────
+          skipped_nodes++;
+          floor_counts[floor] = (floor_counts[floor] ?? 0) + 1;
+
+        } else {
+          // ── No match: insert new node ───────────────────────────────────────
+          const { data: inserted, error: insertErr } = await supabase
+            .from("mall_nodes")
+            .insert({
+              mall_id:      mallId,
+              name:         anchor.label,
+              type:         ntype,
+              floor:        floor,
+              x_coordinate: anchor.x_percent,
+              y_coordinate: anchor.y_percent,
+              source:       "map_factory",
+            })
+            .select("id")
+            .single();
+
+          if (insertErr) {
+            validation_issues.push(`Insert failed for "${anchor.label}": ${insertErr.message}`);
+            continue;
+          }
+
+          created_nodes++;
+          node_type_counts[ntype] = (node_type_counts[ntype] ?? 0) + 1;
+          floor_counts[floor]     = (floor_counts[floor] ?? 0) + 1;
+          exactByKey.set(exactKey, {
+            id: inserted.id, name: anchor.label, type: ntype, floor,
+            x_coordinate: anchor.x_percent, y_coordinate: anchor.y_percent,
+            source: "map_factory",
+          });
         }
-
-        const ntype = canonicalNodeType(anchor.anchor_type, anchor.label);
-
-        const { data: inserted, error: insertErr } = await supabase
-          .from("mall_nodes")
-          .insert({
-            mall_id:      mallId,
-            name:         anchor.label,      // correct column name
-            type:         ntype,             // correct column name
-            floor:        floor,             // correct column name
-            x_coordinate: anchor.x_percent,  // correct column name
-            y_coordinate: anchor.y_percent,  // correct column name
-          })
-          .select("id")
-          .single();
-
-        if (insertErr) {
-          validationIssues.push(`Insert failed for "${anchor.label}": ${insertErr.message}`);
-          continue;
-        }
-
-        nodesCreated++;
-        existingNodeKeys.add(nodeKey);
-        nodeTypeCounts[ntype] = (nodeTypeCounts[ntype] ?? 0) + 1;
       }
 
-      // ── 5. Load ALL floor nodes (existing + newly inserted) for edges ──────
+      // ── 5. Load ALL floor nodes for edge building (post-repair) ──────────────
       const { data: allFloorRows } = await supabase
         .from("mall_nodes")
         .select("id, name, type, x_coordinate, y_coordinate")
@@ -208,17 +324,15 @@ export async function buildRouteGraph(
 
       if (floorNodes.length < 2) continue;
 
-      // ── 6. Corridor hub topology ───────────────────────────────────────────
-      const corridorNodes = floorNodes.filter((n) => n.type === "corridor");
+      // ── 6. Corridor hub topology ──────────────────────────────────────────────
+      const corridorNodes    = floorNodes.filter((n) => n.type === "corridor");
       const nonCorridorNodes = floorNodes.filter((n) => n.type !== "corridor");
-
       let hubNodes: DbNode[];
 
       if (corridorNodes.length > 0) {
         // Use real corridor nodes as hubs
         hubNodes = corridorNodes;
 
-        // Connect corridor hubs to each other (nearest 2)
         for (const hub of corridorNodes) {
           const nearest = corridorNodes
             .filter((n) => n.id !== hub.id)
@@ -228,23 +342,27 @@ export async function buildRouteGraph(
 
           for (const nb of nearest) {
             const res = await insertEdge(mallId, hub, nb, `Corridor — ${floor}`, edgeSet, supabase);
-            if (res === "created") edgesCreated++;
-            else if (res === "skipped") skippedEdges++;
+            if (res === "created") created_edges++;
+            else if (res === "skipped") skipped_edges++;
           }
         }
       } else {
-        // ── Fallback: synthetic corridor spine ────────────────────────────────
+        // ── Fallback: synthetic corridor spine ─────────────────────────────────
         const spineCount = Math.min(5, Math.max(3, Math.ceil(floorNodes.length / 4)));
         const step = 100 / (spineCount + 1);
         hubNodes = [];
 
         for (let i = 1; i <= spineCount; i++) {
-          const sx = Math.round(step * i);
-          const sy = 50;
+          const sx        = Math.round(step * i);
+          const sy        = 50;
           const spineName = `${floor} Spine Node ${i}`;
+          const spineKey  = `${floor}||${spineName.toLowerCase()}`;
 
-          // Skip if a node with this name already exists on this floor
-          if (existingNodeKeys.has(`${floor}||${spineName}`)) continue;
+          if (exactByKey.has(spineKey)) {
+            const existing = exactByKey.get(spineKey)!;
+            hubNodes.push({ id: existing.id, name: spineName, type: "corridor", x: sx, y: sy });
+            continue;
+          }
 
           const { data: spineRow, error: spineErr } = await supabase
             .from("mall_nodes")
@@ -255,19 +373,25 @@ export async function buildRouteGraph(
               floor:        floor,
               x_coordinate: sx,
               y_coordinate: sy,
+              source:       "map_factory",
             })
             .select("id")
             .single();
 
           if (spineErr) {
-            validationIssues.push(`Spine node insert failed: ${spineErr.message}`);
+            validation_issues.push(`Spine node insert failed: ${spineErr.message}`);
             continue;
           }
 
-          nodesCreated++;
-          nodeTypeCounts["corridor"] = (nodeTypeCounts["corridor"] ?? 0) + 1;
-          existingNodeKeys.add(`${floor}||${spineName}`);
-          hubNodes.push({ id: spineRow.id, name: spineName, type: "corridor", x: sx, y: sy });
+          created_nodes++;
+          node_type_counts["corridor"] = (node_type_counts["corridor"] ?? 0) + 1;
+          floor_counts[floor]          = (floor_counts[floor] ?? 0) + 1;
+          const spineNode: DbNode      = { id: spineRow.id, name: spineName, type: "corridor", x: sx, y: sy };
+          hubNodes.push(spineNode);
+          exactByKey.set(spineKey, {
+            id: spineRow.id, name: spineName, type: "corridor", floor,
+            x_coordinate: sx, y_coordinate: sy, source: "map_factory",
+          });
         }
 
         // Connect spine nodes linearly
@@ -276,64 +400,115 @@ export async function buildRouteGraph(
             mallId, hubNodes[i], hubNodes[i + 1],
             `Walk along ${floor} corridor`, edgeSet, supabase,
           );
-          if (res === "created") edgesCreated++;
-          else if (res === "skipped") skippedEdges++;
+          if (res === "created") created_edges++;
+          else if (res === "skipped") skipped_edges++;
         }
       }
 
-      // ── 7. Connect every non-corridor node to its nearest hub ─────────────
+      // ── 7. Connect every non-corridor node to its nearest hub ────────────────
       for (const node of nonCorridorNodes) {
         const nearest = nearestHub(node, hubNodes);
         if (!nearest) continue;
 
         const instruction =
-          node.type === "entrance" ? `Walk from entrance to corridor`
-          : node.type === "parking" ? `Walk from parking to corridor`
+          node.type === "entrance" ? "Walk from entrance to corridor"
+          : node.type === "parking" ? "Walk from parking to corridor"
           : node.type === "shop"    ? `Walk to ${node.name}`
-          : `Walk to corridor`;
+          : "Walk to corridor";
 
         const res = await insertEdge(mallId, node, nearest, instruction, edgeSet, supabase);
-        if (res === "created") edgesCreated++;
-        else if (res === "skipped") skippedEdges++;
+        if (res === "created") created_edges++;
+        else if (res === "skipped") skipped_edges++;
       }
     }
 
     // ── 8. Validation ─────────────────────────────────────────────────────────
-    if (nodesCreated === 0 && nodesSkipped === 0) {
-      validationIssues.push(
+    const totalProcessed = created_nodes + updated_nodes + skipped_nodes + repaired_floor_nodes;
+    if (totalProcessed === 0) {
+      validation_issues.push(
         "No anchors found in layout models — run extraction and layout build first." +
         (floorLabel ? ` (floor_label="${floorLabel}")` : ""),
       );
     }
 
-    // Use correct column name "type" (not "node_type")
     const { data: allNodes } = await supabase
       .from("mall_nodes")
       .select("id, type")
       .eq("mall_id", mallId);
 
-    const hasEntrance = (allNodes ?? []).some((n: { type: string }) => n.type === "entrance");
-    if (!hasEntrance) {
-      validationIssues.push("No entrance node found — shoppers cannot start navigation.");
+    if (!(allNodes ?? []).some((n: { type: string }) => n.type === "entrance")) {
+      validation_issues.push("No entrance node found — shoppers cannot start navigation.");
     }
-
-    const hasShop = (allNodes ?? []).some((n: { type: string }) => n.type === "shop");
-    if (!hasShop) {
-      validationIssues.push("No shop nodes found — route builder has no destinations.");
+    if (!(allNodes ?? []).some((n: { type: string }) => n.type === "shop")) {
+      validation_issues.push("No shop nodes found — route builder has no destinations.");
     }
 
     return {
       ok: true,
-      nodesCreated, nodesSkipped, edgesCreated, skippedEdges,
-      nodeTypeCounts, floorsProcessed, validationIssues,
+      created_nodes, updated_nodes, skipped_nodes, repaired_floor_nodes,
+      created_edges, skipped_edges,
+      node_type_counts, floor_counts, floors_processed, validation_issues,
     };
 
   } catch (err) {
     return {
       ok: false,
-      nodesCreated: 0, nodesSkipped: 0, edgesCreated: 0, skippedEdges: 0,
-      nodeTypeCounts: {}, floorsProcessed, validationIssues,
+      created_nodes: 0, updated_nodes: 0, skipped_nodes: 0, repaired_floor_nodes: 0,
+      created_edges: 0, skipped_edges: 0,
+      node_type_counts: {}, floor_counts: {}, floors_processed, validation_issues,
       error: String(err),
     };
+  }
+}
+
+// ── repairNodeFloors ──────────────────────────────────────────────────────────
+
+/**
+ * Standalone floor repair — scans ALL nodes for a mall and updates stale
+ * floor labels to the supplied targetFloorLabel.
+ *
+ * Only repairs nodes where source IS NULL or source = 'map_factory'.
+ * Nodes with source = 'geodirectory', 'admin', or 'manual' are left untouched.
+ *
+ * Used by the POST /admin/map-factory/jobs/:jobId/repair-node-floors endpoint.
+ */
+export async function repairNodeFloors(
+  mallId:           string,
+  targetFloorLabel: string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase:         any,
+): Promise<RepairFloorsResult> {
+  try {
+    const { data: nodes, error: fetchErr } = await supabase
+      .from("mall_nodes")
+      .select("id, name, floor, source")
+      .eq("mall_id", mallId);
+
+    if (fetchErr) throw new Error(fetchErr.message);
+
+    let repaired = 0, skipped = 0, protected_nodes = 0;
+
+    for (const node of (nodes ?? []) as { id: string; name: string; floor: string | null; source: string | null }[]) {
+      if (!isStaleFloor(node.floor)) {
+        skipped++;
+        continue;
+      }
+      if (!isRepairable(node)) {
+        protected_nodes++;
+        continue;
+      }
+
+      const { error } = await supabase
+        .from("mall_nodes")
+        .update({ floor: targetFloorLabel, source: "map_factory" })
+        .eq("id", node.id);
+
+      if (!error) repaired++;
+      else skipped++;
+    }
+
+    return { ok: true, repaired, skipped, protected_nodes };
+  } catch (err) {
+    return { ok: false, repaired: 0, skipped: 0, protected_nodes: 0, error: String(err) };
   }
 }

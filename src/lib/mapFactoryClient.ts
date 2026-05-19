@@ -158,14 +158,33 @@ export function generateFloorPlan(jobId: string, floorLabel: string, accessToken
 /** Stage 6: Build route graph */
 export function buildRouteGraph(jobId: string, floorLabel: string | undefined, accessToken: string) {
   return apiFetch<{
-    ok: boolean;
-    nodesCreated: number; nodesSkipped: number;
-    edgesCreated: number; skippedEdges: number;
-    nodeTypeCounts: Record<string, number>;
-    floorsProcessed: string[];
-    validationIssues: string[];
+    ok:                   boolean;
+    created_nodes:        number;
+    updated_nodes:        number;
+    skipped_nodes:        number;
+    repaired_floor_nodes: number;
+    created_edges:        number;
+    skipped_edges:        number;
+    node_type_counts:     Record<string, number>;
+    floor_counts:         Record<string, number>;
+    floors_processed:     string[];
+    validation_issues:    string[];
   }>(
     `/jobs/${encodeURIComponent(jobId)}/build-route-graph`, "POST", accessToken,
+    floorLabel ? { floor_label: floorLabel } : {});
+}
+
+/** Repair stale floor labels (null/G/L1/L2/unknown) for Map Factory-generated nodes */
+export function repairNodeFloors(jobId: string, accessToken: string, floorLabel?: string) {
+  return apiFetch<{
+    ok:              boolean;
+    repaired:        number;
+    skipped:         number;
+    protected_nodes: number;
+    mall_id:         string;
+    floor_label:     string;
+  }>(
+    `/jobs/${encodeURIComponent(jobId)}/repair-node-floors`, "POST", accessToken,
     floorLabel ? { floor_label: floorLabel } : {});
 }
 

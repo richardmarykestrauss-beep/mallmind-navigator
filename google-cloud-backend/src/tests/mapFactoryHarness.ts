@@ -14,7 +14,7 @@ import { classifySourceUrl, discoverSourcesForMall } from "../services/mapFactor
 import { harvestSource } from "../services/mapFactory/mapFactoryHarvestService.js";
 import { getNextBestStep } from "../services/mapFactory/mapFactoryPublishService.js";
 import { canonicalNodeType, nodeTypeFromLabel } from "../services/mapFactory/mapFactoryNodeTypeMapper.js";
-import { buildRouteGraph } from "../services/mapFactory/mapFactoryRouteGraphBuilderService.js";
+import { buildRouteGraph, repairNodeFloors, isStaleFloor, isRepairable } from "../services/mapFactory/mapFactoryRouteGraphBuilderService.js";
 import { normalizeFloorLabel, resolveFloorLabel } from "../services/mapFactory/mapFactoryFloorLabelService.js";
 import { publishJob } from "../services/mapFactory/mapFactoryPublishService.js";
 
@@ -113,8 +113,14 @@ function makeMockSupabase(tables: Record<string, MockRow[]>) {
             error: null,
           };
         },
-        update: (_payload: MockRow) => ({
-          eq: () => ({ eq: () => ({ error: null }), error: null }),
+        update: (updatePayload: MockRow) => ({
+          // Actually mutate matching rows so subsequent queries see updated values
+          eq: (eqKey: string, eqVal: unknown) => {
+            for (const row of rows) {
+              if (row[eqKey] === eqVal) Object.assign(row, updatePayload);
+            }
+            return { error: null };
+          },
           error: null,
         }),
         then: (resolve: (v: { data: MockRow[]; error: null; count?: number }) => void) => {
@@ -336,15 +342,16 @@ section("Route Graph Builder — Mall of Africa mock layout");
 
   assert(result.ok, `buildRouteGraph ok=true (error: ${result.error ?? "none"})`);
 
-  const shopCount   = moaTables.mall_nodes.filter((n) => n.type === "shop").length;
+  const shopCount     = moaTables.mall_nodes.filter((n) => n.type === "shop").length;
   const entranceCount = moaTables.mall_nodes.filter((n) => n.type === "entrance").length;
-  const edgeCount   = moaTables.mall_edges.length;
+  const edgeCount     = moaTables.mall_edges.length;
 
-  assert(shopCount >= 3,   `≥3 shop nodes created (got ${shopCount})`);
+  assert(shopCount >= 3,     `≥3 shop nodes created (got ${shopCount})`);
   assert(entranceCount >= 1, `≥1 entrance node created (got ${entranceCount})`);
-  assert(edgeCount >= 2,   `≥2 edges created (got ${edgeCount})`);
-  assert((result.floorsProcessed ?? []).includes("Level 1"), "Level 1 in floorsProcessed");
-  assert(result.nodesCreated >= 6, `≥6 nodes created total (got ${result.nodesCreated})`);
+  assert(edgeCount >= 2,     `≥2 edges created (got ${edgeCount})`);
+  assert((result.floors_processed ?? []).includes("Level 1"), "Level 1 in floors_processed");
+  assert((result.created_nodes + result.repaired_floor_nodes) >= 6,
+    `≥6 nodes created/repaired total (got ${result.created_nodes} + ${result.repaired_floor_nodes})`);
 }
 
 section("Route Graph Builder — fallback spine (no corridor nodes)");
@@ -371,12 +378,12 @@ section("Route Graph Builder — fallback spine (no corridor nodes)");
 
   assert(sr.ok, `fallback spine buildRouteGraph ok=true (error: ${sr.error ?? "none"})`);
 
-  const spineNodes  = spineTables.mall_nodes.filter((n) => n.type === "corridor");
-  const spineEdges  = spineTables.mall_edges.length;
+  const spineNodes = spineTables.mall_nodes.filter((n) => n.type === "corridor");
+  const spineEdges = spineTables.mall_edges.length;
 
   assert(spineNodes.length >= 3, `≥3 synthetic spine (corridor) nodes created (got ${spineNodes.length})`);
   assert(spineEdges >= 2,        `≥2 edges created via fallback spine (got ${spineEdges})`);
-  assert(sr.nodesCreated >= 4,   `≥4 nodes total (shops + entrance + spine) (got ${sr.nodesCreated})`);
+  assert(sr.created_nodes >= 4,  `≥4 nodes total (shops + entrance + spine) (got ${sr.created_nodes})`);
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -465,7 +472,7 @@ section("Route Graph Builder — floor_label preservation with job floor_label")
 
   assert(nullFloorNodes.length === 0, `No NULL floor nodes (got ${nullFloorNodes.length})`);
   assert(level5Nodes.length >= 3,     `≥3 nodes stamped "Level 5" (got ${level5Nodes.length})`);
-  assert(l5Result.floorsProcessed?.includes("Level 5"), "floorsProcessed includes \"Level 5\"");
+  assert(l5Result.floors_processed?.includes("Level 5"), "floors_processed includes \"Level 5\"");
 }
 
 section("Route Graph Builder — explicit label not silently overridden");
@@ -496,7 +503,8 @@ section("Route Graph Builder — explicit label not silently overridden");
   const wrongFloorNodes = l3Tables.mall_nodes.filter((n) => n.floor !== "Level 3");
   const level3Nodes     = l3Tables.mall_nodes.filter((n) => n.floor === "Level 3");
 
-  assert(wrongFloorNodes.length === 0, `No nodes with wrong floor (got ${wrongFloorNodes.length} non-Level-3 nodes: ${wrongFloorNodes.map((n) => n.floor).join(", ")})`);
+  assert(wrongFloorNodes.length === 0,
+    `No nodes with wrong floor (got ${wrongFloorNodes.length} non-Level-3: ${wrongFloorNodes.map((n) => n.floor).join(", ")})`);
   assert(level3Nodes.length >= 3, `≥3 nodes stamped "Level 3" (got ${level3Nodes.length})`);
 }
 
@@ -533,6 +541,177 @@ section("Publish Service — edge count from mall_edges (not mall_node_edges)");
   assert(pubResult.nodesPublished === 24,         `nodesPublished = 24 (got ${pubResult.nodesPublished})`);
   assert(pubResult.edgesPublished === EDGE_COUNT,  `edgesPublished = ${EDGE_COUNT} (got ${pubResult.edgesPublished})`);
   assert(pubResult.floorPlansPublished === 1,      `floorPlansPublished = 1 (got ${pubResult.floorPlansPublished})`);
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// SUITE 6 — Node Floor Repair (Sprint 15.5)
+// ═════════════════════════════════════════════════════════════════════════════
+
+section("Route Graph Builder — helpers (isStaleFloor / isRepairable)");
+
+{
+  // Stale floor detection
+  assert(isStaleFloor(null),         "null → stale");
+  assert(isStaleFloor(undefined),    "undefined → stale");
+  assert(isStaleFloor(""),           "empty string → stale");
+  assert(isStaleFloor("unknown"),    "\"unknown\" → stale");
+  assert(isStaleFloor("G"),          "\"G\" → stale");
+  assert(isStaleFloor("L1"),         "\"L1\" → stale");
+  assert(isStaleFloor("L2"),         "\"L2\" → stale");
+  assert(isStaleFloor("B1"),         "\"B1\" → stale");
+  assert(!isStaleFloor("Level 5"),   "\"Level 5\" → NOT stale");
+  assert(!isStaleFloor("Level 3"),   "\"Level 3\" → NOT stale");
+  assert(!isStaleFloor("Ground Floor"), "\"Ground Floor\" → NOT stale");
+  assert(!isStaleFloor("Lower Level"),  "\"Lower Level\" → NOT stale");
+
+  // Repairability
+  assert(isRepairable({ source: null }),           "null source → repairable");
+  assert(isRepairable({ source: "" }),             "empty source → repairable");
+  assert(isRepairable({ source: "map_factory" }),  "map_factory → repairable");
+  assert(!isRepairable({ source: "geodirectory" }), "geodirectory → NOT repairable");
+  assert(!isRepairable({ source: "admin" }),       "admin → NOT repairable");
+  assert(!isRepairable({ source: "manual" }),      "manual → NOT repairable");
+}
+
+section("Route Graph Builder — repair stale floors on re-run");
+
+{
+  // Pre-existing nodes with stale floors (simulating old dev data)
+  const REPAIR_ANCHORS = [
+    { label: "Game",          anchor_type: "shop",     x_percent: 20, y_percent: 30, confidence_score: 0.9 },
+    { label: "Edgars",        anchor_type: "shop",     x_percent: 40, y_percent: 30, confidence_score: 0.85 },
+    { label: "Entrance North",anchor_type: "entrance", x_percent: 50, y_percent: 5,  confidence_score: 0.95 },
+    { label: "Main Corridor", anchor_type: "corridor_node", x_percent: 50, y_percent: 50, confidence_score: 0.8 },
+  ];
+
+  const repairTables: Record<string, MockRow[]> = {
+    map_factory_layout_models: [
+      { id: "model-rep", job_id: "job-rep", mall_id: "mall-rep", floor_label: null, status: "complete",
+        merged_anchors: REPAIR_ANCHORS },
+    ],
+    // Pre-existing nodes with stale floors (old dev data)
+    mall_nodes: [
+      { id: "n-game",    mall_id: "mall-rep", name: "Game",          type: "shop",     floor: null, x_coordinate: 20, y_coordinate: 30, source: null },
+      { id: "n-edgars",  mall_id: "mall-rep", name: "Edgars",        type: "entrance", floor: "G",  x_coordinate: 40, y_coordinate: 30, source: "map_factory" },
+      { id: "n-corridor",mall_id: "mall-rep", name: "Main Corridor", type: "shop",     floor: "L1", x_coordinate: 50, y_coordinate: 50, source: null },
+    ],
+    mall_edges: [],
+  };
+
+  const repairSupabase = makeMockSupabase(repairTables);
+  const repResult = await buildRouteGraph("job-rep", "mall-rep", "Level 5", repairSupabase);
+
+  assert(repResult.ok, `repair graph build ok (error: ${repResult.error ?? "none"})`);
+
+  // 3 anchors matched stale nodes → repaired; 1 new → created (Entrance North)
+  assert(repResult.repaired_floor_nodes >= 3,
+    `≥3 nodes repaired (got ${repResult.repaired_floor_nodes})`);
+  assert(repResult.created_nodes >= 1,
+    `≥1 new node (Entrance North) created (got ${repResult.created_nodes})`);
+
+  // All nodes must now be on "Level 5"
+  const stillStale = repairTables.mall_nodes.filter((n) => isStaleFloor(n.floor as string | null));
+  assert(stillStale.length === 0,
+    `No stale floor nodes remaining (got ${stillStale.length}: ${stillStale.map((n) => `${n.name}→${n.floor}`).join(", ")})`);
+
+  // floor_counts must record Level 5
+  assert((repResult.floor_counts["Level 5"] ?? 0) >= 3,
+    `floor_counts["Level 5"] ≥ 3 (got ${repResult.floor_counts["Level 5"] ?? 0})`);
+
+  // floors_processed must include Level 5
+  assert(repResult.floors_processed.includes("Level 5"),
+    "floors_processed includes \"Level 5\"");
+}
+
+section("Route Graph Builder — protected nodes not overwritten");
+
+{
+  const ADMIN_ANCHORS = [
+    { label: "Admin Store",   anchor_type: "shop",     x_percent: 30, y_percent: 30, confidence_score: 0.9 },
+    { label: "Geodir Shop",   anchor_type: "shop",     x_percent: 50, y_percent: 30, confidence_score: 0.9 },
+    { label: "Map Store",     anchor_type: "shop",     x_percent: 70, y_percent: 30, confidence_score: 0.9 },
+    { label: "Entrance Main", anchor_type: "entrance", x_percent: 50, y_percent: 5,  confidence_score: 0.95 },
+    { label: "Hub Corridor",  anchor_type: "corridor_node", x_percent: 50, y_percent: 50, confidence_score: 0.8 },
+  ];
+
+  const adminTables: Record<string, MockRow[]> = {
+    map_factory_layout_models: [
+      { id: "model-adm", job_id: "job-adm", mall_id: "mall-adm", floor_label: null, status: "complete",
+        merged_anchors: ADMIN_ANCHORS },
+    ],
+    mall_nodes: [
+      // Protected — must not be modified
+      { id: "n-admin",  mall_id: "mall-adm", name: "Admin Store",  type: "shop", floor: null, x_coordinate: 30, y_coordinate: 30, source: "admin" },
+      { id: "n-geodir", mall_id: "mall-adm", name: "Geodir Shop",  type: "shop", floor: "G",  x_coordinate: 50, y_coordinate: 30, source: "geodirectory" },
+      // Safe to repair
+      { id: "n-map",    mall_id: "mall-adm", name: "Map Store",    type: "shop", floor: "L2", x_coordinate: 70, y_coordinate: 30, source: "map_factory" },
+    ],
+    mall_edges: [],
+  };
+
+  const adminSupabase = makeMockSupabase(adminTables);
+  const admResult = await buildRouteGraph("job-adm", "mall-adm", "Level 5", adminSupabase);
+
+  assert(admResult.ok, `admin-protected graph build ok (error: ${admResult.error ?? "none"})`);
+
+  // Admin and geodirectory nodes must keep their original floor
+  const adminNode  = adminTables.mall_nodes.find((n) => n.name === "Admin Store");
+  const geodirNode = adminTables.mall_nodes.find((n) => n.name === "Geodir Shop");
+  assert(adminNode?.floor  == null,  `Admin Store floor unchanged (null) — got ${adminNode?.floor}`);
+  assert(geodirNode?.floor === "G",  `Geodir Shop floor unchanged (G) — got ${geodirNode?.floor}`);
+
+  // Map Store (map_factory source) must be repaired
+  const mapNode = adminTables.mall_nodes.find((n) => n.name === "Map Store");
+  assert(mapNode?.floor === "Level 5", `Map Store repaired to "Level 5" — got ${mapNode?.floor}`);
+
+  // Exactly 1 repaired (Map Store only)
+  assert(admResult.repaired_floor_nodes === 1,
+    `repaired_floor_nodes = 1 (got ${admResult.repaired_floor_nodes})`);
+
+  // Protected nodes skipped (Admin Store + Geodir Shop)
+  assert(admResult.skipped_nodes >= 2,
+    `≥2 skipped_nodes for protected nodes (got ${admResult.skipped_nodes})`);
+
+  // New nodes: Entrance Main + Hub Corridor (no duplicates for Admin/Geodir)
+  assert(admResult.created_nodes >= 2,
+    `≥2 new nodes created (Entrance + Corridor) without duplicating protected (got ${admResult.created_nodes})`);
+}
+
+section("repairNodeFloors — standalone repair endpoint function");
+
+{
+  const repairFloorTables: Record<string, MockRow[]> = {
+    mall_nodes: [
+      // Stale + repairable
+      { id: "r1", mall_id: "mall-rf", name: "Game",        floor: null, source: null },
+      { id: "r2", mall_id: "mall-rf", name: "Woolworths",  floor: "G",  source: "map_factory" },
+      // Stale + protected
+      { id: "r3", mall_id: "mall-rf", name: "Menlyn Shop", floor: "L1", source: "geodirectory" },
+      { id: "r4", mall_id: "mall-rf", name: "Admin Node",  floor: null, source: "admin" },
+      // Already correct floor — skipped
+      { id: "r5", mall_id: "mall-rf", name: "Entrance A",  floor: "Level 5", source: null },
+    ],
+  };
+
+  const rfSupabase = makeMockSupabase(repairFloorTables);
+  const rfResult   = await repairNodeFloors("mall-rf", "Level 5", rfSupabase);
+
+  assert(rfResult.ok, `repairNodeFloors ok (error: ${rfResult.error ?? "none"})`);
+  assert(rfResult.repaired === 2,        `repaired = 2 (got ${rfResult.repaired})`);
+  assert(rfResult.protected_nodes === 2, `protected_nodes = 2 (got ${rfResult.protected_nodes})`);
+  assert(rfResult.skipped === 1,         `skipped = 1 (already correct floor) (got ${rfResult.skipped})`);
+
+  // Verify actual DB values changed for repaired nodes
+  const game      = repairFloorTables.mall_nodes.find((n) => n.name === "Game");
+  const woolworths = repairFloorTables.mall_nodes.find((n) => n.name === "Woolworths");
+  assert(game?.floor      === "Level 5", `Game floor repaired to "Level 5" (got ${game?.floor})`);
+  assert(woolworths?.floor === "Level 5", `Woolworths floor repaired to "Level 5" (got ${woolworths?.floor})`);
+
+  // Protected nodes must be unchanged
+  const menlyn = repairFloorTables.mall_nodes.find((n) => n.name === "Menlyn Shop");
+  const admin  = repairFloorTables.mall_nodes.find((n) => n.name === "Admin Node");
+  assert(menlyn?.floor === "L1",  `Menlyn Shop floor unchanged "L1" (got ${menlyn?.floor})`);
+  assert(admin?.floor  == null,   `Admin Node floor unchanged null (got ${admin?.floor})`);
 }
 
 // ═════════════════════════════════════════════════════════════════════════════

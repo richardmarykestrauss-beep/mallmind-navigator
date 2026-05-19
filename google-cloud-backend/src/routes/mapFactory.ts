@@ -29,7 +29,7 @@ import { harvestAllSourcesForJob }   from "../services/mapFactory/mapFactoryHarv
 import { extractAllAssetsForJob }    from "../services/mapFactory/mapFactoryExtractionService.js";
 import { buildLayoutModel }          from "../services/mapFactory/mapFactoryLayoutIntelligenceService.js";
 import { generateFloorPlan }         from "../services/mapFactory/artificialFloorPlanGeneratorService.js";
-import { buildRouteGraph }           from "../services/mapFactory/mapFactoryRouteGraphBuilderService.js";
+import { buildRouteGraph, repairNodeFloors } from "../services/mapFactory/mapFactoryRouteGraphBuilderService.js";
 import { runQaChecks }               from "../services/mapFactory/mapFactoryQaService.js";
 import { publishJob, getNextBestStep } from "../services/mapFactory/mapFactoryPublishService.js";
 
@@ -350,6 +350,34 @@ router.post("/jobs/:jobId/publish", async (req: Request, res: Response) => {
   }
 
   res.json(result);
+});
+
+// ── POST /jobs/:jobId/repair-node-floors ─────────────────────────────────────
+// Dev-safe repair: updates stale floor labels (null/G/L1/L2/unknown) for
+// Map Factory-generated nodes to the explicit floor_label from the request body.
+// Does NOT touch nodes with source = 'geodirectory', 'admin', or 'manual'.
+
+router.post("/jobs/:jobId/repair-node-floors", async (req: Request, res: Response) => {
+  const auth = await requireAdmin(req, res); if (!auth) return;
+  const supabase = getSupabaseClient();
+  const jobId = req.params.jobId as string;
+  const { floor_label } = req.body ?? {};
+  if (!floor_label) return res.status(400).json({ error: "floor_label is required" });
+
+  const { data: job } = await supabase.from("map_factory_jobs").select("id, mall_id").eq("id", jobId).single();
+  if (!job) return res.status(404).json({ error: "Job not found" });
+
+  const result = await repairNodeFloors(job.mall_id, floor_label, supabase);
+  if (!result.ok) return res.status(500).json({ ok: false, error: result.error });
+
+  res.json({
+    ok:              true,
+    repaired:        result.repaired,
+    skipped:         result.skipped,
+    protected_nodes: result.protected_nodes,
+    mall_id:         job.mall_id,
+    floor_label,
+  });
 });
 
 // ── POST /jobs/:jobId/next-step ───────────────────────────────────────────────
