@@ -43,18 +43,46 @@ function extractToken(req: Request): string | null {
   return null;
 }
 
-async function requireAdmin(req: Request, res: Response): Promise<{ userId: string } | null> {
+async function requireAdmin(req: Request, res: Response): Promise<{ userId: string; fullName: string | null } | null> {
   const token = extractToken(req);
-  if (!token) { res.status(401).json({ error: "Missing bearer token" }); return null; }
+
+  if (!token) {
+    if (process.env.NODE_ENV !== "production")
+      console.warn("[map-factory auth] FAIL — no bearer token in request");
+    res.status(401).json({ error: "Missing bearer token" });
+    return null;
+  }
 
   const supabase = getSupabaseClient();
-  const { data: { user }, error } = await supabase.auth.getUser(token);
-  if (error || !user) { res.status(401).json({ error: "Invalid or expired token" }); return null; }
+  const { data: { user }, error: authErr } = await supabase.auth.getUser(token);
 
-  const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).maybeSingle();
-  if (profile?.role !== "admin") { res.status(403).json({ error: "Admin role required" }); return null; }
+  if (authErr || !user) {
+    if (process.env.NODE_ENV !== "production")
+      console.warn("[map-factory auth] FAIL — token invalid or expired:", authErr?.message);
+    res.status(401).json({ error: "Invalid or expired token" });
+    return null;
+  }
 
-  return { userId: user.id };
+  // Use is_admin boolean — same field as mallIntelligence.ts requireAdmin
+  const { data: profile, error: profileErr } = await supabase
+    .from("profiles")
+    .select("id, is_admin, full_name")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  if (process.env.NODE_ENV !== "production") {
+    console.log(
+      `[map-factory auth] user=${user.id} profile_found=${!!profile} is_admin=${profile?.is_admin ?? false}`
+        + (profileErr ? ` profile_error=${profileErr.message}` : ""),
+    );
+  }
+
+  if (!profile?.is_admin) {
+    res.status(403).json({ error: "Admin access required" });
+    return null;
+  }
+
+  return { userId: user.id, fullName: (profile as { full_name?: string }).full_name ?? null };
 }
 
 // Helper to advance job stage in DB
@@ -306,8 +334,8 @@ router.post("/jobs/:jobId/publish", async (req: Request, res: Response) => {
   const { data: job } = await supabase.from("map_factory_jobs").select("id, mall_id").eq("id", jobId).single();
   if (!job) return res.status(404).json({ error: "Job not found" });
 
-  const { data: profile } = await supabase.from("profiles").select("full_name, email:id").eq("id", auth.userId).maybeSingle();
-  const publishedBy = (profile as { full_name?: string } | null)?.full_name ?? auth.userId;
+  // full_name already resolved during requireAdmin — no second profile query needed
+  const publishedBy = auth.fullName ?? auth.userId;
 
   await advanceJobStage(jobId, "publish", "running", supabase);
   const result = await publishJob(jobId, job.mall_id, publishedBy, supabase);
@@ -391,8 +419,7 @@ router.post("/jobs/:jobId/next-step", async (req: Request, res: Response) => {
       return res.json({ ok: r.ok, next_stage: r.passed ? "publish" : "qa_review", detail: r });
     }
     case "publish": {
-      const { data: profile } = await supabase.from("profiles").select("full_name").eq("id", auth.userId).maybeSingle();
-      const publishedBy = (profile as { full_name?: string } | null)?.full_name ?? auth.userId;
+      const publishedBy = auth.fullName ?? auth.userId;
       await advanceJobStage(jobId, "publish", "running", supabase);
       const r = await publishJob(jobId, job.mall_id, publishedBy, supabase);
       return res.json({ ok: r.ok, next_stage: "complete", detail: r });
