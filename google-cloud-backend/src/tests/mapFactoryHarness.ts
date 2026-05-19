@@ -15,6 +15,8 @@ import { harvestSource } from "../services/mapFactory/mapFactoryHarvestService.j
 import { getNextBestStep } from "../services/mapFactory/mapFactoryPublishService.js";
 import { canonicalNodeType, nodeTypeFromLabel } from "../services/mapFactory/mapFactoryNodeTypeMapper.js";
 import { buildRouteGraph } from "../services/mapFactory/mapFactoryRouteGraphBuilderService.js";
+import { normalizeFloorLabel, resolveFloorLabel } from "../services/mapFactory/mapFactoryFloorLabelService.js";
+import { publishJob } from "../services/mapFactory/mapFactoryPublishService.js";
 
 // ── Colours ───────────────────────────────────────────────────────────────────
 const GREEN  = "\x1b[32m";
@@ -52,10 +54,13 @@ function makeMockSupabase(tables: Record<string, MockRow[]>) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const supabase: any = {
     from: (tableName: string) => {
-      const rows = tables[tableName] ?? [];
+      // Auto-create the table array so inserts into new tables are tracked
+      if (!tables[tableName]) tables[tableName] = [];
+      const rows = tables[tableName];
       const q: Record<string, unknown> = {};
 
-      let _filters: Array<{ key: string; val: unknown }> = [];
+      let _eqFilters:  Array<{ key: string; val: unknown }> = [];
+      let _isFilters:  Array<{ key: string; val: null }>    = [];
       let _data: MockRow | MockRow[] | null = null;
       let _error: null | { message: string } = null;
       let _selectCols = "*";
@@ -64,26 +69,37 @@ function makeMockSupabase(tables: Record<string, MockRow[]>) {
       let _countMode = false;
       let _insertPayload: MockRow | null = null;
 
+      /** Apply all accumulated filters to a row array. */
+      function applyFilters(source: MockRow[]) {
+        return source.filter((r) => {
+          const eqOk = _eqFilters.every((f) => r[f.key] === f.val);
+          // .is("col", null) → match rows where r[col] is null or undefined
+          const isOk = _isFilters.every((f) => r[f.key] == null);
+          return eqOk && isOk;
+        });
+      }
+
       const chain = {
         select: (cols = "*", opts?: { count?: string; head?: boolean }) => {
           _selectCols = cols;
           if (opts?.count === "exact") _countMode = true;
           return chain;
         },
-        eq: (key: string, val: unknown) => { _filters.push({ key, val }); return chain; },
-        in: (_key: string, _vals: unknown[]) => chain,
+        eq:    (key: string, val: unknown) => { _eqFilters.push({ key, val }); return chain; },
+        is:    (key: string, val: null)    => { _isFilters.push({ key, val }); return chain; },
+        in:    (_key: string, _vals: unknown[]) => chain,
         order: () => chain,
         limit: () => chain,
         single: () => {
           _single = true;
-          const hit = rows.find((r) => _filters.every((f) => r[f.key] === f.val)) ?? null;
+          const hit = applyFilters(rows)[0] ?? null;
           _data = hit;
           _error = hit ? null : { message: `Row not found in ${tableName}` };
           return { data: _data, error: _error };
         },
         maybeSingle: () => {
           _maybeSingle = true;
-          const hit = rows.find((r) => _filters.every((f) => r[f.key] === f.val)) ?? null;
+          const hit = applyFilters(rows)[0] ?? null;
           return { data: hit, error: null };
         },
         insert: (payload: MockRow) => {
@@ -102,9 +118,7 @@ function makeMockSupabase(tables: Record<string, MockRow[]>) {
           error: null,
         }),
         then: (resolve: (v: { data: MockRow[]; error: null; count?: number }) => void) => {
-          const matched = _countMode
-            ? rows.filter((r) => _filters.every((f) => r[f.key] === f.val))
-            : rows.filter((r) => _filters.every((f) => r[f.key] === f.val));
+          const matched = applyFilters(rows);
           resolve({ data: matched, error: null, count: matched.length });
         },
       };
@@ -113,7 +127,7 @@ function makeMockSupabase(tables: Record<string, MockRow[]>) {
       Object.assign(chain, {
         [Symbol.asyncIterator]: undefined,
         then: (resolve: (v: { data: MockRow[]; error: null; count?: number }) => void) => {
-          const matched = rows.filter((r) => _filters.every((f) => r[f.key] === f.val));
+          const matched = applyFilters(rows);
           resolve({ data: matched, error: null, count: matched.length });
         },
       });
@@ -363,6 +377,162 @@ section("Route Graph Builder — fallback spine (no corridor nodes)");
   assert(spineNodes.length >= 3, `≥3 synthetic spine (corridor) nodes created (got ${spineNodes.length})`);
   assert(spineEdges >= 2,        `≥2 edges created via fallback spine (got ${spineEdges})`);
   assert(sr.nodesCreated >= 4,   `≥4 nodes total (shops + entrance + spine) (got ${sr.nodesCreated})`);
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// SUITE 5 — Floor Label Service + Floor Preservation End-to-End
+// ═════════════════════════════════════════════════════════════════════════════
+
+section("Floor Label Service — normalizeFloorLabel");
+
+{
+  // Well-formed labels must be preserved verbatim
+  assertEqual(normalizeFloorLabel("Level 5"),      "Level 5",      "Level 5 preserved");
+  assertEqual(normalizeFloorLabel("Level 3"),      "Level 3",      "Level 3 preserved");
+  assertEqual(normalizeFloorLabel("Lower Level"),  "Lower Level",  "Lower Level preserved");
+  assertEqual(normalizeFloorLabel("Upper Level"),  "Upper Level",  "Upper Level preserved");
+  assertEqual(normalizeFloorLabel("Ground Floor"), "Ground Floor", "Ground Floor preserved");
+
+  // Short codes should expand
+  assertEqual(normalizeFloorLabel("G"),   "Ground Floor", "G expands to Ground Floor");
+  assertEqual(normalizeFloorLabel("L1"),  "Level 1",      "L1 expands to Level 1");
+  assertEqual(normalizeFloorLabel("l2"),  "Level 2",      "l2 expands to Level 2 (case-insensitive)");
+  assertEqual(normalizeFloorLabel("B1"),  "Basement 1",   "B1 expands to Basement 1");
+  assertEqual(normalizeFloorLabel("5"),   "Level 5",      "\"5\" expands to Level 5");
+
+  // Null-like values return fallback
+  assertEqual(normalizeFloorLabel(null),       "Unknown", "null → Unknown");
+  assertEqual(normalizeFloorLabel(undefined),  "Unknown", "undefined → Unknown");
+  assertEqual(normalizeFloorLabel(""),         "Unknown", "empty string → Unknown");
+  assertEqual(normalizeFloorLabel("unknown"),  "Unknown", "\"unknown\" → Unknown");
+  assertEqual(normalizeFloorLabel("NULL"),     "Unknown", "\"NULL\" → Unknown");
+
+  // Custom fallback
+  assertEqual(normalizeFloorLabel(null, "Ground Floor"), "Ground Floor", "custom fallback used when null");
+
+  // "Level 3" must NOT be converted to any short code
+  assert(normalizeFloorLabel("Level 3") !== "L3", "Level 3 not shortened to L3");
+  assert(normalizeFloorLabel("Level 5") !== "L5", "Level 5 not shortened to L5");
+  assert(normalizeFloorLabel("Level 5") !== "G",  "Level 5 not converted to G");
+}
+
+section("Floor Label Service — resolveFloorLabel");
+
+{
+  // Model label wins when valid
+  assertEqual(resolveFloorLabel("Level 3", "Level 5"), "Level 3", "model label wins over job label");
+  assertEqual(resolveFloorLabel("Ground Floor", null),  "Ground Floor", "model label used when job null");
+
+  // Fall back to job label when model is null/unknown
+  assertEqual(resolveFloorLabel(null,      "Level 5"), "Level 5", "null model → job label");
+  assertEqual(resolveFloorLabel("unknown", "Level 5"), "Level 5", "unknown model → job label");
+  assertEqual(resolveFloorLabel("",        "Level 5"), "Level 5", "empty model → job label");
+
+  // Both null → Unknown
+  assertEqual(resolveFloorLabel(null, null),       "Unknown", "both null → Unknown");
+  assertEqual(resolveFloorLabel(undefined, null),  "Unknown", "both undefined → Unknown");
+}
+
+section("Route Graph Builder — floor_label preservation with job floor_label");
+
+{
+  // Layout model has floor_label = null; job floor_label = "Level 5"
+  // Nodes must be created with floor = "Level 5", not NULL or "unknown"
+  const LEVEL5_ANCHORS = [
+    { label: "Game",            anchor_type: "shop",     x_percent: 20, y_percent: 30, confidence_score: 0.9 },
+    { label: "Woolworths",      anchor_type: "shop",     x_percent: 50, y_percent: 30, confidence_score: 0.9 },
+    { label: "Entrance Main",   anchor_type: "entrance", x_percent: 50, y_percent: 5,  confidence_score: 0.95 },
+    { label: "Level 5 Corridor A", anchor_type: "corridor_node", x_percent: 40, y_percent: 50, confidence_score: 0.8 },
+  ];
+
+  const l5Tables: Record<string, MockRow[]> = {
+    map_factory_layout_models: [
+      // floor_label deliberately null to simulate missing/unset model floor
+      { id: "model-l5", job_id: "job-l5", mall_id: "mall-l5", floor_label: null, status: "complete", merged_anchors: LEVEL5_ANCHORS },
+    ],
+    mall_nodes: [],
+    mall_edges: [],
+  };
+
+  const l5Supabase = makeMockSupabase(l5Tables);
+  // Pass "Level 5" as the explicit job floor_label
+  const l5Result = await buildRouteGraph("job-l5", "mall-l5", "Level 5", l5Supabase);
+
+  assert(l5Result.ok, `Level 5 graph build ok (error: ${l5Result.error ?? "none"})`);
+
+  const nullFloorNodes = l5Tables.mall_nodes.filter((n) => n.floor == null);
+  const level5Nodes    = l5Tables.mall_nodes.filter((n) => n.floor === "Level 5");
+
+  assert(nullFloorNodes.length === 0, `No NULL floor nodes (got ${nullFloorNodes.length})`);
+  assert(level5Nodes.length >= 3,     `≥3 nodes stamped "Level 5" (got ${level5Nodes.length})`);
+  assert(l5Result.floorsProcessed?.includes("Level 5"), "floorsProcessed includes \"Level 5\"");
+}
+
+section("Route Graph Builder — explicit label not silently overridden");
+
+{
+  // Layout model has floor_label = "Level 3"; job also passes "Level 3"
+  // Nodes must NOT be converted to G/L1/L2 by any normalisation
+  const L3_ANCHORS = [
+    { label: "Edgars",         anchor_type: "shop",     x_percent: 30, y_percent: 40, confidence_score: 0.9 },
+    { label: "Truworths",      anchor_type: "shop",     x_percent: 60, y_percent: 40, confidence_score: 0.85 },
+    { label: "Entrance East",  anchor_type: "entrance", x_percent: 80, y_percent: 5,  confidence_score: 0.9 },
+    { label: "Level 3 Main Corridor", anchor_type: "corridor_node", x_percent: 50, y_percent: 50, confidence_score: 0.8 },
+  ];
+
+  const l3Tables: Record<string, MockRow[]> = {
+    map_factory_layout_models: [
+      { id: "model-l3", job_id: "job-l3", mall_id: "mall-l3", floor_label: "Level 3", status: "complete", merged_anchors: L3_ANCHORS },
+    ],
+    mall_nodes: [],
+    mall_edges: [],
+  };
+
+  const l3Supabase = makeMockSupabase(l3Tables);
+  const l3Result = await buildRouteGraph("job-l3", "mall-l3", "Level 3", l3Supabase);
+
+  assert(l3Result.ok, `Level 3 graph build ok (error: ${l3Result.error ?? "none"})`);
+
+  const wrongFloorNodes = l3Tables.mall_nodes.filter((n) => n.floor !== "Level 3");
+  const level3Nodes     = l3Tables.mall_nodes.filter((n) => n.floor === "Level 3");
+
+  assert(wrongFloorNodes.length === 0, `No nodes with wrong floor (got ${wrongFloorNodes.length} non-Level-3 nodes: ${wrongFloorNodes.map((n) => n.floor).join(", ")})`);
+  assert(level3Nodes.length >= 3, `≥3 nodes stamped "Level 3" (got ${level3Nodes.length})`);
+}
+
+section("Publish Service — edge count from mall_edges (not mall_node_edges)");
+
+{
+  // Set up a mall with pre-existing nodes and edges, a passing QA report,
+  // and a draft floor plan.  publishJob must return edgesPublished = 43.
+  const EDGE_COUNT = 43;
+
+  const pubTables: Record<string, MockRow[]> = {
+    map_factory_qa_reports: [
+      { id: "qa-1", job_id: "job-pub", readiness_score: 90, passed: true, created_at: new Date().toISOString() },
+    ],
+    mall_nodes: Array.from({ length: 24 }, (_, i) => ({
+      id: `node-${i}`, mall_id: "mall-pub", name: `Node ${i}`, type: "shop", floor: "Level 5",
+    })),
+    mall_edges: Array.from({ length: EDGE_COUNT }, (_, i) => ({
+      id: `edge-${i}`, mall_id: "mall-pub", from_node_id: `node-${i % 24}`, to_node_id: `node-${(i + 1) % 24}`,
+    })),
+    map_factory_generated_floorplans: [
+      { id: "fp-1", job_id: "job-pub", status: "draft" },
+    ],
+    map_factory_publish_records: [],
+    map_factory_jobs: [
+      { id: "job-pub", mall_id: "mall-pub", status: "paused", stage: "publish", readiness_score: 90 },
+    ],
+  };
+
+  const pubSupabase = makeMockSupabase(pubTables);
+  const pubResult = await publishJob("job-pub", "mall-pub", "Test Admin", pubSupabase);
+
+  assert(pubResult.ok, `publishJob ok=true (error: ${pubResult.error ?? "none"})`);
+  assert(pubResult.nodesPublished === 24,         `nodesPublished = 24 (got ${pubResult.nodesPublished})`);
+  assert(pubResult.edgesPublished === EDGE_COUNT,  `edgesPublished = ${EDGE_COUNT} (got ${pubResult.edgesPublished})`);
+  assert(pubResult.floorPlansPublished === 1,      `floorPlansPublished = 1 (got ${pubResult.floorPlansPublished})`);
 }
 
 // ═════════════════════════════════════════════════════════════════════════════

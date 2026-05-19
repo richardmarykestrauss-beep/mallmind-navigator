@@ -1,5 +1,5 @@
 /**
- * mapFactoryPublishService.ts — Sprint 15
+ * mapFactoryPublishService.ts — Sprint 15.4
  *
  * Publish guard: verifies QA passed, then promotes the generated floor plan
  * to "published" status and writes an immutable publish record.
@@ -51,16 +51,18 @@ export async function publishJob(
         blockedReason: `QA not passed (score: ${latestQa.readiness_score}). Fix blocking issues first.` };
     }
 
-    // 2. Count nodes and edges associated with this job's mall
-    const { count: nodeCount } = await supabase
-      .from("mall_nodes")
-      .select("id", { count: "exact", head: true })
-      .eq("mall_id", mallId);
-
-    const { count: edgeCount } = await supabase
-      .from("mall_node_edges")
-      .select("id", { count: "exact", head: true })
-      .eq("mall_id", mallId);
+    // 2. Count nodes and edges for this mall — Sprint 15.4: use mall_edges
+    //    (not mall_node_edges which does not exist) so edgesPublished is accurate.
+    const [{ count: nodeCount }, { count: edgeCount }] = await Promise.all([
+      supabase
+        .from("mall_nodes")
+        .select("id", { count: "exact", head: true })
+        .eq("mall_id", mallId),
+      supabase
+        .from("mall_edges")          // ← correct table name
+        .select("id", { count: "exact", head: true })
+        .eq("mall_id", mallId),
+    ]);
 
     // 3. Mark floor plans as published
     const { data: floorPlans } = await supabase

@@ -1,9 +1,9 @@
 /**
- * mapFactoryRouteGraphBuilderService.ts — Sprint 15.3 (rewrite)
+ * mapFactoryRouteGraphBuilderService.ts — Sprint 15.4
  *
  * Builds the route graph from merged layout model anchors.
  *
- * Fixes from Sprint 15:
+ * Sprint 15.3 fixes:
  *  - Correct mall_nodes column names: name/type/floor/x_coordinate/y_coordinate
  *  - Correct edge table: mall_edges (not mall_node_edges)
  *  - Edge generation now works on ALL floor nodes (not just newly inserted ones)
@@ -12,9 +12,16 @@
  *  - Fallback corridor spine when no corridor nodes exist
  *  - Edge deduplication via in-memory Set
  *  - Extended result: nodeTypeCounts, skippedEdges, floorsProcessed
+ *
+ * Sprint 15.4 fixes:
+ *  - Uses resolveFloorLabel() so nodes always inherit the job/stage floor_label
+ *    when the layout model lacks its own floor_label (fixes NULL floor).
+ *  - Explicit floor_label from job ("Level 5") is preserved exactly — never
+ *    silently converted to G/L1/L2.
  */
 
 import { canonicalNodeType } from "./mapFactoryNodeTypeMapper.js";
+import { resolveFloorLabel } from "./mapFactoryFloorLabelService.js";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -121,7 +128,10 @@ export async function buildRouteGraph(
 
     // ── Per-floor processing ──────────────────────────────────────────────────
     for (const model of (models ?? [])) {
-      const floor = model.floor_label ?? "unknown";
+      // Sprint 15.4: prefer model's own floor_label; fall back to the job-level
+      // floorLabel so we never stamp nodes with NULL or "unknown" when the admin
+      // explicitly passed a floor (e.g. "Level 5").
+      const floor = resolveFloorLabel(model.floor_label, floorLabel);
       if (!floorsProcessed.includes(floor)) floorsProcessed.push(floor);
 
       const rawAnchors: Array<{
@@ -290,7 +300,10 @@ export async function buildRouteGraph(
 
     // ── 8. Validation ─────────────────────────────────────────────────────────
     if (nodesCreated === 0 && nodesSkipped === 0) {
-      validationIssues.push("No anchors found in layout models — run extraction and layout build first.");
+      validationIssues.push(
+        "No anchors found in layout models — run extraction and layout build first." +
+        (floorLabel ? ` (floor_label="${floorLabel}")` : ""),
+      );
     }
 
     // Use correct column name "type" (not "node_type")

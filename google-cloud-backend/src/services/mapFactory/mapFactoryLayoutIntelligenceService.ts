@@ -1,5 +1,5 @@
 /**
- * mapFactoryLayoutIntelligenceService.ts — Sprint 15
+ * mapFactoryLayoutIntelligenceService.ts — Sprint 15.4
  *
  * Merges evidence from multiple extractions into a unified layout model.
  * Handles:
@@ -184,13 +184,20 @@ export async function buildLayoutModel(
     const { merged, conflicts } = mergeAnchors(allAnchors);
     const coverageScore = computeCoverageScore(merged);
 
-    // Upsert layout model
-    const { data: existing } = await supabase
+    // Upsert layout model — Sprint 15.4: use .is("floor_label", null) when no
+    // floor was specified so we don't accidentally match a row with floor_label=""
+    // and to correctly find rows stored with a NULL floor_label.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let existingQ = (supabase as any)
       .from("map_factory_layout_models")
       .select("id")
-      .eq("job_id", jobId)
-      .eq("floor_label", floorLabel ?? "")
-      .maybeSingle();
+      .eq("job_id", jobId);
+    if (floorLabel) {
+      existingQ = existingQ.eq("floor_label", floorLabel);
+    } else {
+      existingQ = existingQ.is("floor_label", null);
+    }
+    const { data: existing } = await existingQ.maybeSingle();
 
     let layoutModelId: string;
 
