@@ -112,11 +112,14 @@ const NavigateScreen = () => {
       <MobileShell>
         <ScreenHeader title="Mall Map" subtitle="No active route" />
         <div className="flex flex-col items-center gap-5 px-5 pt-10 text-center animate-fade-in">
-          <div className="flex h-20 w-20 items-center justify-center rounded-3xl bg-muted/30 border border-border">
-            <RouteIcon className="h-9 w-9 text-muted-foreground" />
+          <div className="relative flex h-20 w-20 items-center justify-center">
+            <div className="absolute h-20 w-20 rounded-full bg-primary/12 blur-xl" />
+            <div className="relative flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10 border border-primary/25">
+              <RouteIcon className="h-7 w-7 text-primary" />
+            </div>
           </div>
           <div>
-            <p className="font-display font-bold text-lg">No Route Yet</p>
+            <p className="font-display font-semibold text-lg">No Route Yet</p>
             <p className="text-sm text-muted-foreground mt-1 max-w-[240px] leading-relaxed">
               Ask the AI to find products and guide you — it'll build your route automatically.
             </p>
@@ -160,17 +163,38 @@ const NavigateScreen = () => {
         }
       />
 
-      {/* Route source badge */}
-      {hasRealRoute && (
-        <div className="mx-5 mb-2">
-          <div className="flex items-center gap-1.5 rounded-xl border border-primary/30 bg-primary/8 px-3 py-1.5 w-fit">
-            <Navigation className="h-3 w-3 text-primary" />
-            <span className="text-[10px] text-primary font-semibold uppercase tracking-wider">
-              AI-Optimised Route · {activeRouteSteps.length} steps
-            </span>
+      {/* ── Route hero card ──────────────────────────────────────── */}
+      <div className="mx-5 mb-3">
+        <div className="relative rounded-2xl border border-primary/25 bg-primary/6 backdrop-blur overflow-hidden p-4">
+          <div className="pointer-events-none absolute -top-8 -right-8 h-32 w-32 rounded-full bg-primary/12 blur-3xl" />
+          <div className="relative flex items-center gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/20 border border-primary/35 glow-primary">
+              <Navigation className="h-4.5 w-4.5 h-5 w-5 text-primary" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[10px] uppercase tracking-wider text-primary font-bold">
+                {hasRealRoute ? "AI-Optimised Route" : "Mall Navigation"}
+              </p>
+              <p className="font-display font-bold text-sm mt-0.5">
+                {selectedMall?.name ?? "Shopping route"}
+              </p>
+            </div>
+            <div className="text-right shrink-0">
+              <p className="font-display font-bold text-xl leading-none text-primary">
+                {doneCount}<span className="text-muted-foreground/40 text-sm">/{stopCount}</span>
+              </p>
+              <p className="text-[10px] text-muted-foreground mt-0.5">steps done</p>
+            </div>
+          </div>
+          {/* Mini progress bar */}
+          <div className="relative mt-3 h-1 rounded-full bg-primary/15 overflow-hidden">
+            <div
+              className="h-full rounded-full bg-gradient-to-r from-primary to-primary-glow transition-all duration-500"
+              style={{ width: stopCount ? `${(doneCount / stopCount) * 100}%` : "0%" }}
+            />
           </div>
         </div>
-      )}
+      </div>
 
       {/* Schematic map */}
       <div className="relative mx-5 h-[200px] rounded-3xl border border-border bg-surface overflow-hidden">
@@ -243,21 +267,21 @@ const NavigateScreen = () => {
       </div>
 
       {/* Stats bar */}
-      <div className="mx-5 mt-3 grid grid-cols-3 gap-2 rounded-2xl border border-border bg-surface p-3">
+      <div className="mx-5 mt-3 grid grid-cols-3 gap-2 rounded-2xl border border-primary/20 bg-primary/5 backdrop-blur p-3">
         <div className="text-center">
           <Clock className="mx-auto h-4 w-4 text-primary mb-1" />
-          <p className="font-display font-bold text-base">{totalMinutes} min</p>
-          <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Walk</p>
+          <p className="font-display font-bold text-lg leading-none">{totalMinutes}</p>
+          <p className="text-[9px] text-muted-foreground uppercase tracking-wide mt-0.5">min walk</p>
         </div>
-        <div className="text-center border-x border-border">
+        <div className="text-center border-x border-primary/15">
           <Footprints className="mx-auto h-4 w-4 text-secondary mb-1" />
-          <p className="font-display font-bold text-base">{Math.round(totalMeters)}m</p>
-          <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Distance</p>
+          <p className="font-display font-bold text-lg leading-none">{Math.round(totalMeters)}</p>
+          <p className="text-[9px] text-muted-foreground uppercase tracking-wide mt-0.5">metres</p>
         </div>
         <div className="text-center">
           <MapPin className="mx-auto h-4 w-4 text-primary mb-1" />
-          <p className="font-display font-bold text-base">{doneCount}/{stopCount}</p>
-          <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Done</p>
+          <p className="font-display font-bold text-lg leading-none">{doneCount}<span className="text-muted-foreground/50 text-sm">/{stopCount}</span></p>
+          <p className="text-[9px] text-muted-foreground uppercase tracking-wide mt-0.5">done</p>
         </div>
       </div>
 

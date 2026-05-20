@@ -3,7 +3,8 @@ import { useNavigate, useLocation } from "react-router-dom";
 import {
   Mic, MicOff, Send, Bot, User, Route as RouteIcon,
   Store, Sparkles, MapPin, Loader2, ShoppingBag, X, Globe,
-  Volume2, VolumeX, Wallet, ChevronRight
+  Volume2, VolumeX, Wallet, ChevronRight, AlertTriangle, Navigation,
+  ThumbsUp, ThumbsDown,
 } from "lucide-react";
 import MobileShell from "@/components/MobileShell";
 import { Button } from "@/components/ui/button";
@@ -13,18 +14,21 @@ import { useShoppingSession } from "@/context/ShoppingSessionContext";
 import { useAuth } from "@/context/AuthContext";
 import { useGeoLocation } from "@/context/LocationContext";
 import { trackEvent } from "@/lib/analytics";
+import { trackBackendEvent } from "@/lib/analyticsClient";
 import { cn } from "@/lib/utils";
 import type { Shop } from "@/lib/supabaseClient";
+import {
+  isGoogleBackendConfigured,
+  sendAssistantMessage as googleSendAssistantMessage,
+  reportPriceCorrection,
+  type WebResult,
+  type AssistantResponse,
+} from "@/lib/googleBackendClient";
 
-const SUPABASE_URL = "https://qspsouemjtcdcfnivpnt.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFzcHNvdWVtanRjZGNmbml2cG50Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcxMTIzNTAsImV4cCI6MjA5MjY4ODM1MH0.f94Lbzo-EgmcMsklgYiWW6tNhM4hvGm2Z8_37Xp8nkg";
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from "@/lib/env";
 
 // ProductResult imported from RecommendationCard component
-
-interface WebResult {
-  answer: string;
-  sources: string[];
-}
+// WebResult and AssistantResponse imported from googleBackendClient
 
 import type { RouteStep } from "@/context/ShoppingSessionContext";
 
@@ -39,6 +43,18 @@ interface ChatMessage {
   routeSteps?: RouteStep[];
   routeId?: string | null;
   loading?: boolean;
+  /** Context-aware text shown below the thinking dots while loading */
+  loadingText?: string;
+}
+
+// ── Intent detection for loading copy ────────────────────────────────────────
+const ROUTE_INTENT_RE = /\b(take me to|directions?\s+to|route\s+to|navigate\s+to|show me the way|how do i get)\b/i;
+const PRICE_INTENT_RE = /\b(tv|screen|laptop|phone|sneaker|deal|cheap|cheapest|under\s*r?\d+|price|compare|specials?)\b/i;
+
+function getLoadingText(userMessage: string): string {
+  if (ROUTE_INTENT_RE.test(userMessage)) return "Building your route…";
+  if (PRICE_INTENT_RE.test(userMessage)) return "Checking verified prices…";
+  return "MallMind is thinking…";
 }
 
 const FLOOR_ORDER: Record<string, number> = { B1: 0, G: 1, L1: 2, L2: 3, L3: 4, L4: 5 };
@@ -67,41 +83,6 @@ function computeTotalCost(products: ProductResult[]): number {
     }
   }
   return Object.values(groups).reduce((sum, price) => sum + price, 0);
-}
-
-// ── Product card rendered inside assistant messages ──────────────────────────
-function ProductCard({ p }: { p: ProductResult }) {
-  const hasDiscount = p.is_on_special && p.original_price != null;
-  return (
-    <div className="flex items-center gap-3 rounded-xl border border-border bg-surface/80 p-3">
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 border border-primary/20">
-        <Store className="h-4 w-4 text-primary" />
-      </div>
-      <div className="flex-1 min-w-0">
-        <p className="text-xs font-semibold truncate">{p.name}</p>
-        {p.brand && <p className="text-[10px] text-muted-foreground">{p.brand}</p>}
-        <p className="text-[10px] text-muted-foreground">
-          {p.shop_name} · Floor {p.floor ?? "?"} · {p.unit_number ?? "—"}
-        </p>
-      </div>
-      <div className="text-right shrink-0">
-        {hasDiscount && (
-          <p className="text-[10px] text-muted-foreground line-through">
-            R{p.original_price!.toFixed(0)}
-          </p>
-        )}
-        <p className={cn(
-          "font-display font-bold text-sm",
-          hasDiscount ? "text-secondary" : "text-foreground"
-        )}>
-          R{p.price.toFixed(0)}
-        </p>
-        {hasDiscount && (
-          <p className="text-[9px] uppercase tracking-wider text-secondary">Sale</p>
-        )}
-      </div>
-    </div>
-  );
 }
 
 // ── Web estimate card ─────────────────────────────────────────────────────────
@@ -138,14 +119,18 @@ function WebResultCard({ result }: { result: WebResult }) {
   );
 }
 
-// ── Typing indicator ──────────────────────────────────────────────────────────
-function TypingIndicator() {
+// ── Thinking state ────────────────────────────────────────────────────────────
+// Shows animated dots + optional context line ("Building your route…" etc.)
+function InlineThinkingState({ text }: { text?: string }) {
   return (
     <div className="flex items-end gap-2">
       <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-primary/15 border border-primary/20">
         <Bot className="h-3.5 w-3.5 text-primary" />
       </div>
-      <div className="rounded-2xl rounded-bl-sm border border-border bg-surface px-4 py-3">
+      <div className="rounded-2xl rounded-bl-sm border border-border bg-surface px-4 py-3 space-y-1.5">
+        {text && (
+          <p className="text-[11px] text-muted-foreground/80 italic">{text}</p>
+        )}
         <div className="flex gap-1 items-center h-4">
           {[0, 1, 2].map((i) => (
             <span
@@ -156,6 +141,198 @@ function TypingIndicator() {
           ))}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── Feedback strip ────────────────────────────────────────────────────────────
+// Tiny, optional feedback row. Mobile-first, non-blocking, non-intrusive.
+
+interface FeedbackOption {
+  label: string;
+  value: string;
+  icon?: React.ReactNode;
+}
+
+function FeedbackStrip({
+  question,
+  options,
+  done,
+  doneMessage = "Thanks for the feedback",
+  onSelect,
+}: {
+  question: string;
+  options: FeedbackOption[];
+  done: boolean;
+  doneMessage?: string;
+  onSelect: (value: string) => void;
+}) {
+  if (done) {
+    return (
+      <p className="text-[10px] text-muted-foreground/55 italic px-1">
+        ✓ {doneMessage}
+      </p>
+    );
+  }
+  return (
+    <div className="flex items-center gap-1.5 px-1 flex-wrap">
+      <span className="text-[10px] text-muted-foreground/70 shrink-0">{question}</span>
+      {options.map((opt) => (
+        <button
+          key={opt.value}
+          onClick={() => onSelect(opt.value)}
+          className="flex items-center gap-1 rounded-full border border-border/60 bg-background px-2 py-0.5 text-[10px] text-muted-foreground hover:border-primary/50 hover:text-foreground active:scale-95 transition-all"
+        >
+          {opt.icon}
+          {opt.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// ── Price correction form ─────────────────────────────────────────────────────
+// Inline compact form — shown when user taps "Price wrong?".
+// Sends a report to the backend; never directly updates products.
+
+const CORRECTION_SOURCES = [
+  { value: "in_store_seen",    label: "Saw in-store" },
+  { value: "retailer_website", label: "Retailer website" },
+  { value: "catalogue",        label: "Catalogue / flyer" },
+  { value: "other",            label: "Not sure / other" },
+];
+
+function PriceCorrectionForm({
+  product,
+  mallId,
+  sessionId,
+  onClose,
+  onSubmitted,
+}: {
+  product: ProductResult;
+  mallId: string | null;
+  sessionId: string | null;
+  onClose: () => void;
+  onSubmitted: () => void;
+}) {
+  const [reportedPrice, setReportedPrice] = useState("");
+  const [sourceType,    setSourceType]    = useState("in_store_seen");
+  const [note,          setNote]          = useState("");
+  const [loading,       setLoading]       = useState(false);
+  const [error,         setError]         = useState<string | null>(null);
+
+  async function handleSubmit() {
+    const price = parseFloat(reportedPrice.replace(/[^0-9.]/g, ""));
+    if (isNaN(price) || price <= 0) {
+      setError("Please enter a valid price.");
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      await reportPriceCorrection({
+        product_id:    product.product_id,
+        shop_id:       product.shop_id ?? null,
+        mall_id:       mallId,
+        current_price: product.price,
+        reported_price: price,
+        user_note:     note.trim() || null,
+        source_type:   sourceType,
+        metadata: {
+          product_name:        product.name,
+          shop_name:           product.shop_name,
+          data_quality_status: product.data_quality_status ?? null,
+          price_verified_at:   product.price_verified_at ?? null,
+          session_id:          sessionId,
+        },
+      });
+      onSubmitted();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to submit — try again.");
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 space-y-2.5">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-semibold text-foreground">Report incorrect price</p>
+        <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors">
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+
+      {/* Current price reference */}
+      <p className="text-[10px] text-muted-foreground/80">
+        Currently showing: <span className="font-semibold text-foreground">R{product.price.toFixed(0)}</span>
+      </p>
+
+      <div className="space-y-2">
+        {/* Reported price */}
+        <div>
+          <label className="text-[10px] text-muted-foreground">Correct price (R)</label>
+          <input
+            type="number"
+            min="1"
+            value={reportedPrice}
+            onChange={(e) => setReportedPrice(e.target.value)}
+            placeholder="e.g. 3599"
+            className="mt-0.5 w-full h-8 rounded-lg border border-border bg-background px-3 text-sm focus:outline-none focus:border-primary/50 transition-all"
+          />
+        </div>
+
+        {/* Source */}
+        <div>
+          <label className="text-[10px] text-muted-foreground">Where did you see this price?</label>
+          <select
+            value={sourceType}
+            onChange={(e) => setSourceType(e.target.value)}
+            className="mt-0.5 w-full h-8 rounded-lg border border-border bg-background px-2.5 text-sm focus:outline-none transition-all"
+          >
+            {CORRECTION_SOURCES.map((s) => (
+              <option key={s.value} value={s.value}>{s.label}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Optional note */}
+        <div>
+          <label className="text-[10px] text-muted-foreground">Note (optional)</label>
+          <input
+            type="text"
+            value={note}
+            onChange={(e) => setNote(e.target.value.slice(0, 500))}
+            placeholder="Any extra context…"
+            className="mt-0.5 w-full h-8 rounded-lg border border-border bg-background px-3 text-sm focus:outline-none focus:border-primary/50 transition-all"
+          />
+        </div>
+      </div>
+
+      {error && (
+        <p className="text-[10px] text-destructive flex items-center gap-1">
+          <AlertTriangle className="h-3 w-3 shrink-0" />{error}
+        </p>
+      )}
+
+      <div className="flex gap-2">
+        <button
+          onClick={handleSubmit}
+          disabled={!reportedPrice || loading}
+          className="flex-1 h-8 rounded-lg bg-amber-500 text-white text-xs font-semibold disabled:opacity-40 hover:bg-amber-600 active:scale-[0.98] transition-all"
+        >
+          {loading ? "Submitting…" : "Submit report"}
+        </button>
+        <button
+          onClick={onClose}
+          className="h-8 px-3 rounded-lg border border-border text-xs text-muted-foreground hover:text-foreground transition-all"
+        >
+          Cancel
+        </button>
+      </div>
+
+      <p className="text-[9px] text-muted-foreground/50 leading-relaxed">
+        Your report will be reviewed before any price change. We never update prices automatically.
+      </p>
     </div>
   );
 }
@@ -284,6 +461,98 @@ const AssistantPage = () => {
   const [budgetInput, setBudgetInput] = useState("");
   const [showBudgetInput, setShowBudgetInput] = useState(false);
 
+  // ── Feedback state ─────────────────────────────────────────────────────────
+  // Map of feedbackKey → done-message string. Key format:
+  //   "${msgId}:recommendation"  "${msgId}:price:${productId}"
+  //   "${msgId}:route"           "${msgId}:purchase"
+  const [feedbackGiven, setFeedbackGiven] = useState<Record<string, string>>({});
+
+  // ── Price correction state ─────────────────────────────────────────────────
+  // correctionOpenId: product_id (or fallback index string) of the open form.
+  // correctionDoneIds: set of product ids that have had a report submitted.
+  const [correctionOpenId,  setCorrectionOpenId]  = useState<string | null>(null);
+  const [correctionDoneIds, setCorrectionDoneIds] = useState<Set<string>>(new Set());
+
+  const markFeedback = useCallback((key: string, message = "Thanks for the feedback") => {
+    setFeedbackGiven((prev) => ({ ...prev, [key]: message }));
+  }, []);
+
+  const handleFeedback = useCallback((
+    key: string,
+    eventType: "recommendation_feedback" | "price_accuracy_feedback" | "route_feedback" | "purchase_signal",
+    value: string,
+    product?: ProductResult,
+    routeData?: { routeShopIds: string[]; routeSummary?: string; routeSteps?: RouteStep[]; routeId?: string | null }
+  ) => {
+    const doneMsg =
+      eventType === "price_accuracy_feedback" && value === "incorrect"
+        ? "Thanks — we'll flag this for review."
+        : "Thanks for the feedback";
+    markFeedback(key, doneMsg);
+
+    const mallId = selectedMall?.id ? String(selectedMall.id) : null;
+    const sessionId = dbSessionId ?? null;
+
+    if (eventType === "recommendation_feedback") {
+      trackBackendEvent({
+        event_type: "recommendation_feedback",
+        product_id: product?.product_id ?? null,
+        shop_id:    product?.shop_id ?? null,
+        mall_id: mallId, session_id: sessionId,
+        metadata: {
+          value,
+          product_name:        product?.name ?? null,
+          shop_name:           product?.shop_name ?? null,
+          data_quality_status: product?.data_quality_status ?? null,
+          response_type: "product_recommendation",
+        },
+      });
+    } else if (eventType === "price_accuracy_feedback") {
+      trackBackendEvent({
+        event_type: "price_accuracy_feedback",
+        product_id: product?.product_id ?? null,
+        shop_id:    product?.shop_id ?? null,
+        mall_id: mallId, session_id: sessionId,
+        metadata: {
+          value,
+          product_name:               product?.name ?? null,
+          shop_name:                  product?.shop_name ?? null,
+          shown_price:                product?.price ?? null,
+          data_quality_status:        product?.data_quality_status ?? null,
+          price_verification_method:  product?.price_verification_method ?? null,
+          price_verified_at:          product?.price_verified_at ?? null,
+        },
+      });
+    } else if (eventType === "route_feedback") {
+      trackBackendEvent({
+        event_type: "route_feedback",
+        shop_id:   routeData?.routeShopIds?.[0] ?? null,
+        route_id:  routeData?.routeId ?? null,
+        mall_id: mallId, session_id: sessionId,
+        metadata: {
+          value,
+          route_summary:    routeData?.routeSummary ?? null,
+          route_step_count: routeData?.routeSteps?.length ?? 0,
+          route_shop_ids:   routeData?.routeShopIds ?? [],
+        },
+      });
+    } else if (eventType === "purchase_signal") {
+      trackBackendEvent({
+        event_type: "purchase_signal",
+        product_id: product?.product_id ?? null,
+        shop_id:    product?.shop_id ?? (routeData?.routeShopIds?.[0] ?? null),
+        mall_id: mallId, session_id: sessionId,
+        metadata: {
+          value,
+          product_name:        product?.name ?? null,
+          shop_name:           product?.shop_name ?? null,
+          price:               product?.price ?? null,
+          data_quality_status: product?.data_quality_status ?? null,
+        },
+      });
+    }
+  }, [markFeedback, selectedMall, dbSessionId]);
+
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const budgetInputRef = useRef<HTMLInputElement>(null);
@@ -382,6 +651,7 @@ const AssistantPage = () => {
       role: "assistant",
       content: "",
       loading: true,
+      loadingText: getLoadingText(text.trim()),
     };
 
     stopSpeech();
@@ -389,16 +659,25 @@ const AssistantPage = () => {
     setInput("");
     setIsLoading(true);
 
+    // ── Event 1: assistant_query_submitted ────────────────────────────────────
+    trackBackendEvent({
+      event_type: "assistant_query_submitted",
+      query_text: text.trim(),
+      mall_id: selectedMall?.id ? String(selectedMall.id) : null,
+      session_id: dbSessionId ?? null,
+      metadata: { source: "assistant" },
+    });
+
     try {
       const history = buildHistory([...messages, userMsg]);
 
-      const res = await fetch(`${SUPABASE_URL}/functions/v1/ai-assistant`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
-        },
-        body: JSON.stringify({
+      let data: AssistantResponse;
+
+      if (isGoogleBackendConfigured()) {
+        // ── Google Cloud Run backend ─────────────────────────────────────────
+        // /assistant calls recommend_products, build_route, and check_store_hours
+        // server-side via Gemini function calling — no extra client requests needed.
+        data = await googleSendAssistantMessage({
           messages:        history,
           mall_id:         selectedMall?.id ? String(selectedMall.id) : null,
           mall_name:       selectedMall?.name ?? null,
@@ -408,10 +687,29 @@ const AssistantPage = () => {
           current_lat:     position?.lat ?? null,
           current_lng:     position?.lng ?? null,
           shopping_intent: shoppingIntent ?? null,
-        }),
-      });
-
-      const data = await res.json();
+        });
+      } else {
+        // ── Supabase Edge Function (existing path) ───────────────────────────
+        const res = await fetch(`${SUPABASE_URL}/functions/v1/ai-assistant`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
+          },
+          body: JSON.stringify({
+            messages:        history,
+            mall_id:         selectedMall?.id ? String(selectedMall.id) : null,
+            mall_name:       selectedMall?.name ?? null,
+            budget:          budget ?? undefined,
+            user_id:         user?.id ?? null,
+            session_id:      dbSessionId ?? null,
+            current_lat:     position?.lat ?? null,
+            current_lng:     position?.lng ?? null,
+            shopping_intent: shoppingIntent ?? null,
+          }),
+        });
+        data = (await res.json()) as AssistantResponse;
+      }
 
       const replyText = data.message ?? "Sorry, I couldn't get a response.";
       const assistantMsg: ChatMessage = {
@@ -435,6 +733,55 @@ const AssistantPage = () => {
 
       setMessages((prev) => prev.filter((m) => !m.loading).concat(assistantMsg));
       speak(replyText);
+
+      // ── Event 2: assistant_response_received ──────────────────────────────
+      trackBackendEvent({
+        event_type: "assistant_response_received",
+        mall_id: selectedMall?.id ? String(selectedMall.id) : null,
+        session_id: dbSessionId ?? null,
+        metadata: {
+          product_count: data.products?.length ?? 0,
+          build_route: data.build_route ?? false,
+          route_step_count: data.route_steps?.length ?? 0,
+          top_product_id: data.products?.[0]?.product_id ?? null,
+          top_shop_id: data.products?.[0]?.shop_id ?? null,
+          top_data_quality_status: data.products?.[0]?.data_quality_status ?? null,
+        },
+      });
+
+      // ── Event 3: product_recommendation_viewed (best pick / top result) ───
+      if (data.products?.[0]) {
+        const top = data.products[0];
+        trackBackendEvent({
+          event_type: "product_recommendation_viewed",
+          product_id: top.product_id ?? null,
+          shop_id: top.shop_id ?? null,
+          mall_id: selectedMall?.id ? String(selectedMall.id) : null,
+          session_id: dbSessionId ?? null,
+          metadata: {
+            product_name: top.name,
+            shop_name: top.shop_name,
+            price: top.price,
+            data_quality_status: top.data_quality_status ?? null,
+            is_best_pick: true,
+          },
+        });
+      }
+
+      // ── Event 5: route_response_received ──────────────────────────────────
+      if (data.build_route) {
+        trackBackendEvent({
+          event_type: "route_response_received",
+          mall_id: selectedMall?.id ? String(selectedMall.id) : null,
+          session_id: dbSessionId ?? null,
+          route_id: data.route_id ?? null,
+          metadata: {
+            route_summary: data.route_summary ?? null,
+            route_step_count: data.route_steps?.length ?? 0,
+            route_shop_ids: data.route_shop_ids ?? [],
+          },
+        });
+      }
 
       // Track AI conversation + route trigger
       trackEvent("ai_conversation", {
@@ -594,6 +941,19 @@ const AssistantPage = () => {
     navigate("/navigate");
   }
 
+  // ── Event 4: route_requested — fired when user taps "Take me to [shop]" ────
+  function handleTakeMeTo(product: ProductResult, queryText: string) {
+    trackBackendEvent({
+      event_type: "route_requested",
+      shop_id: product.shop_id ?? null,
+      product_id: product.product_id ?? null,
+      mall_id: selectedMall?.id ? String(selectedMall.id) : null,
+      session_id: dbSessionId ?? null,
+      query_text: queryText,
+    });
+    sendMessage(queryText);
+  }
+
   // Navigate to a single shop from a recommendation card
   async function handleNavigateToShop(product: ProductResult) {
     const { data } = await supabase
@@ -624,7 +984,7 @@ const AssistantPage = () => {
   return (
     <MobileShell>
       {/* Header */}
-      <div className="shrink-0 border-b border-border/50">
+      <div className="shrink-0 border-b border-border/50 bg-background/60 backdrop-blur-xl">
         <div className="flex items-center justify-between px-5 pt-5 pb-3">
           <div className="flex items-center gap-3">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/15 border border-primary/30 glow-primary">
@@ -632,13 +992,18 @@ const AssistantPage = () => {
             </div>
             <div>
               <p className="font-display font-bold text-sm">MallMind AI</p>
-              <p className="text-[10px] text-muted-foreground">
-                {selectedMall
-                  ? dbSessionId
-                    ? `Active session · ${selectedMall.name}`
-                    : selectedMall.name
-                  : "Select a mall to start"}
-              </p>
+              <div className="flex items-center gap-1.5">
+                {dbSessionId && (
+                  <span className="h-1.5 w-1.5 rounded-full bg-secondary animate-pulse shrink-0" />
+                )}
+                <p className="text-[10px] text-muted-foreground">
+                  {selectedMall
+                    ? dbSessionId
+                      ? `Active session · ${selectedMall.name}`
+                      : selectedMall.name
+                    : "Select a mall to start"}
+                </p>
+              </div>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -718,7 +1083,7 @@ const AssistantPage = () => {
               </div>
             </div>
             <div className="text-center">
-              <p className="font-display font-bold text-lg">Hey, I'm MallMind AI</p>
+              <p className="font-display font-semibold text-lg">Hey, I'm MallMind AI</p>
               <p className="text-sm text-muted-foreground mt-1 max-w-[260px] leading-relaxed">
                 Tell me what you're looking for and I'll find the best prices across all stores.
               </p>
@@ -729,20 +1094,28 @@ const AssistantPage = () => {
                 Choose a Mall First
               </Button>
             )}
-            <div className="w-full space-y-2">
-              <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground px-1">
+            <div className="w-full">
+              <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground px-1 mb-3">
                 Try asking
               </p>
-              {STARTERS.map((s) => (
-                <button
-                  key={s}
-                  onClick={() => sendMessage(s)}
-                  className="w-full flex items-center gap-2 rounded-xl border border-border bg-surface/60 px-4 py-3 text-sm text-left hover:border-primary/40 hover:bg-surface transition-all"
-                >
-                  <ShoppingBag className="h-4 w-4 text-primary shrink-0" />
-                  {s}
-                </button>
-              ))}
+              {/* Horizontal scrolling chip row */}
+              <div
+                className="overflow-x-auto -mx-4 px-4 pb-1"
+                style={{ scrollbarWidth: "none", msOverflowStyle: "none" } as React.CSSProperties}
+              >
+                <div className="flex gap-2 w-max">
+                  {STARTERS.map((s) => (
+                    <button
+                      key={s}
+                      onClick={() => sendMessage(s)}
+                      className="flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/8 px-4 py-2 text-xs font-medium text-primary/90 hover:bg-primary/15 hover:border-primary/50 hover:shadow-[0_0_12px_hsl(190_100%_50%/0.2)] whitespace-nowrap transition-all active:scale-95 shrink-0"
+                    >
+                      <Sparkles className="h-3 w-3 shrink-0 text-primary/70" />
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -767,7 +1140,7 @@ const AssistantPage = () => {
               msg.role === "user" ? "items-end" : "items-start"
             )}>
               {msg.loading ? (
-                <TypingIndicator />
+                <InlineThinkingState text={msg.loadingText} />
               ) : (
                 <>
                   {msg.content && (
@@ -789,14 +1162,138 @@ const AssistantPage = () => {
                       <p className="text-[9px] uppercase tracking-wider text-primary/70 px-1 flex items-center gap-1">
                         <Store className="h-3 w-3" /> Live mall prices
                       </p>
-                      {msg.products.map((p, i) => (
-                        <RecommendationCard
-                          key={`${p.product_id}-${i}`}
-                          product={p}
-                          onNavigate={handleNavigateToShop}
-                          onAddToList={user ? handleAddToList : undefined}
+
+                      {/* Cards — each wrapped with price-accuracy feedback */}
+                      {msg.products.map((p, i) => {
+                        const priceKey = `${msg.id}:price:${p.product_id ?? i}`;
+                        return (
+                          <div key={`${p.product_id}-${i}`} className="space-y-1">
+                            <RecommendationCard
+                              product={p}
+                              isBestPick={i === 0}
+                              onNavigate={handleNavigateToShop}
+                              onAddToList={user ? handleAddToList : undefined}
+                            />
+                            {/* Part 2: Price accuracy feedback */}
+                            <FeedbackStrip
+                              question="Was this price correct?"
+                              options={[
+                                { label: "Yes", value: "correct" },
+                                { label: "No",  value: "incorrect" },
+                              ]}
+                              done={priceKey in feedbackGiven}
+                              doneMessage={feedbackGiven[priceKey]}
+                              onSelect={(value) => handleFeedback(priceKey, "price_accuracy_feedback", value, p)}
+                            />
+
+                            {/* Part 2b: Price correction — "Price wrong?" trigger / inline form / done */}
+                            {(() => {
+                              const corrKey = p.product_id ?? String(i);
+                              if (correctionDoneIds.has(corrKey)) {
+                                return (
+                                  <p className="text-[10px] text-muted-foreground/55 italic px-1">
+                                    ✓ Price report submitted — thanks!
+                                  </p>
+                                );
+                              }
+                              if (correctionOpenId === corrKey) {
+                                return (
+                                  <PriceCorrectionForm
+                                    product={p}
+                                    mallId={selectedMall?.id ? String(selectedMall.id) : null}
+                                    sessionId={dbSessionId ?? null}
+                                    onClose={() => setCorrectionOpenId(null)}
+                                    onSubmitted={() => {
+                                      setCorrectionDoneIds((prev) => new Set([...prev, corrKey]));
+                                      setCorrectionOpenId(null);
+                                    }}
+                                  />
+                                );
+                              }
+                              return (
+                                <button
+                                  onClick={() => setCorrectionOpenId(corrKey)}
+                                  className="text-[10px] text-amber-500/70 hover:text-amber-500 transition-colors px-1 underline underline-offset-2"
+                                >
+                                  Price wrong?
+                                </button>
+                              );
+                            })()}
+                          </div>
+                        );
+                      })}
+
+                      {/* Trust warning — disputed / expired / needs review */}
+                      {msg.products[0]?.display_warning && (
+                        <div className="flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-600">
+                          <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                          {msg.products[0].display_warning}
+                        </div>
+                      )}
+
+                      {/* Closed-shop warning */}
+                      {msg.products[0]?.is_open_now === false && (
+                        <div className="flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-600">
+                          <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                          Store may be closed right now — confirm trading hours.
+                        </div>
+                      )}
+
+                      {/* Take me to button — only when route not yet built */}
+                      {!msg.routeShopIds?.length && (
+                        <button
+                          onClick={() => {
+                            const queryText = `Take me to ${msg.products![0].shop_name} for the ${msg.products![0].name}`;
+                            handleTakeMeTo(msg.products![0], queryText);
+                          }}
+                          disabled={isLoading}
+                          className={cn(
+                            "w-full flex items-center justify-center gap-2 h-9 rounded-xl border text-xs font-semibold transition-all",
+                            isLoading
+                              ? "border-border bg-surface/60 text-muted-foreground cursor-not-allowed"
+                              : "border-primary/40 bg-primary/10 text-primary hover:bg-primary/15"
+                          )}
+                        >
+                          {isLoading
+                            ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Building route…</>
+                            : <><Navigation className="h-3.5 w-3.5" /> Take me to {msg.products![0].shop_name}</>
+                          }
+                        </button>
+                      )}
+
+                      {/* Route built indicator */}
+                      {msg.routeShopIds && msg.routeShopIds.length > 0 && (
+                        <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-primary/8 border border-primary/25 text-[11px] text-primary font-medium">
+                          <RouteIcon className="h-3.5 w-3.5 shrink-0" />
+                          Route ready · follow the steps below
+                        </div>
+                      )}
+
+                      {/* Part 1: Recommendation feedback */}
+                      <FeedbackStrip
+                        question="Was this helpful?"
+                        options={[
+                          { label: "Useful",     value: "useful",     icon: <ThumbsUp   className="h-3 w-3" /> },
+                          { label: "Not useful", value: "not_useful", icon: <ThumbsDown className="h-3 w-3" /> },
+                        ]}
+                        done={`${msg.id}:recommendation` in feedbackGiven}
+                        doneMessage={feedbackGiven[`${msg.id}:recommendation`]}
+                        onSelect={(value) => handleFeedback(`${msg.id}:recommendation`, "recommendation_feedback", value, msg.products![0])}
+                      />
+
+                      {/* Part 4: Purchase signal — only when no route (route block handles it when route exists) */}
+                      {!msg.routeShopIds?.length && (
+                        <FeedbackStrip
+                          question="Did you buy it?"
+                          options={[
+                            { label: "Bought it", value: "bought"    },
+                            { label: "Not today", value: "not_today" },
+                          ]}
+                          done={`${msg.id}:purchase` in feedbackGiven}
+                          doneMessage={feedbackGiven[`${msg.id}:purchase`]}
+                          onSelect={(value) => handleFeedback(`${msg.id}:purchase`, "purchase_signal", value, msg.products![0])}
                         />
-                      ))}
+                      )}
                     </div>
                   )}
 
@@ -810,28 +1307,41 @@ const AssistantPage = () => {
 
                   {msg.routeShopIds && msg.routeShopIds.length > 0 && (
                     <div className={cn(
-                      "rounded-2xl border p-3 space-y-2 w-full max-w-[300px]",
+                      "rounded-2xl border p-3 space-y-2.5 w-full max-w-[310px]",
                       msg.routeSteps?.length
                         ? "border-primary/50 bg-primary/10"
                         : "border-primary/30 bg-primary/8"
                     )}>
+                      {/* Route header */}
                       <div className="flex items-center gap-2">
-                        <RouteIcon className="h-4 w-4 text-primary" />
+                        <RouteIcon className="h-4 w-4 text-primary shrink-0" />
                         <p className="text-xs font-semibold text-primary">
-                          {msg.routeSteps?.length
-                            ? `Route ready · ${msg.routeSteps.length} steps`
-                            : `Route ready · ${msg.routeShopIds.length} stops`}
+                          {msg.routeSummary || (msg.routeSteps?.length
+                            ? `${msg.routeSteps.length} steps`
+                            : `${msg.routeShopIds.length} stop${msg.routeShopIds.length !== 1 ? "s" : ""}`)}
                         </p>
                       </div>
-                      {msg.routeSummary && (
-                        <p className="text-[11px] text-muted-foreground">{msg.routeSummary}</p>
+
+                      {/* Step-by-step directions */}
+                      {msg.routeSteps && msg.routeSteps.length > 0 && (
+                        <div className="space-y-2 pl-1">
+                          {msg.routeSteps.map((step) => (
+                            <div key={step.step} className="flex items-start gap-2.5">
+                              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/20 border border-primary/30 text-[10px] font-bold text-primary mt-0.5">
+                                {step.step}
+                              </span>
+                              <div className="min-w-0">
+                                <p className="text-[11px] text-foreground leading-snug">{step.instruction}</p>
+                                {step.floor && (
+                                  <p className="text-[9px] text-muted-foreground mt-0.5">Floor {step.floor}</p>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
                       )}
-                      {msg.routeSteps?.length && (
-                        <p className="text-[10px] text-primary/70 flex items-center gap-1">
-                          <RouteIcon className="h-3 w-3" />
-                          AI-optimised step-by-step directions
-                        </p>
-                      )}
+
+                      {/* Start navigation CTA */}
                       <Button
                         variant="neon"
                         size="sm"
@@ -841,6 +1351,47 @@ const AssistantPage = () => {
                         <RouteIcon className="h-4 w-4" />
                         Start Navigation
                       </Button>
+
+                      {/* Part 3: Route success feedback */}
+                      <FeedbackStrip
+                        question="Did you find the store?"
+                        options={[
+                          { label: "Yes", value: "found_store"        },
+                          { label: "No",  value: "did_not_find_store" },
+                        ]}
+                        done={`${msg.id}:route` in feedbackGiven}
+                        doneMessage={feedbackGiven[`${msg.id}:route`]}
+                        onSelect={(value) => handleFeedback(
+                          `${msg.id}:route`,
+                          "route_feedback",
+                          value,
+                          undefined,
+                          {
+                            routeShopIds: msg.routeShopIds!,
+                            routeSummary: msg.routeSummary,
+                            routeSteps:   msg.routeSteps,
+                            routeId:      msg.routeId,
+                          }
+                        )}
+                      />
+
+                      {/* Part 4: Purchase signal (route context) */}
+                      <FeedbackStrip
+                        question="Did you buy it?"
+                        options={[
+                          { label: "Bought it", value: "bought"    },
+                          { label: "Not today", value: "not_today" },
+                        ]}
+                        done={`${msg.id}:purchase` in feedbackGiven}
+                        doneMessage={feedbackGiven[`${msg.id}:purchase`]}
+                        onSelect={(value) => handleFeedback(
+                          `${msg.id}:purchase`,
+                          "purchase_signal",
+                          value,
+                          msg.products?.[0],
+                          { routeShopIds: msg.routeShopIds! }
+                        )}
+                      />
                     </div>
                   )}
                 </>
@@ -853,7 +1404,7 @@ const AssistantPage = () => {
       </div>
 
       {/* Input bar */}
-      <div className="shrink-0 px-4 pb-24 pt-2 border-t border-border/50 bg-background/80 backdrop-blur">
+      <div className="shrink-0 px-4 pb-24 pt-2 border-t border-border/50 bg-background/90 backdrop-blur-xl">
 
         {/* Budget input row */}
         {showBudgetInput && (
@@ -892,7 +1443,11 @@ const AssistantPage = () => {
           <div className="flex items-center justify-between mb-2">
             {messages.length > 0 ? (
               <button
-                onClick={() => setMessages([])}
+                onClick={() => {
+                  setMessages([]);
+                  setCorrectionOpenId(null);
+                  setCorrectionDoneIds(new Set());
+                }}
                 className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
               >
                 <X className="h-3 w-3" />
