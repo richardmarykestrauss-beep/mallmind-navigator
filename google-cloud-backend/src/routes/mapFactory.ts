@@ -181,6 +181,89 @@ router.post("/jobs", async (req: Request, res: Response) => {
   res.status(201).json({ ok: true, job });
 });
 
+// ── Shared Pipeline Logic ─────────────────────────────────────────────────────
+
+async function executeStage(
+  jobId: string,
+  mallId: string,
+  stage: string,
+  floorLabel: string | null,
+  publishedBy: string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+) {
+  switch (stage) {
+    case "source_discovery": {
+      await advanceJobStage(jobId, "source_discovery", "running", supabase);
+      const discovered = await discoverSourcesForMall(mallId, supabase);
+      let inserted = 0;
+      for (const src of discovered) {
+        const { error: insertErr } = await supabase.from("map_factory_sources").insert({
+          job_id: jobId, mall_id: mallId, source_type: src.source_type,
+          url: src.url, asset_id: src.asset_id, title: src.title, confidence: src.confidence, notes: src.notes, status: "discovered",
+        });
+        if (!insertErr) inserted++;
+      }
+      await advanceJobStage(jobId, "asset_harvest", "paused", supabase);
+      return { ok: true, next_stage: "asset_harvest", detail: `Discovered ${inserted} sources` };
+    }
+    case "asset_harvest": {
+      await advanceJobStage(jobId, "asset_harvest", "running", supabase);
+      const r = await harvestAllSourcesForJob(jobId, mallId, supabase);
+      await advanceJobStage(jobId, "ai_extraction", "paused", supabase);
+      return { ok: true, next_stage: "ai_extraction", detail: r };
+    }
+    case "ai_extraction": {
+      await advanceJobStage(jobId, "ai_extraction", "running", supabase);
+      const r = await extractAllAssetsForJob(jobId, mallId, supabase);
+      await advanceJobStage(jobId, "layout_intelligence", "paused", supabase);
+      return { ok: true, next_stage: "layout_intelligence", detail: r };
+    }
+    case "layout_intelligence": {
+      await advanceJobStage(jobId, "layout_intelligence", "running", supabase);
+      const r = await buildLayoutModel(jobId, mallId, floorLabel, supabase);
+      if (r.ok) await advanceJobStage(jobId, "floorplan_generation", "paused", supabase);
+      else      await advanceJobStage(jobId, "layout_intelligence", "failed", supabase);
+      return { ok: r.ok, next_stage: "floorplan_generation", detail: r };
+    }
+    case "floorplan_generation": {
+      if (!floorLabel) return { ok: false, error: "floor_label required for floorplan_generation" };
+      await advanceJobStage(jobId, "floorplan_generation", "running", supabase);
+      const r = await generateFloorPlan(jobId, mallId, floorLabel, supabase);
+      if (r.ok) await advanceJobStage(jobId, "route_graph_build", "paused", supabase);
+      else      await advanceJobStage(jobId, "floorplan_generation", "failed", supabase);
+      return { ok: r.ok, next_stage: "route_graph_build", detail: { floorPlanId: r.floorPlanId }, error: r.error };
+    }
+    case "route_graph_build": {
+      await advanceJobStage(jobId, "route_graph_build", "running", supabase);
+      const r = await buildRouteGraph(jobId, mallId, floorLabel, supabase);
+      if (r.ok) await advanceJobStage(jobId, "qa_review", "paused", supabase);
+      else      await advanceJobStage(jobId, "route_graph_build", "failed", supabase);
+      return { ok: r.ok, next_stage: "qa_review", detail: r };
+    }
+    case "qa_review": {
+      await advanceJobStage(jobId, "qa_review", "running", supabase);
+      const r = await runQaChecks(jobId, mallId, supabase);
+      await advanceJobStage(jobId, r.passed ? "publish" : "qa_review", "paused", supabase);
+      return { ok: r.ok, next_stage: r.passed ? "publish" : "qa_review", detail: r };
+    }
+    case "publish": {
+      await advanceJobStage(jobId, "publish", "running", supabase);
+      const r = await publishJob(jobId, mallId, publishedBy, supabase);
+      if (!r.ok && r.blockedReason) {
+        await advanceJobStage(jobId, "qa_review", "paused", supabase);
+      } else if (!r.ok) {
+        await advanceJobStage(jobId, "publish", "failed", supabase);
+      } else {
+        await advanceJobStage(jobId, "publish", "complete", supabase);
+      }
+      return { ok: r.ok, next_stage: "complete", detail: r, blocked: !!r.blockedReason, reason: r.blockedReason };
+    }
+    default:
+      return { ok: false, error: `Unknown stage: ${stage}` };
+  }
+}
+
 // ── POST /jobs/:jobId/discover-sources ────────────────────────────────────────
 
 router.post("/jobs/:jobId/discover-sources", async (req: Request, res: Response) => {
@@ -191,29 +274,8 @@ router.post("/jobs/:jobId/discover-sources", async (req: Request, res: Response)
   const { data: job } = await supabase.from("map_factory_jobs").select("id, mall_id").eq("id", jobId).single();
   if (!job) return res.status(404).json({ error: "Job not found" });
 
-  await advanceJobStage(jobId, "source_discovery", "running", supabase);
-
-  const discovered = await discoverSourcesForMall(job.mall_id, supabase);
-
-  // Insert sources (skip duplicates by url/asset_id within job)
-  let inserted = 0;
-  for (const src of discovered) {
-    const { error: insertErr } = await supabase.from("map_factory_sources").insert({
-      job_id:      jobId,
-      mall_id:     job.mall_id,
-      source_type: src.source_type,
-      url:         src.url,
-      asset_id:    src.asset_id,
-      title:       src.title,
-      confidence:  src.confidence,
-      notes:       src.notes,
-      status:      "discovered",
-    });
-    if (!insertErr) inserted++;
-  }
-
-  await advanceJobStage(jobId, "asset_harvest", "paused", supabase);
-  res.json({ ok: true, sources_discovered: inserted, total_found: discovered.length });
+  const result = await executeStage(jobId, job.mall_id, "source_discovery", null, "", supabase);
+  res.json(result);
 });
 
 // ── POST /jobs/:jobId/harvest ─────────────────────────────────────────────────
@@ -226,11 +288,8 @@ router.post("/jobs/:jobId/harvest", async (req: Request, res: Response) => {
   const { data: job } = await supabase.from("map_factory_jobs").select("id, mall_id").eq("id", jobId).single();
   if (!job) return res.status(404).json({ error: "Job not found" });
 
-  await advanceJobStage(jobId, "asset_harvest", "running", supabase);
-  const result = await harvestAllSourcesForJob(jobId, job.mall_id, supabase);
-  await advanceJobStage(jobId, "ai_extraction", "paused", supabase);
-
-  res.json({ ok: true, ...result });
+  const result = await executeStage(jobId, job.mall_id, "asset_harvest", null, "", supabase);
+  res.json(result);
 });
 
 // ── POST /jobs/:jobId/extract ─────────────────────────────────────────────────
@@ -243,11 +302,8 @@ router.post("/jobs/:jobId/extract", async (req: Request, res: Response) => {
   const { data: job } = await supabase.from("map_factory_jobs").select("id, mall_id").eq("id", jobId).single();
   if (!job) return res.status(404).json({ error: "Job not found" });
 
-  await advanceJobStage(jobId, "ai_extraction", "running", supabase);
-  const result = await extractAllAssetsForJob(jobId, job.mall_id, supabase);
-  await advanceJobStage(jobId, "layout_intelligence", "paused", supabase);
-
-  res.json({ ok: true, ...result });
+  const result = await executeStage(jobId, job.mall_id, "ai_extraction", null, "", supabase);
+  res.json(result);
 });
 
 // ── POST /jobs/:jobId/build-layout ────────────────────────────────────────────
@@ -261,11 +317,8 @@ router.post("/jobs/:jobId/build-layout", async (req: Request, res: Response) => 
   const { data: job } = await supabase.from("map_factory_jobs").select("id, mall_id").eq("id", jobId).single();
   if (!job) return res.status(404).json({ error: "Job not found" });
 
-  await advanceJobStage(jobId, "layout_intelligence", "running", supabase);
-  const result = await buildLayoutModel(jobId, job.mall_id, floor_label ?? null, supabase);
-  if (result.ok) await advanceJobStage(jobId, "floorplan_generation", "paused", supabase);
-  else           await advanceJobStage(jobId, "layout_intelligence", "failed", supabase);
-
+  const result = await executeStage(jobId, job.mall_id, "layout_intelligence", floor_label ?? null, "", supabase);
+  if (!result.ok) return res.status(500).json(result);
   res.json(result);
 });
 
@@ -276,17 +329,13 @@ router.post("/jobs/:jobId/generate-floorplan", async (req: Request, res: Respons
   const supabase = getSupabaseClient();
   const jobId = req.params.jobId as string;
   const { floor_label } = req.body ?? {};
-  if (!floor_label) return res.status(400).json({ error: "floor_label is required" });
 
   const { data: job } = await supabase.from("map_factory_jobs").select("id, mall_id").eq("id", jobId).single();
   if (!job) return res.status(404).json({ error: "Job not found" });
 
-  await advanceJobStage(jobId, "floorplan_generation", "running", supabase);
-  const result = await generateFloorPlan(jobId, job.mall_id, floor_label, supabase);
-  if (result.ok) await advanceJobStage(jobId, "route_graph_build", "paused", supabase);
-  else           await advanceJobStage(jobId, "floorplan_generation", "failed", supabase);
-
-  res.json({ ok: result.ok, floorPlanId: result.floorPlanId, error: result.error });
+  const result = await executeStage(jobId, job.mall_id, "floorplan_generation", floor_label ?? null, "", supabase);
+  if (!result.ok) return res.status(500).json(result);
+  res.json(result);
 });
 
 // ── POST /jobs/:jobId/build-route-graph ───────────────────────────────────────
@@ -300,11 +349,8 @@ router.post("/jobs/:jobId/build-route-graph", async (req: Request, res: Response
   const { data: job } = await supabase.from("map_factory_jobs").select("id, mall_id").eq("id", jobId).single();
   if (!job) return res.status(404).json({ error: "Job not found" });
 
-  await advanceJobStage(jobId, "route_graph_build", "running", supabase);
-  const result = await buildRouteGraph(jobId, job.mall_id, floor_label ?? null, supabase);
-  if (result.ok) await advanceJobStage(jobId, "qa_review", "paused", supabase);
-  else           await advanceJobStage(jobId, "route_graph_build", "failed", supabase);
-
+  const result = await executeStage(jobId, job.mall_id, "route_graph_build", floor_label ?? null, "", supabase);
+  if (!result.ok) return res.status(500).json(result);
   res.json(result);
 });
 
@@ -318,10 +364,7 @@ router.post("/jobs/:jobId/run-qa", async (req: Request, res: Response) => {
   const { data: job } = await supabase.from("map_factory_jobs").select("id, mall_id").eq("id", jobId).single();
   if (!job) return res.status(404).json({ error: "Job not found" });
 
-  await advanceJobStage(jobId, "qa_review", "running", supabase);
-  const result = await runQaChecks(jobId, job.mall_id, supabase);
-  await advanceJobStage(jobId, result.passed ? "publish" : "qa_review", "paused", supabase);
-
+  const result = await executeStage(jobId, job.mall_id, "qa_review", null, "", supabase);
   res.json(result);
 });
 
@@ -335,21 +378,12 @@ router.post("/jobs/:jobId/publish", async (req: Request, res: Response) => {
   const { data: job } = await supabase.from("map_factory_jobs").select("id, mall_id").eq("id", jobId).single();
   if (!job) return res.status(404).json({ error: "Job not found" });
 
-  // full_name already resolved during requireAdmin — no second profile query needed
-  const publishedBy = auth.fullName ?? auth.userId;
+  const result = await executeStage(jobId, job.mall_id, "publish", null, auth.fullName ?? auth.userId, supabase);
 
-  await advanceJobStage(jobId, "publish", "running", supabase);
-  const result = await publishJob(jobId, job.mall_id, publishedBy, supabase);
-
-  if (!result.ok && result.blockedReason) {
-    await advanceJobStage(jobId, "qa_review", "paused", supabase);
-    return res.status(422).json({ ok: false, blocked: true, reason: result.blockedReason });
-  }
   if (!result.ok) {
-    await advanceJobStage(jobId, "publish", "failed", supabase);
-    return res.status(500).json({ ok: false, error: result.error });
+    if (result.blocked) return res.status(422).json(result);
+    return res.status(500).json(result);
   }
-
   res.json(result);
 });
 
@@ -393,69 +427,13 @@ router.post("/jobs/:jobId/next-step", async (req: Request, res: Response) => {
   if (!job) return res.status(404).json({ error: "Job not found" });
 
   const { floor_label } = req.body ?? {};
-  const stage = job.stage as string;
+  const result = await executeStage(jobId, job.mall_id, job.stage, floor_label ?? null, auth.fullName ?? auth.userId, supabase);
 
-  // Delegate to the appropriate stage handler by reusing internal logic
-  switch (stage) {
-    case "source_discovery": {
-      const discovered = await discoverSourcesForMall(job.mall_id, supabase);
-      let inserted = 0;
-      for (const src of discovered) {
-        const { error: insertErr } = await supabase.from("map_factory_sources").insert({
-          job_id: jobId, mall_id: job.mall_id, source_type: src.source_type,
-          url: src.url, asset_id: src.asset_id, title: src.title, confidence: src.confidence, notes: src.notes, status: "discovered",
-        });
-        if (!insertErr) inserted++;
-      }
-      await advanceJobStage(jobId, "asset_harvest", "paused", supabase);
-      return res.json({ ok: true, next_stage: "asset_harvest", detail: `Discovered ${inserted} sources` });
-    }
-    case "asset_harvest": {
-      await advanceJobStage(jobId, "asset_harvest", "running", supabase);
-      const r = await harvestAllSourcesForJob(jobId, job.mall_id, supabase);
-      await advanceJobStage(jobId, "ai_extraction", "paused", supabase);
-      return res.json({ ok: true, next_stage: "ai_extraction", detail: r });
-    }
-    case "ai_extraction": {
-      await advanceJobStage(jobId, "ai_extraction", "running", supabase);
-      const r = await extractAllAssetsForJob(jobId, job.mall_id, supabase);
-      await advanceJobStage(jobId, "layout_intelligence", "paused", supabase);
-      return res.json({ ok: true, next_stage: "layout_intelligence", detail: r });
-    }
-    case "layout_intelligence": {
-      await advanceJobStage(jobId, "layout_intelligence", "running", supabase);
-      const r = await buildLayoutModel(jobId, job.mall_id, floor_label ?? null, supabase);
-      if (r.ok) await advanceJobStage(jobId, "floorplan_generation", "paused", supabase);
-      return res.json({ ok: r.ok, next_stage: "floorplan_generation", detail: r });
-    }
-    case "floorplan_generation": {
-      if (!floor_label) return res.status(400).json({ error: "floor_label required for floorplan_generation step" });
-      await advanceJobStage(jobId, "floorplan_generation", "running", supabase);
-      const r = await generateFloorPlan(jobId, job.mall_id, floor_label, supabase);
-      if (r.ok) await advanceJobStage(jobId, "route_graph_build", "paused", supabase);
-      return res.json({ ok: r.ok, next_stage: "route_graph_build", detail: { floorPlanId: r.floorPlanId } });
-    }
-    case "route_graph_build": {
-      await advanceJobStage(jobId, "route_graph_build", "running", supabase);
-      const r = await buildRouteGraph(jobId, job.mall_id, floor_label ?? null, supabase);
-      if (r.ok) await advanceJobStage(jobId, "qa_review", "paused", supabase);
-      return res.json({ ok: r.ok, next_stage: "qa_review", detail: r });
-    }
-    case "qa_review": {
-      await advanceJobStage(jobId, "qa_review", "running", supabase);
-      const r = await runQaChecks(jobId, job.mall_id, supabase);
-      await advanceJobStage(jobId, r.passed ? "publish" : "qa_review", "paused", supabase);
-      return res.json({ ok: r.ok, next_stage: r.passed ? "publish" : "qa_review", detail: r });
-    }
-    case "publish": {
-      const publishedBy = auth.fullName ?? auth.userId;
-      await advanceJobStage(jobId, "publish", "running", supabase);
-      const r = await publishJob(jobId, job.mall_id, publishedBy, supabase);
-      return res.json({ ok: r.ok, next_stage: "complete", detail: r });
-    }
-    default:
-      return res.status(400).json({ error: `Unknown stage: ${stage}` });
+  if (!result.ok) {
+    if (result.blocked) return res.status(422).json(result);
+    return res.status(500).json(result);
   }
+  res.json(result);
 });
 
 // ── POST /jobs/:jobId/extraction/provider-test ────────────────────────────────

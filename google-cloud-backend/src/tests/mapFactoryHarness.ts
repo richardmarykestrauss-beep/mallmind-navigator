@@ -744,7 +744,7 @@ section("Suite 7 — Provider Registry: defaults with no env vars");
   assert(isGoogleAiEnabled() === false || status.gemini_vision_extraction === false,
     "gemini_vision_extraction off when ENABLE_GOOGLE_AI not set or GEMINI_API_KEY absent");
   assert(isGoogleAiEnabled() === false || status.google_vision_ocr === false,
-    "google_vision_ocr off when ENABLE_GOOGLE_AI not set or VISION_API_KEY absent");
+    "google_vision_ocr off when ENABLE_GOOGLE_AI not set or GOOGLE_CLOUD_PROJECT absent");
   assert(isGoogleAiEnabled() === false || status.google_document_ai_layout === false,
     "google_document_ai_layout off when ENABLE_GOOGLE_AI not set or project vars absent");
 
@@ -802,9 +802,9 @@ section("Suite 7 — Provider Status: no secrets in response shape");
   const statusStr = JSON.stringify(status);
 
   // API keys must not appear in status output
+  // Vision OCR now uses ADC — no GOOGLE_CLOUD_VISION_API_KEY in play
   const sensitivePatterns = [
     process.env.GEMINI_API_KEY,
-    process.env.GOOGLE_CLOUD_VISION_API_KEY,
     process.env.GOOGLE_CLOUD_PROJECT,
     process.env.GOOGLE_DOCUMENT_AI_PROCESSOR_ID,
   ].filter(Boolean);

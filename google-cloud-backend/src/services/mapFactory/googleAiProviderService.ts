@@ -1,27 +1,37 @@
 /**
- * googleAiProviderService.ts — Sprint 16
+ * googleAiProviderService.ts — Sprint 16.1
  *
- * Four thin wrapper functions that call Google AI APIs when the relevant
- * environment variables are present.  Every function:
- *   • Returns a structured "not_configured" result when env vars are missing —
- *     never throws due to missing configuration.
+ * Thin wrappers for Google AI APIs used by the Map Factory extraction pipeline.
+ *
+ * Authentication strategy:
+ *   • Google Vision OCR — uses Application Default Credentials (ADC) via the
+ *     official @google-cloud/vision Node.js client.  On Cloud Run this is the
+ *     service account identity; in local dev run
+ *     `gcloud auth application-default login` once.  No API key required.
+ *   • Gemini (Vision extraction + Embedding) — uses GEMINI_API_KEY (REST).
+ *   • Document AI — skeleton only; requires google-auth-library OAuth flow
+ *     (not yet implemented).
+ *
+ * Every function:
+ *   • Returns a structured "not_configured" result when prerequisites are absent
+ *     — never throws due to missing configuration.
  *   • Only activates when MAP_FACTORY_ENABLE_GOOGLE_AI=true (explicit opt-in).
- *   • Never logs API keys or secrets.
+ *   • Never logs API keys or project credentials.
  *
  * Providers:
- *   runVisionOcr()           — Google Vision OCR (GOOGLE_CLOUD_VISION_API_KEY)
- *   runDocumentAiLayout()    — Document AI layout (GOOGLE_CLOUD_PROJECT +
- *                              GOOGLE_DOCUMENT_AI_PROCESSOR_ID) — skeleton only
+ *   runVisionOcr()              — Google Vision text detection (ADC)
+ *   runDocumentAiLayout()       — Document AI layout (skeleton)
  *   runGeminiVisionExtraction() — Gemini 1.5 Flash vision (GEMINI_API_KEY)
- *   runGeminiEmbedding()     — Gemini text-embedding (GEMINI_API_KEY)
+ *   runGeminiEmbedding()        — Gemini text-embedding (GEMINI_API_KEY)
  *
  * Config helpers (used by mapFactoryProviderRegistry.ts):
- *   isVisionConfigured()
+ *   isGoogleAiEnabled()
+ *   isVisionConfigured()        — true when GOOGLE_CLOUD_PROJECT present + AI enabled
  *   isDocumentAiConfigured()
  *   isGeminiConfigured()
- *   isGoogleAiEnabled()
  */
 
+import { ImageAnnotatorClient } from "@google-cloud/vision";
 import type { DetectedAnchor, DetectedCorridor } from "../mapImageExtractionService.js";
 
 // ── Config helpers ────────────────────────────────────────────────────────────
@@ -31,8 +41,12 @@ export function isGoogleAiEnabled(): boolean {
   return process.env.MAP_FACTORY_ENABLE_GOOGLE_AI === "true";
 }
 
+/**
+ * Vision OCR is available when Google AI is enabled and GOOGLE_CLOUD_PROJECT
+ * is set.  Authentication is handled by ADC — no API key is required.
+ */
 export function isVisionConfigured(): boolean {
-  return isGoogleAiEnabled() && !!process.env.GOOGLE_CLOUD_VISION_API_KEY;
+  return isGoogleAiEnabled() && !!process.env.GOOGLE_CLOUD_PROJECT;
 }
 
 export function isDocumentAiConfigured(): boolean {
@@ -59,15 +73,39 @@ export interface ProviderResult<T = unknown> {
 }
 
 // ── 1. Google Vision OCR ──────────────────────────────────────────────────────
+//
+// Uses the official @google-cloud/vision Node.js client which authenticates
+// through Application Default Credentials (ADC).  On Cloud Run the runtime
+// service account is used automatically — no GOOGLE_CLOUD_VISION_API_KEY needed.
+//
+// Local development:
+//   gcloud auth application-default login
+//   export GOOGLE_CLOUD_PROJECT=your-project-id
+//   export MAP_FACTORY_ENABLE_GOOGLE_AI=true
 
 export interface VisionOcrResult {
-  full_text:  string;
+  full_text:   string;
   text_blocks: Array<{ text: string; confidence: number }>;
 }
 
+// Lazy singleton — created on first use so module load never blocks
+let _visionClient: ImageAnnotatorClient | null = null;
+
+function getVisionClient(): ImageAnnotatorClient {
+  if (!_visionClient) {
+    _visionClient = new ImageAnnotatorClient({
+      projectId: process.env.GOOGLE_CLOUD_PROJECT,
+      // Credentials come from ADC (Cloud Run SA / gcloud application-default)
+    });
+  }
+  return _visionClient;
+}
+
 /**
- * Send an image URL to the Google Vision API for OCR.
- * Returns not_configured when the API key is absent or Google AI is disabled.
+ * Run Google Vision text detection on an image URL.
+ * Fetches the image bytes and sends them to the Vision API via ADC.
+ * Returns not_configured when Google AI is disabled or GOOGLE_CLOUD_PROJECT
+ * is absent.
  */
 export async function runVisionOcr(
   imageUrl: string,
@@ -76,58 +114,41 @@ export async function runVisionOcr(
     return { status: "not_configured", provider: "google_vision_ocr" };
   }
 
-  const apiKey = process.env.GOOGLE_CLOUD_VISION_API_KEY!;
-
   try {
-    const body = {
-      requests: [
-        {
-          image:    { source: { imageUri: imageUrl } },
-          features: [{ type: "TEXT_DETECTION" }],
-        },
-      ],
-    };
+    const client      = getVisionClient();
+    const imageContent = await fetchImageBuffer(imageUrl);
 
-    const resp = await fetch(
-      `https://vision.googleapis.com/v1/images:annotate?key=${apiKey}`,
-      {
-        method:  "POST",
-        headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify(body),
-      },
-    );
-
-    if (!resp.ok) {
-      const errText = await resp.text();
-      return {
-        status:   "error",
-        provider: "google_vision_ocr",
-        error:    `Vision API ${resp.status}: ${errText.slice(0, 200)}`,
-      };
-    }
+    const [response] = await client.textDetection({
+      image: { content: imageContent },
+    });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const json: any = await resp.json();
-    const annotation = json?.responses?.[0]?.fullTextAnnotation;
+    const annotation = (response as any).fullTextAnnotation as {
+      text?: string;
+      pages?: Array<{
+        blocks?: Array<{
+          confidence?: number;
+          paragraphs?: Array<{
+            words?: Array<{ symbols?: Array<{ text?: string }> }>;
+          }>;
+        }>;
+      }>;
+    } | null | undefined;
+
     const fullText: string = annotation?.text ?? "";
 
-    // Extract individual text blocks
-    const pages = annotation?.pages ?? [];
     const textBlocks: Array<{ text: string; confidence: number }> = [];
-    for (const page of pages) {
+    for (const page of (annotation?.pages ?? [])) {
       for (const block of (page.blocks ?? [])) {
         const blockText: string = (block.paragraphs ?? [])
-          .flatMap((p: { words?: Array<{ symbols?: Array<{ text?: string }> }> }) =>
+          .flatMap((p) =>
             (p.words ?? []).map((w) =>
               (w.symbols ?? []).map((s) => s.text ?? "").join("")
             )
           )
           .join(" ");
         if (blockText.trim()) {
-          textBlocks.push({
-            text:       blockText.trim(),
-            confidence: block.confidence ?? 0,
-          });
+          textBlocks.push({ text: blockText.trim(), confidence: block.confidence ?? 0 });
         }
       }
     }
@@ -137,25 +158,27 @@ export async function runVisionOcr(
       provider: "google_vision_ocr",
       data:     { full_text: fullText, text_blocks: textBlocks },
     };
+
   } catch (err) {
     return {
       status:   "error",
       provider: "google_vision_ocr",
-      error:    String(err),
+      error:    `Vision OCR failed: ${String(err)}`,
     };
   }
 }
 
 // ── 2. Document AI Layout ─────────────────────────────────────────────────────
 //
-// Document AI requires OAuth 2.0 (service account) — not a simple API key.
-// Implementing the full OAuth flow depends on `google-auth-library` which is not
-// currently installed in this backend.  This function is a skeleton that returns
-// "not_configured" so the rest of the provider chain can fall through gracefully.
-// When Document AI is needed, install `google-auth-library` and replace the body.
+// Document AI requires OAuth 2.0 (service account) — currently a skeleton.
+// When Document AI is needed, install google-auth-library and implement the
+// OAuth token refresh + REST call to
+//   POST https://documentai.googleapis.com/v1/projects/{project}/locations/{location}/
+//            processors/{processorId}:process
+// The @google-cloud/vision client pattern above can be reused.
 
 export interface DocumentAiLayoutResult {
-  pages:   number;
+  pages:    number;
   entities: Array<{ type: string; text: string; confidence: number }>;
 }
 
@@ -166,11 +189,11 @@ export async function runDocumentAiLayout(
     return { status: "not_configured", provider: "google_document_ai_layout" };
   }
 
-  // Skeleton — OAuth implementation requires google-auth-library
+  // Skeleton — full implementation deferred
   return {
     status:   "not_configured",
     provider: "google_document_ai_layout",
-    error:    "Document AI OAuth not yet implemented — install google-auth-library to enable",
+    error:    "Document AI not yet implemented — use Gemini Vision as primary extractor",
   };
 }
 
@@ -219,7 +242,7 @@ export interface GeminiExtractionResult {
 
 /**
  * Call Gemini 1.5 Flash with an image URL for anchor + corridor extraction.
- * Returns not_configured when the API key is absent or Google AI is disabled.
+ * Returns not_configured when GEMINI_API_KEY is absent or Google AI is disabled.
  */
 export async function runGeminiVisionExtraction(
   imageUrl: string,
@@ -243,7 +266,7 @@ export async function runGeminiVisionExtraction(
         },
       ],
       generationConfig: {
-        temperature:     0,
+        temperature:      0,
         responseMimeType: "application/json",
       },
     };
@@ -280,7 +303,6 @@ export async function runGeminiVisionExtraction(
         raw_response:       rawText,
       };
 
-      // Normalise anchors — ensure required fields exist
       parsed.detected_anchors = parsed.detected_anchors.map((a) => ({
         label:            String(a.label ?? ""),
         anchor_type:      String(a.anchor_type ?? "shop"),
@@ -320,13 +342,13 @@ export async function runGeminiVisionExtraction(
 // ── 4. Gemini Embedding ───────────────────────────────────────────────────────
 
 export interface GeminiEmbeddingResult {
-  embedding: number[];
+  embedding:  number[];
   dimensions: number;
 }
 
 /**
  * Generate a text embedding for a store/landmark label using Gemini.
- * Returns not_configured when the API key is absent or Google AI is disabled.
+ * Returns not_configured when GEMINI_API_KEY is absent or Google AI is disabled.
  */
 export async function runGeminiEmbedding(
   text: string,
@@ -383,12 +405,20 @@ export async function runGeminiEmbedding(
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
 /**
+ * Fetch an image URL and return its raw bytes as a Buffer.
+ * Used by both Vision OCR and Gemini Vision.
+ */
+async function fetchImageBuffer(url: string): Promise<Buffer> {
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error(`Failed to fetch image: HTTP ${resp.status} — ${url}`);
+  const arrayBuffer = await resp.arrayBuffer();
+  return Buffer.from(arrayBuffer);
+}
+
+/**
  * Fetch an image URL and return its contents as a base64 string.
- * Used to embed the image inline in Gemini requests.
+ * Used to embed images inline in Gemini requests.
  */
 async function fetchImageAsBase64(url: string): Promise<string> {
-  const resp = await fetch(url);
-  if (!resp.ok) throw new Error(`Failed to fetch image for Gemini: HTTP ${resp.status} — ${url}`);
-  const buffer = await resp.arrayBuffer();
-  return Buffer.from(buffer).toString("base64");
+  return (await fetchImageBuffer(url)).toString("base64");
 }
