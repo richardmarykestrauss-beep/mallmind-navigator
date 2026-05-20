@@ -28,3 +28,6 @@ dist-ssr
 *.sln
 *.sw?
 .claude/
+
+# Dev agent reports — generated output, not source
+reports/dev-agent/

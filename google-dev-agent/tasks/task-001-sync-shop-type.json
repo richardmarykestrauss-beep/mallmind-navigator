@@ -1,0 +1,16 @@
+{
+  "task_id": "task-001",
+  "task_type": "IMPLEMENT_TASK",
+  "description": "Add opening_time and closing_time to the frontend Shop type",
+  "instruction": "In src/lib/supabaseClient.ts, add two new fields to the Shop type definition: opening_time (type: string | null) and closing_time (type: string | null). These columns exist in the Supabase shops table and are already present in the backend Shop type at google-cloud-backend/src/lib/types.ts. The frontend type is missing them, which means frontend code cannot safely access store hours from shop objects returned by Supabase. Add both fields after the existing category field. Do not change any other part of the file.",
+  "read_paths": [
+    "src/lib/supabaseClient.ts",
+    "google-cloud-backend/src/lib/types.ts"
+  ],
+  "allowed_write_paths": [
+    "src/lib/supabaseClient.ts"
+  ],
+  "build_target": "frontend",
+  "run_verify": false,
+  "context": "The backend Shop type at google-cloud-backend/src/lib/types.ts already has opening_time: string | null and closing_time: string | null. The frontend Shop type at src/lib/supabaseClient.ts does not have these fields. The shops table in Supabase has both columns. This is a pure TypeScript type addition — no runtime logic changes. The build verification (npm run build) will confirm the types compile correctly."
+}

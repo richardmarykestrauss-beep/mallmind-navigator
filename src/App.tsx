@@ -10,6 +10,7 @@ import { AuthProvider } from "@/context/AuthContext";
 
 // Eagerly load the shell + first screen (no flash)
 import Index from "./pages/Index.tsx";
+import PageLoader from "@/components/PageLoader";
 
 // Lazy-load all other pages (code-split per route)
 const Malls         = lazy(() => import("./pages/Malls.tsx"));
@@ -22,7 +23,7 @@ const Rewards       = lazy(() => import("./pages/Rewards.tsx"));
 const Profile       = lazy(() => import("./pages/Profile.tsx"));
 const AssistantPage = lazy(() => import("./pages/AssistantPage.tsx"));
 const AuthPage        = lazy(() => import("./pages/AuthPage.tsx"));
-const AdminDashboard  = lazy(() => import("./pages/AdminDashboard.tsx"));
+const AdminDashboard  = lazy(() => import("./pages/admin/AdminDashboard.tsx"));
 const NotFound        = lazy(() => import("./pages/NotFound.tsx"));
 
 const queryClient = new QueryClient();
@@ -36,7 +37,7 @@ const App = () => (
           <Toaster />
           <Sonner />
           <BrowserRouter>
-            <Suspense fallback={null}>
+            <Suspense fallback={<PageLoader />}>
               <Routes>
                 <Route path="/" element={<Index />} />
                 <Route path="/malls" element={<Malls />} />

@@ -14,8 +14,9 @@ import MobileShell from "@/components/MobileShell";
 import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
 
-const SUPABASE_URL  = "https://qspsouemjtcdcfnivpnt.supabase.co";
-const SUPABASE_ANON_KEY = "sb_publishable_46teArH5kq3ndUUBHwLsjw_NnFRGCsI";
+// NOTE: This file is superseded by src/pages/admin/AdminDashboard.tsx.
+// It is kept as a legacy stub. Keys are read from env vars — never hardcode.
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from "@/lib/env";
 
 const CHART_COLORS = ["#00d4ff", "#00ff88", "#a855f7", "#f59e0b", "#ef4444", "#ec4899"];
 
