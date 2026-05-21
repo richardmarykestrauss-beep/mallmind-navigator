@@ -66,22 +66,58 @@ function dijkstra(
   return { path, edges: traversedEdges, totalDistance: dist[endId] };
 }
 
+function formatFloorLabel(floor: string | null | undefined): string {
+  if (!floor) return "the mall";
+
+  const trimmed = String(floor).trim();
+  if (trimmed === "G") return "Ground Floor";
+
+  const levelMatch = trimmed.match(/^L(\d+)$/i);
+  if (levelMatch) return `Level ${levelMatch[1]}`;
+
+  return trimmed;
+}
+
+function isInternalNavigationNode(node: MallNode | undefined): boolean {
+  if (!node) return false;
+  if (node.linked_shop_id) return false;
+
+  const name = (node.name ?? "").toLowerCase();
+
+  const nodeType = String(node.type ?? "");
+
+  return (
+    nodeType === "corridor" ||
+    name.includes("spine") ||
+    name.includes("corridor") ||
+    name.includes("junction") ||
+    /\bnode\s*\d+\b/i.test(name)
+  );
+}
+
 function buildInstruction(
   fromNode: MallNode,
   toNode: MallNode,
   edge: MallEdge,
   isFirst: boolean
 ): string {
+  const floorLabel = formatFloorLabel(toNode.floor ?? fromNode.floor);
+
   if (isFirst) {
-    return `Start on Floor ${toNode.floor ?? "G"} — head toward ${toNode.name}`;
+    const startName = isInternalNavigationNode(fromNode) ? null : fromNode.name;
+    if (startName) return `Start at ${startName} and head into ${floorLabel}.`;
+    return `Start in ${floorLabel} and head into the main corridor.`;
   }
+
   if (edge.floor_change) {
-    const dir =
-      (fromNode.y_coordinate ?? 0) < (toNode.y_coordinate ?? 0) ? "up" : "down";
-    return `Take the escalator/lift ${dir} to Floor ${toNode.floor ?? "?"}`;
+    return `Take the escalator or lift to ${floorLabel}.`;
   }
-  if (edge.instruction) return edge.instruction;
-  return `Walk to ${toNode.name} on Floor ${toNode.floor ?? "?"}`;
+
+  if (isInternalNavigationNode(toNode)) {
+    return `Continue along the ${floorLabel} corridor.`;
+  }
+
+  return `Walk toward ${toNode.name}.`;
 }
 
 // ── Main function ─────────────────────────────────────────────────────────────
