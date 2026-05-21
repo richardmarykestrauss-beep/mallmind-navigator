@@ -389,8 +389,9 @@ export async function buildRoute(
       session_id,
       user_id: user_id ?? null,
       mall_id: mallId,
-      destination_shop_ids: JSON.stringify(destination_shop_ids),
-      route_steps: JSON.stringify(allSteps),
+      // JSONB columns should receive native JS arrays/objects, not JSON.stringify strings.
+      destination_shop_ids,
+      route_steps: allSteps,
       total_distance_meters: totalDistance,
       estimated_minutes,
       status: "active",
