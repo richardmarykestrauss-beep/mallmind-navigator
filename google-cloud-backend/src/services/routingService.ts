@@ -66,22 +66,126 @@ function dijkstra(
   return { path, edges: traversedEdges, totalDistance: dist[endId] };
 }
 
+// ── Instruction helpers ───────────────────────────────────────────────────────
+
+/**
+ * Converts a raw floor value to a shopper-friendly label.
+ * Handles both full labels ("Level 5", "Ground Floor") and short codes
+ * ("G", "L1", "B1") from the legacy seeded graph data.
+ */
+export function formatFloorLabel(floor: string | null | undefined): string {
+  if (!floor) return "the mall";
+  const f = floor.trim();
+  // Already a descriptive label — return as-is
+  if (/^(level|ground|basement|upper|lower)/i.test(f)) return f;
+  // Short code → friendly label
+  const codes: Record<string, string> = {
+    G: "Ground Floor", GF: "Ground Floor",
+    UG: "Upper Ground",  LG: "Lower Ground",
+    B1: "Basement Level 1", B2: "Basement Level 2",
+    L1: "Level 1", L2: "Level 2", L3: "Level 3",
+    L4: "Level 4", L5: "Level 5", L6: "Level 6",
+  };
+  return codes[f.toUpperCase()] ?? f;
+}
+
+/**
+ * Returns true for internal routing/infrastructure nodes that should not be
+ * shown to shoppers by name (spine nodes, corridor nodes, junction nodes, etc.).
+ * Real stores always have a linked_shop_id so they are never flagged.
+ */
+export function isInternalNavigationNode(node: MallNode): boolean {
+  // Nodes linked to a real shop record are always real destinations
+  if (node.linked_shop_id) return false;
+  // Non-shop types are physical features (escalators, entrances, …) — not internal
+  if (node.type !== "shop") return false;
+  // Name-pattern match for routing infrastructure
+  return /spine\s*node|corridor\s*node|junction\s*node|route\s*node|\bnode\s+\d+\b/i.test(
+    node.name,
+  );
+}
+
+/**
+ * Returns a shopper-friendly display name for a node.
+ * Internal navigation nodes are described as "[Floor] corridor" instead.
+ */
+export function formatNodeNameForInstruction(node: MallNode): string {
+  if (isInternalNavigationNode(node)) {
+    const floor = formatFloorLabel(node.floor);
+    return floor === "the mall" ? "the corridor" : `the ${floor} corridor`;
+  }
+  return node.name;
+}
+
+// ── Step instruction builder ──────────────────────────────────────────────────
+
+/**
+ * Produces a single shopper-friendly navigation instruction.
+ *
+ * @param fromNode         The node the shopper is leaving.
+ * @param toNode           The node the shopper is heading toward.
+ * @param edge             The graph edge connecting them.
+ * @param isFirst          True only for the very first step of the whole route.
+ * @param isLastEdgeForDest True when this edge ends at the current destination node.
+ */
 function buildInstruction(
   fromNode: MallNode,
   toNode: MallNode,
   edge: MallEdge,
-  isFirst: boolean
+  isFirst: boolean,
+  isLastEdgeForDest: boolean,
 ): string {
-  if (isFirst) {
-    return `Start on Floor ${toNode.floor ?? "G"} — head toward ${toNode.name}`;
-  }
+  // ── Floor change ─────────────────────────────────────────────────────────────
   if (edge.floor_change) {
     const dir =
       (fromNode.y_coordinate ?? 0) < (toNode.y_coordinate ?? 0) ? "up" : "down";
-    return `Take the escalator/lift ${dir} to Floor ${toNode.floor ?? "?"}`;
+    const floor = formatFloorLabel(toNode.floor);
+    return `Take the escalator or lift ${dir} to ${floor}.`;
   }
-  if (edge.instruction) return edge.instruction;
-  return `Walk to ${toNode.name} on Floor ${toNode.floor ?? "?"}`;
+
+  // ── First step of the whole route ────────────────────────────────────────────
+  if (isFirst) {
+    if (fromNode.type === "entrance") {
+      if (!isInternalNavigationNode(toNode)) {
+        // Entrance leads directly to a real named place
+        return `Start at ${fromNode.name} and walk toward ${toNode.name}.`;
+      }
+      const floor = formatFloorLabel(toNode.floor ?? fromNode.floor);
+      const isGroundLevel = floor === "Ground Floor" || floor === "the mall";
+      return isGroundLevel
+        ? `Start at ${fromNode.name} and head into the main corridor.`
+        : `Start at ${fromNode.name} and head into ${floor}.`;
+    }
+    // Starting from a non-entrance node (e.g. the shopper's current position)
+    const floor = formatFloorLabel(fromNode.floor);
+    if (isInternalNavigationNode(toNode)) {
+      return `Start on ${floor} and head into the corridor.`;
+    }
+    return `Start on ${floor} and walk toward ${toNode.name}.`;
+  }
+
+  // ── Last edge arriving at this destination ───────────────────────────────────
+  if (isLastEdgeForDest) {
+    const toName = isInternalNavigationNode(toNode) ? "your destination" : toNode.name;
+    return `Walk toward ${toName}.`;
+  }
+
+  // ── Passing through an internal corridor / routing node ──────────────────────
+  if (isInternalNavigationNode(toNode)) {
+    const floor = formatFloorLabel(toNode.floor);
+    return floor === "the mall"
+      ? "Continue along the corridor."
+      : `Continue along the ${floor} corridor.`;
+  }
+
+  // ── Approaching a lift or escalator mid-route ────────────────────────────────
+  if (toNode.type === "escalator" || toNode.type === "lift") {
+    const label = toNode.type === "lift" ? "lift" : "escalator";
+    return `Head to the ${label}.`;
+  }
+
+  // ── Any other named real place (entrance, food court, parking, …) ────────────
+  return `Continue toward ${toNode.name}.`;
 }
 
 // ── Main function ─────────────────────────────────────────────────────────────
@@ -170,9 +274,9 @@ export async function buildRouteNoSession(
       const destNode = nodeMap[destNodeId];
       allSteps.push({
         step: stepNum++,
-        instruction: `Head to ${destNode?.name ?? "the store"} on Floor ${destNode?.floor ?? "?"}`,
+        instruction: `Head to ${destNode?.name ?? "your destination"} on ${formatFloorLabel(destNode?.floor)}.`,
         node_id: destNodeId,
-        node_name: destNode?.name ?? "Store",
+        node_name: destNode ? formatNodeNameForInstruction(destNode) : "Store",
         floor: destNode?.floor ?? null,
         distance_meters: 100,
         floor_change: false,
@@ -189,14 +293,15 @@ export async function buildRouteNoSession(
       const fromNode = nodeMap[fromId];
       const toNode = nodeMap[toId];
       const edge = result.edges[i];
-      const instruction = buildInstruction(fromNode, toNode, edge, stepNum === 1);
+      const isLastEdgeForDest = i === result.path.length - 2;
+      const instruction = buildInstruction(fromNode, toNode, edge, stepNum === 1, isLastEdgeForDest);
       totalDistance += edge.distance_meters;
 
       allSteps.push({
         step: stepNum++,
         instruction,
         node_id: toId,
-        node_name: toNode?.name ?? "—",
+        node_name: toNode ? formatNodeNameForInstruction(toNode) : "—",
         floor: toNode?.floor ?? null,
         distance_meters: edge.distance_meters,
         floor_change: edge.floor_change,
@@ -207,11 +312,12 @@ export async function buildRouteNoSession(
     currentStart = destNodeId;
   }
 
+  // Always add an explicit arrival step for the final destination
   const lastNode = nodeMap[destNodeIds[destNodeIds.length - 1]];
-  if (allSteps.length && allSteps[allSteps.length - 1].node_id !== destNodeIds[destNodeIds.length - 1]) {
+  if (allSteps.length) {
     allSteps.push({
       step: stepNum,
-      instruction: `You've arrived at ${lastNode?.name ?? "your destination"}`,
+      instruction: `You've arrived at ${lastNode?.name ?? "your destination"}.`,
       node_id: destNodeIds[destNodeIds.length - 1],
       node_name: lastNode?.name ?? "Destination",
       floor: lastNode?.floor ?? null,
@@ -328,9 +434,9 @@ export async function buildRoute(
       const destNode = nodeMap[destNodeId];
       allSteps.push({
         step: stepNum++,
-        instruction: `Head to ${destNode?.name ?? "the store"} on Floor ${destNode?.floor ?? "?"}`,
+        instruction: `Head to ${destNode?.name ?? "your destination"} on ${formatFloorLabel(destNode?.floor)}.`,
         node_id: destNodeId,
-        node_name: destNode?.name ?? "Store",
+        node_name: destNode ? formatNodeNameForInstruction(destNode) : "Store",
         floor: destNode?.floor ?? null,
         distance_meters: 100,
         floor_change: false,
@@ -347,14 +453,15 @@ export async function buildRoute(
       const fromNode = nodeMap[fromId];
       const toNode = nodeMap[toId];
       const edge = result.edges[i];
-      const instruction = buildInstruction(fromNode, toNode, edge, stepNum === 1);
+      const isLastEdgeForDest = i === result.path.length - 2;
+      const instruction = buildInstruction(fromNode, toNode, edge, stepNum === 1, isLastEdgeForDest);
       totalDistance += edge.distance_meters;
 
       allSteps.push({
         step: stepNum++,
         instruction,
         node_id: toId,
-        node_name: toNode?.name ?? "—",
+        node_name: toNode ? formatNodeNameForInstruction(toNode) : "—",
         floor: toNode?.floor ?? null,
         distance_meters: edge.distance_meters,
         floor_change: edge.floor_change,
@@ -365,12 +472,12 @@ export async function buildRoute(
     currentStart = destNodeId;
   }
 
-  // Final arrival step
+  // Always add an explicit arrival step for the final destination
   const lastNode = nodeMap[destNodeIds[destNodeIds.length - 1]];
-  if (allSteps.length && allSteps[allSteps.length - 1].node_id !== destNodeIds[destNodeIds.length - 1]) {
+  if (allSteps.length) {
     allSteps.push({
       step: stepNum,
-      instruction: `You've arrived at ${lastNode?.name ?? "your destination"}`,
+      instruction: `You've arrived at ${lastNode?.name ?? "your destination"}.`,
       node_id: destNodeIds[destNodeIds.length - 1],
       node_name: lastNode?.name ?? "Destination",
       floor: lastNode?.floor ?? null,
