@@ -20,6 +20,7 @@ import type { Shop } from "@/lib/supabaseClient";
 import {
   isGoogleBackendConfigured,
   sendAssistantMessage as googleSendAssistantMessage,
+  buildRoute,
   reportPriceCorrection,
   type WebResult,
   type AssistantResponse,
@@ -961,12 +962,36 @@ const AssistantPage = () => {
       .select("id, mall_id, name, floor, unit_number, category, opening_hours")
       .eq("id", product.shop_id)
       .single();
-    if (data) {
-      setRouteStops([data as Shop]);
-      updateSessionRoute([data.id]);
-      trackEvent("navigate_there_clicked", { userId: user?.id, mallId: selectedMall?.id, mallName: selectedMall?.name });
-      navigate("/navigate");
+
+    if (!data) return;
+
+    trackEvent("navigate_there_clicked", {
+      userId: user?.id,
+      mallId: selectedMall?.id,
+      mallName: selectedMall?.name,
+    });
+
+    if (dbSessionId && isGoogleBackendConfigured()) {
+      try {
+        const route = await buildRoute({
+          session_id: dbSessionId,
+          destination_shop_ids: [String(data.id)],
+        });
+
+        if (route.route_id && route.steps?.length) {
+          setActiveRoute(route.route_id, route.steps);
+          navigate("/navigate");
+          return;
+        }
+      } catch (err) {
+        console.error("Live buildRoute failed; falling back to stop-list navigation", err);
+      }
     }
+
+    // Fallback: keep the old stop-list navigation flow if live routing is unavailable.
+    setRouteStops([data as Shop]);
+    updateSessionRoute([data.id]);
+    navigate("/navigate");
   }
 
   // Add a product to the shopping list

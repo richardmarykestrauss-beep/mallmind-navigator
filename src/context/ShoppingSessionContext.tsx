@@ -12,6 +12,10 @@ export interface RouteStep {
   distance_meters: number;
   floor_change: boolean;
   cumulative_meters: number;
+  /** Percent-style map coordinate from backend mall_nodes.x_coordinate. */
+  x_coordinate?: number | null;
+  /** Percent-style map coordinate from backend mall_nodes.y_coordinate. */
+  y_coordinate?: number | null;
 }
 
 // ── sessionStorage helpers ────────────────────────────────────────────────────

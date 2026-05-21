@@ -3,7 +3,8 @@ import { useNavigate } from "react-router-dom";
 import {
   Clock, Footprints, MapPin, Route as RouteIcon,
   CheckCircle2, Store, ArrowRight, RotateCcw, Search,
-  Zap, Layers, ArrowUp, ArrowDown, Navigation
+  Zap, Layers, ArrowUp, ArrowDown, Navigation,
+  LocateFixed, Flag, Radar
 } from "lucide-react";
 import MobileShell from "@/components/MobileShell";
 import ScreenHeader from "@/components/ScreenHeader";
@@ -28,7 +29,15 @@ function estimateRoute(stops: { floor: string | null }[]): { meters: number; min
   return { meters, minutes: Math.max(1, Math.round(meters / 72)) };
 }
 
-const floors = ["G", "L1", "L2", "L3"];
+const floors = ["G", "L1", "L2", "L3", "L4", "L5"];
+
+function normalizeFloor(floor: string | null | undefined): string {
+  if (!floor) return "G";
+  const trimmed = String(floor).trim();
+  const levelMatch = trimmed.match(/^Level\s+(\d+)$/i);
+  if (levelMatch) return `L${levelMatch[1]}`;
+  return trimmed;
+}
 
 const NavigateScreen = () => {
   const navigate = useNavigate();
@@ -41,6 +50,7 @@ const NavigateScreen = () => {
   const [activeFloor, setActiveFloor]         = useState<string>("G");
   const [completedStepIndices, setCompletedStepIndices] = useState<Set<number>>(new Set());
   const [completedStopIndices, setCompletedStopIndices] = useState<Set<number>>(new Set());
+  const [isAutoTracking, setIsAutoTracking]   = useState(false);
   const [xpToast, setXpToast]                 = useState<{ xp: number; leveledUp: boolean; badges: string[] } | null>(null);
   const xpAwardedRef = useRef(false);
 
@@ -144,8 +154,73 @@ const NavigateScreen = () => {
   const stopCount = hasRealRoute ? activeRouteSteps.length : routeStops.length;
   const doneCount  = hasRealRoute ? completedStepIndices.size : completedStopIndices.size;
   const currentStepNum = hasRealRoute
-    ? Math.min(...([...Array(activeRouteSteps.length).keys()].filter((i) => !completedStepIndices.has(i))))
-    : currentStopIndex;
+    ? (() => {
+        const nextIdx = activeRouteSteps.findIndex((_, i) => !completedStepIndices.has(i));
+        return nextIdx === -1 ? Math.max(activeRouteSteps.length - 1, 0) : nextIdx;
+      })()
+    : Math.min(currentStopIndex, Math.max(routeStops.length - 1, 0));
+
+  const safeCurrentStepNum =
+    Number.isFinite(currentStepNum)
+      ? Math.min(Math.max(currentStepNum, 0), Math.max(stopCount - 1, 0))
+      : Math.max(stopCount - 1, 0);
+
+  const mapSource = hasRealRoute ? activeRouteSteps : routeStops;
+  const mapPoints = mapSource.map((item, idx) => {
+    const total = Math.max(mapSource.length - 1, 1);
+    const progress = idx / total;
+
+    const fallbackPath = [
+      { x: 12, y: 78 },
+      { x: 24, y: 62 },
+      { x: 39, y: 62 },
+      { x: 51, y: 44 },
+      { x: 66, y: 44 },
+      { x: 78, y: 30 },
+      { x: 88, y: 30 },
+    ];
+
+    const p = fallbackPath[idx] ?? { x: 12 + progress * 76, y: 78 - progress * 48 };
+    const anyItem = item as any;
+    const rawX = Number(anyItem.x_coordinate ?? anyItem.x ?? anyItem.map_x);
+    const rawY = Number(anyItem.y_coordinate ?? anyItem.y ?? anyItem.map_y);
+    const hasRealCoords = Number.isFinite(rawX) && Number.isFinite(rawY);
+
+    return {
+      x: hasRealCoords ? Math.max(4, Math.min(96, rawX)) : p.x,
+      y: hasRealCoords ? Math.max(4, Math.min(96, rawY)) : p.y,
+      floor: normalizeFloor(anyItem.floor ?? "G"),
+      instruction: hasRealRoute
+        ? anyItem.instruction
+        : `Go to ${anyItem.name ?? "next stop"}`,
+      label: hasRealRoute
+        ? (anyItem.node_name ?? anyItem.instruction ?? `Step ${idx + 1}`)
+        : (anyItem.name ?? `Stop ${idx + 1}`),
+      cumulativeMeters: Number(anyItem.cumulative_meters ?? 0),
+    };
+  });
+
+  const currentMapPoint = mapPoints[safeCurrentStepNum];
+  const destinationMapPoint = mapPoints[mapPoints.length - 1];
+  const routePolyline = mapPoints.map((p) => `${p.x},${p.y}`).join(" ");
+  const completedPolyline = mapPoints.slice(0, Math.max(1, safeCurrentStepNum + 1)).map((p) => `${p.x},${p.y}`).join(" ");
+  const remainingMeters = hasRealRoute
+    ? Math.max(0, Math.round(totalMeters - (currentMapPoint?.cumulativeMeters ?? 0)))
+    : Math.max(0, Math.round(totalMeters * (1 - (doneCount / Math.max(stopCount, 1)))));
+
+  // Auto Tracking Demo Mode:
+  // Moves the on-map position along real backend route nodes automatically.
+  // Manual tapping remains available as a correction/fallback.
+  useEffect(() => {
+    if (!hasRealRoute || !isAutoTracking || allDone || stopCount <= 0) return;
+
+    const timer = window.setTimeout(() => {
+      markStepDone(safeCurrentStepNum);
+    }, 2600);
+
+    return () => window.clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasRealRoute, isAutoTracking, allDone, safeCurrentStepNum, stopCount]);
 
   return (
     <MobileShell>
@@ -196,66 +271,130 @@ const NavigateScreen = () => {
         </div>
       </div>
 
-      {/* Schematic map */}
-      <div className="relative mx-5 h-[200px] rounded-3xl border border-border bg-surface overflow-hidden">
+      {/* Virtual Indoor GPS map */}
+      <div className="relative mx-5 h-[430px] overflow-hidden rounded-[2rem] border border-primary/25 bg-surface shadow-2xl">
         <div className="absolute inset-0 grid-bg opacity-80" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_15%,rgba(34,211,238,0.18),transparent_30%),radial-gradient(circle_at_85%_75%,rgba(14,165,233,0.16),transparent_32%)]" />
 
-        {/* Draw dots for each unique floor in the route */}
-        {(hasRealRoute ? activeRouteSteps : routeStops).map((item, idx) => {
-          const floor = hasRealRoute ? (item as typeof activeRouteSteps[0]).floor : (item as typeof routeStops[0]).floor;
-          const total = hasRealRoute ? activeRouteSteps.length : routeStops.length;
-          const x = 12 + (idx / Math.max(total - 1, 1)) * 76;
-          const y = 15 + (idx % 2 === 0 ? 25 : 55);
+        {/* Simplified indoor mall blocks */}
+        <div className="absolute left-[6%] top-[12%] h-[22%] w-[25%] rounded-2xl border border-border/70 bg-background/40 backdrop-blur-sm" />
+        <div className="absolute right-[8%] top-[12%] h-[22%] w-[27%] rounded-2xl border border-border/70 bg-background/40 backdrop-blur-sm" />
+        <div className="absolute left-[7%] bottom-[13%] h-[24%] w-[28%] rounded-2xl border border-border/70 bg-background/40 backdrop-blur-sm" />
+        <div className="absolute right-[7%] bottom-[14%] h-[26%] w-[29%] rounded-2xl border border-border/70 bg-background/40 backdrop-blur-sm" />
+        <div className="absolute left-[36%] top-[34%] h-[28%] w-[28%] rounded-3xl border border-primary/15 bg-primary/5 backdrop-blur-sm" />
+
+        {/* Route line */}
+        {mapPoints.length > 1 && (
+          <svg className="absolute inset-0 h-full w-full pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none">
+            <polyline
+              points={routePolyline}
+              fill="none"
+              stroke="hsl(var(--muted-foreground))"
+              strokeOpacity="0.28"
+              strokeWidth="4.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+            <polyline
+              points={routePolyline}
+              fill="none"
+              stroke="hsl(var(--primary))"
+              strokeOpacity="0.35"
+              strokeWidth="9"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeDasharray="1 6"
+            />
+            <polyline
+              points={completedPolyline}
+              fill="none"
+              stroke="hsl(var(--primary))"
+              strokeWidth="4.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              style={{ filter: "drop-shadow(0 0 5px hsl(var(--primary)))" }}
+            />
+          </svg>
+        )}
+
+        {/* Pins and current position */}
+        {mapPoints.map((point, idx) => {
+          const isCurrent = idx === safeCurrentStepNum && !allDone;
           const isDone = hasRealRoute ? completedStepIndices.has(idx) : completedStopIndices.has(idx);
-          const isCurrent = idx === currentStepNum;
+          const isDestination = idx === mapPoints.length - 1;
+
           return (
-            <div key={idx} className="absolute" style={{ left: `${x}%`, top: `${y}%` }}>
-              {isCurrent && !isDone && (
-                <div className="absolute inset-0 h-4 w-4 rounded-full bg-primary animate-ping opacity-60" />
+            <div
+              key={`${idx}-${point.x}-${point.y}`}
+              className="absolute -translate-x-1/2 -translate-y-1/2"
+              style={{ left: `${point.x}%`, top: `${point.y}%` }}
+            >
+              {isCurrent && (
+                <>
+                  <div className="absolute -inset-5 rounded-full bg-primary/20 blur-md" />
+                  <div className="absolute -inset-3 rounded-full border border-primary/50 animate-ping" />
+                </>
               )}
-              <div className={cn(
-                "relative h-4 w-4 rounded-full border-2 border-background flex items-center justify-center",
-                isDone ? "bg-muted-foreground" : isCurrent ? "bg-primary glow-primary" : "bg-secondary"
-              )}>
-                {isDone && <CheckCircle2 className="h-2.5 w-2.5 text-background" />}
+
+              <div
+                className={cn(
+                  "relative flex h-7 w-7 items-center justify-center rounded-full border-2 border-background shadow-lg transition-all",
+                  isCurrent
+                    ? "scale-125 bg-primary text-primary-foreground glow-primary"
+                    : isDone
+                    ? "bg-muted-foreground text-background"
+                    : isDestination
+                    ? "bg-secondary text-secondary-foreground"
+                    : "bg-background text-muted-foreground border-border"
+                )}
+              >
+                {isCurrent ? (
+                  <Navigation className="h-3.5 w-3.5" />
+                ) : isDone ? (
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                ) : isDestination ? (
+                  <Flag className="h-3.5 w-3.5" />
+                ) : (
+                  <span className="text-[10px] font-bold">{idx + 1}</span>
+                )}
               </div>
-              {floor && (
-                <span className="absolute -bottom-3.5 left-1/2 -translate-x-1/2 text-[8px] text-muted-foreground font-medium">
-                  {floor}
-                </span>
+
+              {(isCurrent || isDestination) && (
+                <div className="absolute left-1/2 top-8 min-w-[96px] -translate-x-1/2 rounded-xl border border-border/70 bg-background/90 px-2 py-1 text-center text-[10px] font-semibold shadow-lg backdrop-blur">
+                  {isCurrent ? "You are here" : point.label}
+                </div>
               )}
             </div>
           );
         })}
 
-        {/* Connecting line */}
-        {(hasRealRoute ? activeRouteSteps : routeStops).length > 1 && (
-          <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none">
-            <polyline
-              points={(hasRealRoute ? activeRouteSteps : routeStops).map((_, idx) => {
-                const total = hasRealRoute ? activeRouteSteps.length : routeStops.length;
-                const x = 12 + (idx / Math.max(total - 1, 1)) * 76;
-                const y = 15 + (idx % 2 === 0 ? 27 : 57);
-                return `${x},${y}`;
-              }).join(" ")}
-              stroke="hsl(var(--primary))"
-              strokeWidth="0.8"
-              strokeDasharray="2 2"
-              fill="none"
-              style={{ filter: "drop-shadow(0 0 3px hsl(var(--primary)))" }}
-            />
-          </svg>
-        )}
+        {/* GPS mode badge */}
+        <div className="absolute left-3 top-3 rounded-2xl border border-primary/25 bg-background/85 px-3 py-2 shadow-xl backdrop-blur">
+          <div className="flex items-center gap-2">
+            <Radar className="h-4 w-4 text-primary" />
+            <div>
+              <p className="text-[9px] uppercase tracking-[0.18em] text-primary font-bold">
+                Indoor GPS
+              </p>
+              <p className="text-[10px] text-muted-foreground">
+{hasRealRoute ? (isAutoTracking ? "Auto tracking" : "Manual correction") : "Preview"} · Floor {normalizeFloor(currentMapPoint?.floor ?? activeFloor)}
+              </p>
+            </div>
+          </div>
+        </div>
 
         {/* Floor selector */}
-        <div className="absolute right-3 top-3 flex flex-col gap-1.5 rounded-2xl border border-border bg-background/80 backdrop-blur p-1.5">
+        <div className="absolute right-3 top-3 flex flex-col gap-1.5 rounded-2xl border border-border bg-background/85 backdrop-blur p-1.5 shadow-xl">
+          <div className="flex items-center justify-center pb-1 text-[9px] text-muted-foreground">
+            <Layers className="h-3 w-3" />
+          </div>
           {floors.map((f) => (
             <button
               key={f}
               onClick={() => setActiveFloor(f)}
               className={cn(
                 "h-8 w-8 rounded-xl text-xs font-bold transition-all",
-                activeFloor === f
+                activeFloor === f || normalizeFloor(currentMapPoint?.floor) === f
                   ? "bg-primary text-primary-foreground glow-primary"
                   : "text-muted-foreground hover:text-foreground hover:bg-muted"
               )}
@@ -263,6 +402,78 @@ const NavigateScreen = () => {
               {f}
             </button>
           ))}
+        </div>
+
+        {/* Bottom live instruction card */}
+        <div className="absolute inset-x-3 bottom-3 rounded-3xl border border-primary/25 bg-background/92 p-4 shadow-2xl backdrop-blur-xl">
+          <div className="mb-3 flex items-start gap-3">
+            <div className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
+              <div className="absolute h-9 w-9 rounded-full bg-primary/30 animate-ping" />
+              <LocateFixed className="relative h-5 w-5" />
+            </div>
+
+            <div className="min-w-0 flex-1">
+              <p className="text-[10px] uppercase tracking-[0.2em] text-primary font-bold">
+                Next direction
+              </p>
+              <p className="mt-1 text-base font-bold leading-snug">
+                {allDone ? "You've arrived" : currentMapPoint?.instruction ?? "Continue"}
+              </p>
+              <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                <span>Floor {normalizeFloor(currentMapPoint?.floor ?? activeFloor)}</span>
+                <span>·</span>
+                <span>{remainingMeters}m left</span>
+                <span>·</span>
+                <span>{doneCount}/{stopCount} steps</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-[1fr_auto] gap-2">
+            <button
+              onClick={() => setIsAutoTracking((prev) => !prev)}
+              disabled={allDone || !hasRealRoute}
+              className={cn(
+                "flex h-12 items-center justify-center gap-2 rounded-2xl text-sm font-bold transition-all",
+                allDone
+                  ? "bg-muted text-muted-foreground"
+                  : isAutoTracking
+                  ? "bg-primary text-primary-foreground hover:bg-primary/90 glow-primary"
+                  : "bg-secondary text-secondary-foreground hover:bg-secondary/90"
+              )}
+            >
+              {allDone ? (
+                <>
+                  <CheckCircle2 className="h-5 w-5" />
+                  Route complete
+                </>
+              ) : isAutoTracking ? (
+                <>
+                  <LocateFixed className="h-5 w-5" />
+                  Auto tracking
+                </>
+              ) : (
+                <>
+                  <Navigation className="h-5 w-5" />
+                  Start tracking
+                </>
+              )}
+            </button>
+
+            <button
+              onClick={() => hasRealRoute ? markStepDone(safeCurrentStepNum) : markStopDone(safeCurrentStepNum)}
+              disabled={allDone}
+              className={cn(
+                "flex h-12 items-center justify-center rounded-2xl border px-4 text-xs font-bold transition-all",
+                allDone
+                  ? "border-border bg-muted text-muted-foreground"
+                  : "border-primary/35 bg-background/80 text-primary hover:bg-primary/10"
+              )}
+              title="Manual correction"
+            >
+              Correct
+            </button>
+          </div>
         </div>
       </div>
 

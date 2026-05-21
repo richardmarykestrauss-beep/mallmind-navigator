@@ -213,6 +213,8 @@ export async function buildRouteNoSession(
         distance_meters: 100,
         floor_change: false,
         cumulative_meters: totalDistance + 100,
+        x_coordinate: destNode?.x_coordinate ?? null,
+        y_coordinate: destNode?.y_coordinate ?? null,
       });
       totalDistance += 100;
       currentStart = destNodeId;
@@ -237,6 +239,8 @@ export async function buildRouteNoSession(
         distance_meters: edge.distance_meters,
         floor_change: edge.floor_change,
         cumulative_meters: totalDistance,
+        x_coordinate: toNode?.x_coordinate ?? null,
+        y_coordinate: toNode?.y_coordinate ?? null,
       });
     }
 
@@ -254,6 +258,8 @@ export async function buildRouteNoSession(
       distance_meters: 0,
       floor_change: false,
       cumulative_meters: totalDistance,
+      x_coordinate: lastNode?.x_coordinate ?? null,
+      y_coordinate: lastNode?.y_coordinate ?? null,
     });
   }
 
@@ -371,6 +377,8 @@ export async function buildRoute(
         distance_meters: 100,
         floor_change: false,
         cumulative_meters: totalDistance + 100,
+        x_coordinate: destNode?.x_coordinate ?? null,
+        y_coordinate: destNode?.y_coordinate ?? null,
       });
       totalDistance += 100;
       currentStart = destNodeId;
@@ -395,6 +403,8 @@ export async function buildRoute(
         distance_meters: edge.distance_meters,
         floor_change: edge.floor_change,
         cumulative_meters: totalDistance,
+        x_coordinate: toNode?.x_coordinate ?? null,
+        y_coordinate: toNode?.y_coordinate ?? null,
       });
     }
 
@@ -413,6 +423,8 @@ export async function buildRoute(
       distance_meters: 0,
       floor_change: false,
       cumulative_meters: totalDistance,
+      x_coordinate: lastNode?.x_coordinate ?? null,
+      y_coordinate: lastNode?.y_coordinate ?? null,
     });
   }
 

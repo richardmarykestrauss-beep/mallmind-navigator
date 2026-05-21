@@ -133,6 +133,10 @@ export interface RouteStep {
   distance_meters: number;
   floor_change: boolean;
   cumulative_meters: number;
+  /** Percent-style map coordinate from mall_nodes.x_coordinate. Used by indoor GPS UI. */
+  x_coordinate?: number | null;
+  /** Percent-style map coordinate from mall_nodes.y_coordinate. Used by indoor GPS UI. */
+  y_coordinate?: number | null;
 }
 
 export interface ScoredProduct {
