@@ -1,25 +1,15 @@
 /**
- * MapFactoryTab.tsx — Sprint 15
+ * MapFactoryTab.tsx — Sprint 16
  *
  * Admin workspace for the Map Factory autonomous mall cartography engine.
- * 8-stage workflow with sidebar job list and "Run Next Best Step" CTA.
- *
- * Stages:
- *  1. source_discovery    — classify evidence sources
- *  2. asset_harvest       — fetch/hash/dedup raw assets
- *  3. ai_extraction       — AI anchor + corridor extraction
- *  4. layout_intelligence — merge evidence + conflict resolution
- *  5. floorplan_generation — generate proprietary artificial floor plan
- *  6. route_graph_build   — auto-build route nodes + edges
- *  7. qa_review           — readiness score + QA checks
- *  8. publish             — publish guard + audit trail
  */
 
 import React, { useCallback, useEffect, useState } from "react";
 import {
-  Loader2, Plus, RefreshCw, ChevronRight, CheckCircle2,
-  AlertCircle, Clock, Zap, Map, GitMerge, Cpu,
+  Loader2, RefreshCw, CheckCircle2,
+  Map, Cpu,
   BarChart3, Upload, Share2, Search,
+  GitMerge,
 } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import {
@@ -39,17 +29,20 @@ import {
   testProviders,
   type MapFactoryJob,
   type MapFactoryJobDetail,
-  type MapFactoryQaCheck,
+  type MapFactoryStage,
   type MapFactoryProviderTestResult,
 } from "@/lib/mapFactoryClient";
 
-// ── Props ─────────────────────────────────────────────────────────────────────
+import { StageTracker } from "@/components/map-factory/StageTracker";
+import { QaChecksTable } from "@/components/map-factory/QaChecksTable";
+import { JobSidebar } from "@/components/map-factory/JobSidebar";
+import { JobDetailHeader } from "@/components/map-factory/JobDetailHeader";
+import { ProviderStatusPanel } from "@/components/map-factory/ProviderStatusPanel";
+import { PipelineStages } from "@/components/map-factory/PipelineStages";
 
 interface Props {
   token: string | undefined;
 }
-
-// ── Stage config ──────────────────────────────────────────────────────────────
 
 const STAGES = [
   { id: "source_discovery",    label: "Source Discovery",    icon: <Search   className="h-3.5 w-3.5" /> },
@@ -62,13 +55,9 @@ const STAGES = [
   { id: "publish",             label: "Publish",             icon: <CheckCircle2 className="h-3.5 w-3.5" /> },
 ] as const;
 
-type StageId = typeof STAGES[number]["id"];
-
 const STAGE_INDEX: Record<string, number> = Object.fromEntries(
   STAGES.map((s, i) => [s.id, i])
 );
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function statusColor(status: MapFactoryJob["status"]) {
   return status === "complete" ? "text-emerald-600"
@@ -95,118 +84,34 @@ function qaColor(score: number) {
   return score >= 80 ? "text-emerald-600" : score >= 50 ? "text-amber-600" : "text-red-600";
 }
 
-// ── Sub-components ────────────────────────────────────────────────────────────
-
-function StageTracker({ currentStage, jobStatus }: { currentStage: string; jobStatus: MapFactoryJob["status"] }) {
-  const currentIdx = STAGE_INDEX[currentStage] ?? 0;
-
-  return (
-    <div className="flex items-center gap-0.5 overflow-x-auto pb-1">
-      {STAGES.map((s, i) => {
-        const isDone    = i < currentIdx || jobStatus === "complete";
-        const isCurrent = i === currentIdx && jobStatus !== "complete";
-        const isFuture  = i > currentIdx;
-
-        return (
-          <React.Fragment key={s.id}>
-            <div className={`flex flex-col items-center min-w-[60px] ${isFuture ? "opacity-40" : ""}`}>
-              <div className={`flex items-center justify-center h-7 w-7 rounded-full border-2 text-xs font-bold transition-colors
-                ${isDone    ? "bg-emerald-500 border-emerald-500 text-white"    : ""}
-                ${isCurrent ? "bg-blue-500 border-blue-500 text-white"          : ""}
-                ${isFuture  ? "bg-background border-border text-muted-foreground" : ""}
-              `}>
-                {isDone ? "✓" : i + 1}
-              </div>
-              <span className="text-[9px] text-center leading-tight mt-0.5 max-w-[60px]">{s.label}</span>
-            </div>
-            {i < STAGES.length - 1 && (
-              <div className={`flex-1 h-0.5 min-w-[8px] -mt-4 ${i < currentIdx || jobStatus === "complete" ? "bg-emerald-400" : "bg-border"}`} />
-            )}
-          </React.Fragment>
-        );
-      })}
-    </div>
-  );
-}
-
-function QaChecksTable({ checks }: { checks: MapFactoryQaCheck[] }) {
-  if (!checks.length) return null;
-  return (
-    <div className="rounded border border-border overflow-hidden">
-      <table className="w-full text-xs">
-        <thead className="bg-muted/50">
-          <tr>
-            <th className="text-left px-2 py-1.5 font-medium">Check</th>
-            <th className="text-left px-2 py-1.5 font-medium">Result</th>
-            <th className="text-left px-2 py-1.5 font-medium">Detail</th>
-          </tr>
-        </thead>
-        <tbody>
-          {checks.map((c, i) => (
-            <tr key={i} className={`border-t border-border ${!c.passed && c.severity === "blocking" ? "bg-red-50 dark:bg-red-950/20" : !c.passed && c.severity === "warning" ? "bg-amber-50 dark:bg-amber-950/20" : ""}`}>
-              <td className="px-2 py-1.5 font-mono">{c.check_name}</td>
-              <td className="px-2 py-1.5">
-                {c.passed
-                  ? <span className="text-emerald-600 font-medium">✓ Pass</span>
-                  : <span className={`font-medium ${c.severity === "blocking" ? "text-red-600" : "text-amber-600"}`}>
-                      {c.severity === "blocking" ? "✗ Block" : "⚠ Warn"}
-                    </span>
-                }
-              </td>
-              <td className="px-2 py-1.5 text-muted-foreground">{c.detail}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-// ── Main component ────────────────────────────────────────────────────────────
-
 export default function MapFactoryTab({ token }: Props) {
-  // Malls list for "New Job" form
   const [malls, setMalls]           = useState<Array<{ id: string; name: string }>>([]);
-
-  // Job list (sidebar)
   const [jobs, setJobs]             = useState<MapFactoryJob[]>([]);
   const [jobsLoading, setJobsLoading] = useState(false);
   const [jobsError, setJobsError]   = useState<string | null>(null);
-
-  // Selected job detail (right panel)
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [detail, setDetail]         = useState<MapFactoryJobDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError]     = useState<string | null>(null);
-
-  // New job form
   const [showNewJob, setShowNewJob] = useState(false);
   const [newMallId, setNewMallId]   = useState("");
   const [newNotes, setNewNotes]     = useState("");
   const [creating, setCreating]     = useState(false);
   const [createErr, setCreateErr]   = useState<string | null>(null);
-
-  // Per-stage action state
   const [actionBusy, setActionBusy]   = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionMsg, setActionMsg]     = useState<string | null>(null);
-
-  // Floor label field (used by generate-floorplan + build-route-graph)
   const [stageFloor, setStageFloor]   = useState("Level 5");
-
-  // Provider status panel
   const [providerStatus, setProviderStatus]     = useState<MapFactoryProviderTestResult | null>(null);
   const [providerLoading, setProviderLoading]   = useState(false);
   const [providerError, setProviderError]       = useState<string | null>(null);
 
-  // ── Load malls ──────────────────────────────────────────────────────────────
   useEffect(() => {
     supabase.from("malls").select("id, name").order("name").then(({ data }) => {
       if (data) setMalls(data);
     });
   }, []);
 
-  // ── Load job queue ──────────────────────────────────────────────────────────
   const loadJobs = useCallback(async () => {
     if (!token) return;
     setJobsLoading(true);
@@ -223,7 +128,6 @@ export default function MapFactoryTab({ token }: Props) {
 
   useEffect(() => { loadJobs(); }, [loadJobs]);
 
-  // ── Load job detail ─────────────────────────────────────────────────────────
   const loadDetail = useCallback(async (jobId: string) => {
     if (!token) return;
     setDetailLoading(true);
@@ -243,7 +147,6 @@ export default function MapFactoryTab({ token }: Props) {
     else setDetail(null);
   }, [selectedJobId, loadDetail]);
 
-  // ── Create job ──────────────────────────────────────────────────────────────
   async function handleCreateJob() {
     if (!token || !newMallId) return;
     setCreating(true);
@@ -261,7 +164,6 @@ export default function MapFactoryTab({ token }: Props) {
     }
   }
 
-  // ── Provider Status ─────────────────────────────────────────────────────────
   async function handleTestProviders() {
     if (!token || !selectedJobId) return;
     setProviderLoading(true);
@@ -276,7 +178,6 @@ export default function MapFactoryTab({ token }: Props) {
     }
   }
 
-  // ── Repair Floor Labels ─────────────────────────────────────────────────────
   async function handleRepairFloors() {
     if (!token || !selectedJobId) return;
     setActionBusy("repair-floors");
@@ -288,7 +189,7 @@ export default function MapFactoryTab({ token }: Props) {
         `Floor repair: ${r.repaired} node(s) updated to "${r.floor_label}", `
         + `${r.protected_nodes} protected (geodirectory/admin), ${r.skipped} already correct`
       );
-      await loadDetail(selectedJobId);
+      if (selectedJobId) await loadDetail(selectedJobId);
       await loadJobs();
     } catch (e) {
       setActionError(String(e));
@@ -297,7 +198,6 @@ export default function MapFactoryTab({ token }: Props) {
     }
   }
 
-  // ── Run Next Best Step ──────────────────────────────────────────────────────
   async function handleNextStep() {
     if (!token || !selectedJobId) return;
     setActionBusy("next-step");
@@ -306,7 +206,7 @@ export default function MapFactoryTab({ token }: Props) {
     try {
       const res = await runNextStep(selectedJobId, token, stageFloor || undefined);
       setActionMsg(`Stage completed → ${res.next_stage}`);
-      await loadDetail(selectedJobId);
+      if (selectedJobId) await loadDetail(selectedJobId);
       await loadJobs();
     } catch (e) {
       setActionError(String(e));
@@ -315,8 +215,7 @@ export default function MapFactoryTab({ token }: Props) {
     }
   }
 
-  // ── Run specific stage ──────────────────────────────────────────────────────
-  async function handleStageAction(stageId: StageId) {
+  async function handleStageAction(stageId: MapFactoryStage) {
     if (!token || !selectedJobId) return;
     setActionBusy(stageId);
     setActionError(null);
@@ -374,7 +273,7 @@ export default function MapFactoryTab({ token }: Props) {
         }
       }
       setActionMsg(msg);
-      await loadDetail(selectedJobId);
+      if (selectedJobId) await loadDetail(selectedJobId);
       await loadJobs();
     } catch (e) {
       setActionError(String(e));
@@ -383,34 +282,24 @@ export default function MapFactoryTab({ token }: Props) {
     }
   }
 
-  // ── Render ──────────────────────────────────────────────────────────────────
-
   const job    = detail?.job ?? null;
   const nextStep = detail?.next_step ?? null;
   const latestQa = detail?.latest_qa ?? null;
 
   return (
     <div className="flex gap-4 h-full min-h-0">
-
-      {/* ── Sidebar: job list ─────────────────────────────────────────────── */}
-      <div className="w-64 flex-shrink-0 flex flex-col gap-2">
-        <div className="flex items-center justify-between">
-          <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Jobs</h2>
-          <div className="flex items-center gap-1">
-            <button onClick={loadJobs} disabled={jobsLoading} className="p-1 rounded hover:bg-muted">
-              {jobsLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
-            </button>
-            <button
-              onClick={() => setShowNewJob((v) => !v)}
-              className="flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-primary text-primary-foreground hover:bg-primary/90"
-            >
-              <Plus className="h-3 w-3" /> New
-            </button>
-          </div>
-        </div>
-
-        {/* New Job form */}
-        {showNewJob && (
+      <JobSidebar
+        jobs={jobs}
+        loading={jobsLoading}
+        error={jobsError}
+        selectedJobId={selectedJobId}
+        onSelectJob={setSelectedJobId}
+        onRefresh={loadJobs}
+        onNewJob={() => setShowNewJob((v) => !v)}
+        showNewJobForm={showNewJob}
+        statusDot={statusDot}
+        statusColor={statusColor}
+        newJobForm={
           <div className="rounded-lg border border-border bg-muted/30 p-2 flex flex-col gap-1.5 text-xs">
             <p className="font-medium">New Map Factory Job</p>
             <select
@@ -442,44 +331,10 @@ export default function MapFactoryTab({ token }: Props) {
               </button>
             </div>
           </div>
-        )}
+        }
+      />
 
-        {jobsError && <p className="text-xs text-red-600">{jobsError}</p>}
-
-        {/* Job list */}
-        <div className="flex flex-col gap-1 overflow-y-auto flex-1">
-          {jobs.length === 0 && !jobsLoading && (
-            <p className="text-xs text-muted-foreground italic text-center py-4">No jobs yet. Create one above.</p>
-          )}
-          {jobs.map((j) => (
-            <button
-              key={j.id}
-              onClick={() => setSelectedJobId(j.id)}
-              className={`w-full text-left rounded-lg p-2 border text-xs transition-colors
-                ${selectedJobId === j.id ? "border-primary bg-primary/5" : "border-border hover:bg-muted/50"}`}
-            >
-              <div className="flex items-center gap-1.5 mb-0.5">
-                <span className={`h-2 w-2 rounded-full flex-shrink-0 ${statusDot(j.status)}`} />
-                <span className="font-medium truncate">{(j as { malls?: { name: string } }).malls?.name ?? j.mall_id.slice(0, 8)}</span>
-              </div>
-              <div className="flex items-center justify-between text-muted-foreground">
-                <span className={statusColor(j.status)}>{j.status}</span>
-                <span>{j.stage.replace(/_/g, " ")}</span>
-              </div>
-              {j.readiness_score > 0 && (
-                <div className="mt-1 h-1 bg-muted rounded-full overflow-hidden">
-                  <div className={`h-full rounded-full ${j.readiness_score >= 80 ? "bg-emerald-500" : "bg-amber-400"}`}
-                    style={{ width: `${j.readiness_score}%` }} />
-                </div>
-              )}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* ── Main panel: job detail ────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col gap-4 overflow-y-auto min-h-0">
-
         {!selectedJobId && (
           <div className="flex flex-col items-center justify-center h-40 text-center text-muted-foreground gap-2">
             <Map className="h-10 w-10 opacity-20" />
@@ -501,43 +356,17 @@ export default function MapFactoryTab({ token }: Props) {
 
         {job && !detailLoading && (
           <>
-            {/* Header */}
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h2 className="text-sm font-semibold flex items-center gap-2">
-                  <span className={`h-2.5 w-2.5 rounded-full ${statusDot(job.status)}`} />
-                  {(detail as unknown as { job: MapFactoryJob & { malls?: { name: string } } }).job.malls?.name ?? "Unknown Mall"}
-                  <span className="text-muted-foreground font-normal text-xs">— {job.stage.replace(/_/g, " ")}</span>
-                </h2>
-                <p className="text-xs text-muted-foreground mt-0.5">{job.id}</p>
-              </div>
+            <JobDetailHeader
+              job={job}
+              mallName={(detail as unknown as { job: MapFactoryJob & { malls?: { name: string } } }).job.malls?.name ?? "Unknown Mall"}
+              nextStep={nextStep}
+              actionBusy={actionBusy}
+              onNextStep={handleNextStep}
+              onRefresh={() => { if (job) loadDetail(job.id); loadJobs(); }}
+              loading={detailLoading}
+              statusDot={statusDot}
+            />
 
-              {/* Run Next Best Step CTA */}
-              <div className="flex items-center gap-2 flex-shrink-0">
-                {nextStep && job.status !== "complete" && (
-                  <button
-                    onClick={handleNextStep}
-                    disabled={!!actionBusy}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 disabled:opacity-50"
-                  >
-                    {actionBusy === "next-step"
-                      ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      : <Zap className="h-3.5 w-3.5" />}
-                    {nextStep.actionLabel}
-                  </button>
-                )}
-                <button
-                  onClick={() => { loadDetail(job.id); loadJobs(); }}
-                  disabled={detailLoading}
-                  className="p-1.5 rounded-lg border border-border hover:bg-muted"
-                  title="Refresh"
-                >
-                  <RefreshCw className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            </div>
-
-            {/* Action feedback */}
             {actionMsg && (
               <div className="rounded bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 p-2 text-xs text-emerald-700 dark:text-emerald-300 flex items-center justify-between">
                 <span>{actionMsg}</span>
@@ -551,9 +380,8 @@ export default function MapFactoryTab({ token }: Props) {
               </div>
             )}
 
-            {/* Stage tracker */}
             <div className="rounded-lg border border-border bg-card p-3">
-              <StageTracker currentStage={job.stage} jobStatus={job.status} />
+              <StageTracker currentStage={job.stage} jobStatus={job.status} stages={STAGES} />
               <div className="mt-2 flex items-center gap-2">
                 <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
                   <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${stageProgress(job.stage)}%` }} />
@@ -562,7 +390,6 @@ export default function MapFactoryTab({ token }: Props) {
               </div>
             </div>
 
-            {/* Stats row */}
             <div className="grid grid-cols-4 gap-2">
               {[
                 { label: "Sources",     value: (detail?.sources.length ?? 0) },
@@ -578,69 +405,14 @@ export default function MapFactoryTab({ token }: Props) {
               ))}
             </div>
 
-            {/* Provider Status panel — near AI Extraction stage */}
-            <div className="rounded-lg border border-border bg-card">
-              <div className="flex items-center justify-between p-3 border-b border-border">
-                <h3 className="text-xs font-semibold flex items-center gap-2">
-                  <Cpu className="h-3.5 w-3.5" />
-                  AI Extraction Providers
-                </h3>
-                <button
-                  onClick={handleTestProviders}
-                  disabled={providerLoading || !selectedJobId}
-                  className="flex items-center gap-1 px-2 py-0.5 rounded border border-border text-xs hover:bg-muted disabled:opacity-40"
-                >
-                  {providerLoading
-                    ? <Loader2 className="h-3 w-3 animate-spin" />
-                    : <RefreshCw className="h-3 w-3" />}
-                  Check
-                </button>
-              </div>
-              <div className="p-3">
-                {providerError && (
-                  <p className="text-xs text-red-600 mb-2">{providerError}</p>
-                )}
-                {!providerStatus && !providerError && (
-                  <p className="text-xs text-muted-foreground italic">Click Check to query provider status.</p>
-                )}
-                {providerStatus && (() => {
-                  const PROVIDER_LABELS: Array<{ key: keyof MapFactoryProviderTestResult["providers"]; label: string }> = [
-                    { key: "mock",                      label: "Mock (always available)" },
-                    { key: "gemini_vision_extraction",  label: "Gemini Vision Extraction" },
-                    { key: "google_vision_ocr",         label: "Google Vision OCR" },
-                    { key: "google_document_ai_layout", label: "Document AI Layout" },
-                    { key: "gemini_embedding",          label: "Gemini Embedding" },
-                  ];
-                  return (
-                    <div className="flex flex-col gap-1.5">
-                      <div className="flex items-center gap-4 text-[10px] text-muted-foreground mb-1">
-                        <span>Google AI: <span className={providerStatus.google_ai_enabled ? "text-emerald-600 font-medium" : "text-amber-600 font-medium"}>{providerStatus.google_ai_enabled ? "ENABLED" : "DISABLED"}</span></span>
-                        <span>Active provider: <span className="font-mono font-medium">{providerStatus.active_provider}</span></span>
-                      </div>
-                      {PROVIDER_LABELS.map(({ key, label }) => {
-                        const configured = providerStatus.providers[key];
-                        return (
-                          <div key={key} className="flex items-center justify-between text-xs">
-                            <span className="text-muted-foreground">{label}</span>
-                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium
-                              ${configured
-                                ? "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300"
-                                : "bg-muted text-muted-foreground"}`}>
-                              {configured ? "✓ Ready" : "Not configured"}
-                            </span>
-                          </div>
-                        );
-                      })}
-                      <div className="mt-1 pt-1 border-t border-border text-[10px] text-muted-foreground">
-                        Chain: <span className="font-mono">{providerStatus.image_chain.join(" → ")}</span>
-                      </div>
-                    </div>
-                  );
-                })()}
-              </div>
-            </div>
+            <ProviderStatusPanel
+              status={providerStatus}
+              loading={providerLoading}
+              error={providerError}
+              onTest={handleTestProviders}
+              disabled={!selectedJobId}
+            />
 
-            {/* Floor label input (used by several stages) */}
             <div className="flex items-center gap-2">
               <label className="text-xs font-medium whitespace-nowrap">Floor label:</label>
               <input
@@ -663,50 +435,14 @@ export default function MapFactoryTab({ token }: Props) {
               </button>
             </div>
 
-            {/* Stage actions */}
-            <div className="rounded-lg border border-border bg-card">
-              <div className="p-3 border-b border-border">
-                <h3 className="text-xs font-semibold">Pipeline Stages</h3>
-              </div>
-              <div className="divide-y divide-border">
-                {STAGES.map((s, i) => {
-                  const jobStageIdx   = STAGE_INDEX[job.stage] ?? 0;
-                  const isDone        = i < jobStageIdx || job.status === "complete";
-                  const isCurrent     = i === jobStageIdx && job.status !== "complete";
-                  const isReachable   = i <= jobStageIdx + 1;
-                  const busy          = actionBusy === s.id;
+            <PipelineStages
+              stages={STAGES}
+              job={job}
+              actionBusy={actionBusy}
+              onRunStage={handleStageAction}
+              stageIndexMap={STAGE_INDEX}
+            />
 
-                  return (
-                    <div key={s.id} className={`flex items-center justify-between px-3 py-2 text-xs
-                      ${isDone ? "opacity-60" : ""} ${isCurrent ? "bg-primary/5" : ""}`}>
-                      <div className="flex items-center gap-2">
-                        <span className={`${isDone ? "text-emerald-500" : isCurrent ? "text-primary" : "text-muted-foreground"}`}>
-                          {isDone ? <CheckCircle2 className="h-3.5 w-3.5" /> : isCurrent ? <Clock className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-                        </span>
-                        <div className="flex items-center gap-1.5">
-                          {s.icon}
-                          <span className={`font-medium ${isCurrent ? "text-primary" : ""}`}>{s.label}</span>
-                        </div>
-                      </div>
-                      <button
-                        onClick={() => handleStageAction(s.id as StageId)}
-                        disabled={!isReachable || !!actionBusy}
-                        className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors
-                          ${isCurrent   ? "bg-primary text-primary-foreground hover:bg-primary/90" : ""}
-                          ${isDone      ? "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300" : ""}
-                          ${!isReachable && !isDone ? "bg-muted text-muted-foreground cursor-not-allowed" : ""}
-                          disabled:opacity-50
-                        `}
-                      >
-                        {busy ? <Loader2 className="h-3 w-3 animate-spin inline" /> : isDone ? "Re-run" : "Run"}
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* QA Report */}
             {latestQa && (
               <div className="rounded-lg border border-border bg-card">
                 <div className="flex items-center justify-between p-3 border-b border-border">
@@ -726,7 +462,7 @@ export default function MapFactoryTab({ token }: Props) {
                 <div className="p-3">
                   {latestQa.blocking_issues > 0 && (
                     <div className="flex items-center gap-1.5 text-xs text-red-600 mb-2">
-                      <AlertCircle className="h-3.5 w-3.5" />
+                      <BarChart3 className="h-3.5 w-3.5" />
                       {latestQa.blocking_issues} blocking issue(s) — must be resolved before publishing
                     </div>
                   )}
@@ -735,7 +471,6 @@ export default function MapFactoryTab({ token }: Props) {
               </div>
             )}
 
-            {/* Floor plans */}
             {(detail?.floor_plans.length ?? 0) > 0 && (
               <div className="rounded-lg border border-border bg-card">
                 <div className="p-3 border-b border-border">
@@ -755,7 +490,6 @@ export default function MapFactoryTab({ token }: Props) {
               </div>
             )}
 
-            {/* Notes */}
             {job.notes && (
               <div className="rounded-lg border border-border bg-muted/30 p-3 text-xs text-muted-foreground">
                 <span className="font-medium">Notes:</span> {job.notes}
