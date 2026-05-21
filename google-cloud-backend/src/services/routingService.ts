@@ -244,7 +244,7 @@ export async function buildRouteNoSession(
   }
 
   const lastNode = nodeMap[destNodeIds[destNodeIds.length - 1]];
-  if (allSteps.length && allSteps[allSteps.length - 1].node_id !== destNodeIds[destNodeIds.length - 1]) {
+  if (allSteps.length) {
     allSteps.push({
       step: stepNum,
       instruction: `You've arrived at ${lastNode?.name ?? "your destination"}`,
@@ -403,7 +403,7 @@ export async function buildRoute(
 
   // Final arrival step
   const lastNode = nodeMap[destNodeIds[destNodeIds.length - 1]];
-  if (allSteps.length && allSteps[allSteps.length - 1].node_id !== destNodeIds[destNodeIds.length - 1]) {
+  if (allSteps.length) {
     allSteps.push({
       step: stepNum,
       instruction: `You've arrived at ${lastNode?.name ?? "your destination"}`,
