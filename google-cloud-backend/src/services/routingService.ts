@@ -389,8 +389,10 @@ export async function buildRoute(
       session_id,
       user_id: user_id ?? null,
       mall_id: mallId,
-      destination_shop_ids: JSON.stringify(destination_shop_ids),
-      route_steps: JSON.stringify(allSteps),
+      // Pass native arrays — Supabase serialises JSONB columns automatically.
+      // JSON.stringify() would store a text string, not a queryable JSONB array.
+      destination_shop_ids: destination_shop_ids,
+      route_steps: allSteps,
       total_distance_meters: totalDistance,
       estimated_minutes,
       status: "active",
