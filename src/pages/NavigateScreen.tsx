@@ -208,7 +208,7 @@ const NavigateScreen = () => {
     ? Math.max(0, Math.round(totalMeters - (currentMapPoint?.cumulativeMeters ?? 0)))
     : Math.max(0, Math.round(totalMeters * (1 - (doneCount / Math.max(stopCount, 1)))));
 
-  // Auto Tracking Demo Mode:
+  // Prototype Tracking Demo Mode:
   // Moves the on-map position along real backend route nodes automatically.
   // Manual tapping remains available as a correction/fallback.
   useEffect(() => {
@@ -248,7 +248,7 @@ const NavigateScreen = () => {
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-[10px] uppercase tracking-wider text-primary font-bold">
-                {hasRealRoute ? "AI-Optimised Route" : "Mall Navigation"}
+                {hasRealRoute ? "AI-ASSISTED ROUTE" : "Mall Navigation"}
               </p>
               <p className="font-display font-bold text-sm mt-0.5">
                 {selectedMall?.name ?? "Shopping route"}
@@ -377,7 +377,7 @@ const NavigateScreen = () => {
                 Indoor GPS
               </p>
               <p className="text-[10px] text-muted-foreground">
-{hasRealRoute ? (isAutoTracking ? "Auto tracking" : "Manual correction") : "Preview"} · Floor {normalizeFloor(currentMapPoint?.floor ?? activeFloor)}
+{hasRealRoute ? (isAutoTracking ? "Prototype tracking" : "Manual correction") : "Preview"} · Floor {normalizeFloor(currentMapPoint?.floor ?? activeFloor)}
               </p>
             </div>
           </div>
@@ -450,7 +450,7 @@ const NavigateScreen = () => {
               ) : isAutoTracking ? (
                 <>
                   <LocateFixed className="h-5 w-5" />
-                  Auto tracking
+                  Prototype tracking
                 </>
               ) : (
                 <>

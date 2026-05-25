@@ -1290,7 +1290,7 @@ const AssistantPage = () => {
                       {msg.routeShopIds && msg.routeShopIds.length > 0 && (
                         <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-primary/8 border border-primary/25 text-[11px] text-primary font-medium">
                           <RouteIcon className="h-3.5 w-3.5 shrink-0" />
-                          Route ready · follow the steps below
+                          Route ready · AI-assisted prototype route
                         </div>
                       )}
 
@@ -1338,13 +1338,19 @@ const AssistantPage = () => {
                         : "border-primary/30 bg-primary/8"
                     )}>
                       {/* Route header */}
-                      <div className="flex items-center gap-2">
-                        <RouteIcon className="h-4 w-4 text-primary shrink-0" />
-                        <p className="text-xs font-semibold text-primary">
-                          {msg.routeSummary || (msg.routeSteps?.length
-                            ? `${msg.routeSteps.length} steps`
-                            : `${msg.routeShopIds.length} stop${msg.routeShopIds.length !== 1 ? "s" : ""}`)}
-                        </p>
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <RouteIcon className="h-4 w-4 text-primary shrink-0" />
+                          <p className="text-xs font-semibold text-primary">
+                            {msg.routeSummary || (msg.routeSteps?.length
+                              ? `${msg.routeSteps.length} steps`
+                              : `${msg.routeShopIds.length} stop${msg.routeShopIds.length !== 1 ? "s" : ""}`)}
+                          </p>
+                        </div>
+
+                        <div className="inline-flex items-center gap-1.5 rounded-full border border-primary/25 bg-primary/8 px-2.5 py-1 text-[9px] font-semibold uppercase tracking-[0.16em] text-primary">
+                          AI-assisted prototype route
+                        </div>
                       </div>
 
                       {/* Step-by-step directions */}
