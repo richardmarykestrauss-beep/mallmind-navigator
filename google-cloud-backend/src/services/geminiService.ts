@@ -21,6 +21,68 @@ function detectRouteIntent(message: string): boolean {
   return ROUTE_INTENT_PATTERNS.some((p) => p.test(message));
 }
 
+function extractRouteDestination(message: string): string | null {
+  const patterns = [
+    /\btake me to\s+(.+)$/i,
+    /\bdirections?\s+to\s+(.+)$/i,
+    /\broute\s+to\s+(.+)$/i,
+    /\bnavigate\s+to\s+(.+)$/i,
+    /\bshow me the way to\s+(.+)$/i,
+    /\bhow do i get to\s+(.+)$/i,
+  ];
+
+  for (const p of patterns) {
+    const match = message.match(p);
+    if (match?.[1]) {
+      return match[1]
+        .replace(/[?.!]+$/g, "")
+        .replace(/^the\s+/i, "")
+        .trim();
+    }
+  }
+
+  return null;
+}
+
+async function findRouteShopsByName(mallId: string, destinationName: string) {
+  const supabase = getSupabaseClient();
+  const cleaned = destinationName.trim();
+  if (!cleaned) return [];
+
+  const { data, error } = await supabase
+    .from("shops")
+    .select("id, name, category, floor, unit_number")
+    .eq("mall_id", mallId)
+    .ilike("name", `%${cleaned}%`)
+    .limit(5);
+
+  if (error) {
+    console.error("[assistant] store route lookup failed:", error.message);
+    return [];
+  }
+
+  return data ?? [];
+}
+
+function buildStoreRouteMessage(
+  destinationName: string,
+  shops: Array<{ name: string; floor: string | null; unit_number: string | null }>,
+  routeSummary: string,
+): string {
+  const top = shops[0];
+  const locationBits = [
+    top?.floor ? `Floor ${top.floor}` : null,
+    top?.unit_number ? `Unit ${top.unit_number}` : null,
+  ].filter(Boolean).join(" · ");
+
+  return [
+    `I found ${top?.name ?? destinationName}.`,
+    locationBits ? locationBits + "." : "Store location is available on the route graph.",
+    routeSummary ? `Route ready: ${routeSummary}.` : "Route ready.",
+    "Tap Start Navigation and I’ll guide you there.",
+  ].join(" ");
+}
+
 // ── SA store hours check ──────────────────────────────────────────────────────
 
 async function checkStoreHours(mallId: string, shopName: string) {
@@ -503,6 +565,48 @@ export async function runAssistant(
   // This is our safety net: if Gemini skips build_route despite instruction,
   // we still return build_route=true with correct shop IDs.
   const routeIntentDetected = intent === "route_request";
+
+  // Deterministic store-name routing for malls that may not have product inventory.
+  // Example: "Take me to 69 Belmont" should build a route to the shop directly,
+  // not first search products and fail because inventory is missing.
+  if (routeIntentDetected && ctx.mall_id) {
+    const destinationName = extractRouteDestination(lastMessage.content);
+    if (destinationName) {
+      const routeShops = await findRouteShopsByName(ctx.mall_id, destinationName);
+
+      if (routeShops.length > 0) {
+        routeShopIds = routeShops.map((s) => String(s.id));
+
+        try {
+          if (ctx.session_id) {
+            const r = await buildRoute(ctx.session_id, routeShopIds, ctx.user_id ?? null);
+            routeSteps = r.steps;
+            routeId = r.route_id;
+            routeSummary = `${r.stop_count} stop${r.stop_count !== 1 ? "s" : ""} · ~${r.estimated_minutes} min walk`;
+          } else {
+            const r = await buildRouteNoSession(ctx.mall_id, routeShopIds);
+            routeSteps = r.steps;
+            routeId = null;
+            routeSummary = `${r.stop_count} stop${r.stop_count !== 1 ? "s" : ""} · ~${r.estimated_minutes} min walk`;
+          }
+
+          if (routeSteps.length > 0) {
+            return {
+              message: buildStoreRouteMessage(destinationName, routeShops, routeSummary),
+              products: [],
+              route_steps: routeSteps,
+              route_id: routeId,
+              build_route: true,
+              route_shop_ids: routeShopIds,
+              route_summary: routeSummary,
+            };
+          }
+        } catch (err) {
+          console.error("[assistant] deterministic store-name route failed:", err);
+        }
+      }
+    }
+  }
 
   // Base config shared by all turns (system prompt + tools, mode=AUTO by default).
   // Tool-result turns use this directly so Gemini can choose to call another tool
