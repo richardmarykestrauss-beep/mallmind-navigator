@@ -225,13 +225,14 @@ export async function buildRouteGraph(
           .from("mall_nodes")
           .select("name, type, floor, x_coordinate, y_coordinate, source")
           .eq("mall_id", mallId)
-          .eq("type", "shop")
+          .in("type", ["entrance", "parking", "shop"])
+          .order("type", { ascending: true })
           .order("name", { ascending: true });
 
         if (fallbackShopErr) {
-          validation_issues.push(`Fallback shop anchor load failed: ${fallbackShopErr.message}`);
+          validation_issues.push(`Fallback anchor load failed: ${fallbackShopErr.message}`);
         } else {
-          const fallbackShops = (fallbackShopRows ?? []) as Array<{
+          const fallbackRows = (fallbackShopRows ?? []) as Array<{
             name: string;
             type: string;
             floor: string | null;
@@ -240,25 +241,42 @@ export async function buildRouteGraph(
             source: string | null;
           }>;
 
-          rawAnchors = fallbackShops
-            .filter((shop) => isRepairable(shop))
-            .map((shop, idx) => {
-              const total = Math.max(fallbackShops.length - 1, 1);
-              const progress = idx / total;
-              const row = Math.floor(idx / 12);
-              const col = idx % 12;
+          const entrances = fallbackRows.filter((n) => n.type === "entrance" && isRepairable(n));
+          const shops = fallbackRows.filter((n) => n.type === "shop" && isRepairable(n));
 
-              return {
-                label: shop.name,
-                anchor_type: "shop",
-                x_percent: Math.round(8 + (col / 11) * 84),
-                y_percent: Math.round(18 + row * 13 + (progress % 0.08) * 40),
-              };
-            });
+          const entranceAnchors = entrances.length
+            ? entrances.map((entry, idx) => ({
+                label: entry.name,
+                anchor_type: "entrance",
+                x_percent: 4,
+                y_percent: Math.round(42 + idx * 8),
+              }))
+            : [{
+                label: "Main Entrance",
+                anchor_type: "entrance",
+                x_percent: 4,
+                y_percent: 50,
+              }];
+
+          const shopAnchors = shops.map((shop, idx) => {
+            const total = Math.max(shops.length - 1, 1);
+            const progress = idx / total;
+            const row = Math.floor(idx / 12);
+            const col = idx % 12;
+
+            return {
+              label: shop.name,
+              anchor_type: "shop",
+              x_percent: Math.round(8 + (col / 11) * 84),
+              y_percent: Math.round(18 + row * 13 + (progress % 0.08) * 40),
+            };
+          });
+
+          rawAnchors = [...entranceAnchors, ...shopAnchors];
 
           if (rawAnchors.length > 0) {
             validation_issues.push(
-              `AI-Assisted Prototype fallback: generated ${rawAnchors.length} shop anchors from existing nodes because layout model anchors were empty.`,
+              `AI-Assisted Prototype fallback: generated ${rawAnchors.length} entrance/shop anchors from existing nodes because layout model anchors were empty.`,
             );
           }
         }
