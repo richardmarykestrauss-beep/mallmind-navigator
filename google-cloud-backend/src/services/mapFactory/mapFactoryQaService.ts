@@ -83,8 +83,8 @@ async function checkHasEdges(mallId: string, supabase: unknown): Promise<QaCheck
   return {
     check_name: "has_edges",
     passed:     (count ?? 0) >= 2,
-    severity:   "warning",
-    detail:     `${count ?? 0} route edge(s). At least 2 recommended for connected graph.`,
+    severity:   "blocking",
+    detail:     `${count ?? 0} route edge(s). At least 2 required for customer-facing indoor navigation.`,
   };
 }
 
@@ -137,10 +137,10 @@ async function checkNoNullFloors(mallId: string, supabase: unknown): Promise<QaC
     // Warning (not blocking): existing dev/seed data may have nulls; only current
     // job output is actionable.  Score deduction is 10 pts if any nulls exist.
     passed:   (count ?? 0) === 0,
-    severity: "warning",
+    severity: "blocking",
     detail:   (count ?? 0) === 0
       ? "All nodes have a floor label."
-      : `${count} node(s) have NULL floor. Set floor_label in each stage input to fix for new runs.`,
+      : `${count} node(s) have NULL floor. Floor labels are required before publish because routing and indoor GPS depend on floor-level graph accuracy.`,
   };
 }
 
