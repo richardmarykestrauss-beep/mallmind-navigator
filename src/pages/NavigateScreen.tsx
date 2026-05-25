@@ -7,6 +7,7 @@ import {
   LocateFixed, Flag, Radar
 } from "lucide-react";
 import MobileShell from "@/components/MobileShell";
+import IndoorMapCanvas, { type IndoorMapNode, type IndoorMapEdge } from "@/components/navigation/IndoorMapCanvas";
 import ScreenHeader from "@/components/ScreenHeader";
 import { Button } from "@/components/ui/button";
 import { useShoppingSession } from "@/context/ShoppingSessionContext";
@@ -14,6 +15,7 @@ import { useAuth } from "@/context/AuthContext";
 import { awardXP, XP_REWARDS } from "@/lib/xp";
 import { trackEvent } from "@/lib/analytics";
 import { cn } from "@/lib/utils";
+import { supabase } from "@/lib/supabaseClient";
 
 // ── Fallback estimate (no graph data) ────────────────────────────────────────
 function estimateRoute(stops: { floor: string | null }[]): { meters: number; minutes: number } {
@@ -51,6 +53,61 @@ const NavigateScreen = () => {
   const [completedStepIndices, setCompletedStepIndices] = useState<Set<number>>(new Set());
   const [completedStopIndices, setCompletedStopIndices] = useState<Set<number>>(new Set());
   const [isAutoTracking, setIsAutoTracking]   = useState(false);
+  const [visualNodes, setVisualNodes]         = useState<IndoorMapNode[]>([]);
+  const [visualEdges, setVisualEdges]         = useState<IndoorMapEdge[]>([]);
+  const [floorPlanSvg, setFloorPlanSvg]       = useState<string | null>(null);
+
+  useEffect(() => {
+    const mallId = selectedMall?.id ? String(selectedMall.id) : null;
+
+    if (!mallId) {
+      setVisualNodes([]);
+      setVisualEdges([]);
+      setFloorPlanSvg(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadMapLayer() {
+      const [{ data: nodes }, { data: edges }, { data: floorPlans }] = await Promise.all([
+        supabase
+          .from("mall_nodes")
+          .select("id, name, type, floor, x_coordinate, y_coordinate, source")
+          .eq("mall_id", mallId),
+        supabase
+          .from("mall_edges")
+          .select("id, from_node_id, to_node_id, distance_meters, instruction")
+          .eq("mall_id", mallId),
+        supabase
+          .from("map_factory_generated_floorplans")
+          .select("svg_output, floor_label, created_at")
+          .eq("mall_id", mallId)
+          .order("created_at", { ascending: false })
+          .limit(1),
+      ]);
+
+      if (cancelled) return;
+
+      setVisualNodes((nodes ?? []) as IndoorMapNode[]);
+      setVisualEdges((edges ?? []) as IndoorMapEdge[]);
+      setFloorPlanSvg(floorPlans?.[0]?.svg_output ?? null);
+    }
+
+    loadMapLayer().catch((err) => {
+      console.error("[NavigateScreen] Failed to load indoor map layer", err);
+      if (!cancelled) {
+        setVisualNodes([]);
+        setVisualEdges([]);
+        setFloorPlanSvg(null);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedMall?.id]);
+
   const [xpToast, setXpToast]                 = useState<{ xp: number; leveledUp: boolean; badges: string[] } | null>(null);
   const xpAwardedRef = useRef(false);
 
@@ -284,92 +341,19 @@ const NavigateScreen = () => {
         <div className="absolute left-[36%] top-[34%] h-[28%] w-[28%] rounded-3xl border border-primary/15 bg-primary/5 backdrop-blur-sm" />
 
         {/* Route line */}
-        {mapPoints.length > 1 && (
-          <svg className="absolute inset-0 h-full w-full pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none">
-            <polyline
-              points={routePolyline}
-              fill="none"
-              stroke="hsl(var(--muted-foreground))"
-              strokeOpacity="0.28"
-              strokeWidth="4.8"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-            <polyline
-              points={routePolyline}
-              fill="none"
-              stroke="hsl(var(--primary))"
-              strokeOpacity="0.35"
-              strokeWidth="9"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeDasharray="1 6"
-            />
-            <polyline
-              points={completedPolyline}
-              fill="none"
-              stroke="hsl(var(--primary))"
-              strokeWidth="4.8"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              style={{ filter: "drop-shadow(0 0 5px hsl(var(--primary)))" }}
-            />
-          </svg>
-        )}
-
-        {/* Pins and current position */}
-        {mapPoints.map((point, idx) => {
-          const isCurrent = idx === safeCurrentStepNum && !allDone;
-          const isDone = hasRealRoute ? completedStepIndices.has(idx) : completedStopIndices.has(idx);
-          const isDestination = idx === mapPoints.length - 1;
-
-          return (
-            <div
-              key={`${idx}-${point.x}-${point.y}`}
-              className="absolute -translate-x-1/2 -translate-y-1/2"
-              style={{ left: `${point.x}%`, top: `${point.y}%` }}
-            >
-              {isCurrent && (
-                <>
-                  <div className="absolute -inset-5 rounded-full bg-primary/20 blur-md" />
-                  <div className="absolute -inset-3 rounded-full border border-primary/50 animate-ping" />
-                </>
-              )}
-
-              <div
-                className={cn(
-                  "relative flex h-7 w-7 items-center justify-center rounded-full border-2 border-background shadow-lg transition-all",
-                  isCurrent
-                    ? "scale-125 bg-primary text-primary-foreground glow-primary"
-                    : isDone
-                    ? "bg-muted-foreground text-background"
-                    : isDestination
-                    ? "bg-secondary text-secondary-foreground"
-                    : "bg-background text-muted-foreground border-border"
-                )}
-              >
-                {isCurrent ? (
-                  <Navigation className="h-3.5 w-3.5" />
-                ) : isDone ? (
-                  <CheckCircle2 className="h-3.5 w-3.5" />
-                ) : isDestination ? (
-                  <Flag className="h-3.5 w-3.5" />
-                ) : (
-                  <span className="text-[10px] font-bold">{idx + 1}</span>
-                )}
-              </div>
-
-              {(isCurrent || isDestination) && (
-                <div className="absolute left-1/2 top-8 min-w-[96px] -translate-x-1/2 rounded-xl border border-border/70 bg-background/90 px-2 py-1 text-center text-[10px] font-semibold shadow-lg backdrop-blur">
-                  {isCurrent ? "You are here" : point.label}
-                </div>
-              )}
-            </div>
-          );
-        })}
+        <IndoorMapCanvas
+          floorPlanSvg={floorPlanSvg}
+          nodes={visualNodes}
+          edges={visualEdges}
+          routePoints={mapPoints}
+          completedPointCount={Math.max(1, safeCurrentStepNum + 1)}
+          currentPoint={!allDone ? currentMapPoint : null}
+          destinationPoint={destinationMapPoint}
+          activeFloor={currentMapPoint?.floor ?? activeFloor}
+        />
 
         {/* GPS mode badge */}
-        <div className="absolute left-3 top-3 rounded-2xl border border-primary/25 bg-background/85 px-3 py-2 shadow-xl backdrop-blur">
+        <div className="absolute left-3 top-3 z-20 rounded-2xl border border-primary/25 bg-background/85 px-3 py-2 shadow-xl backdrop-blur">
           <div className="flex items-center gap-2">
             <Radar className="h-4 w-4 text-primary" />
             <div>
@@ -384,7 +368,7 @@ const NavigateScreen = () => {
         </div>
 
         {/* Floor selector */}
-        <div className="absolute right-3 top-3 flex flex-col gap-1.5 rounded-2xl border border-border bg-background/85 backdrop-blur p-1.5 shadow-xl">
+        <div className="absolute right-3 top-3 z-20 flex flex-col gap-1.5 rounded-2xl border border-border bg-background/85 backdrop-blur p-1.5 shadow-xl">
           <div className="flex items-center justify-center pb-1 text-[9px] text-muted-foreground">
             <Layers className="h-3 w-3" />
           </div>
@@ -405,7 +389,7 @@ const NavigateScreen = () => {
         </div>
 
         {/* Bottom live instruction card */}
-        <div className="absolute inset-x-3 bottom-3 rounded-3xl border border-primary/25 bg-background/92 p-4 shadow-2xl backdrop-blur-xl">
+        <div className="absolute inset-x-3 bottom-3 z-20 rounded-3xl border border-primary/25 bg-background/92 p-4 shadow-2xl backdrop-blur-xl">
           <div className="mb-3 flex items-start gap-3">
             <div className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
               <div className="absolute h-9 w-9 rounded-full bg-primary/30 animate-ping" />
