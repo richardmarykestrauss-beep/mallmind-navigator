@@ -206,12 +206,63 @@ export async function buildRouteGraph(
       const floor = resolveFloorLabel(model.floor_label, floorLabel);
       if (!floors_processed.includes(floor)) floors_processed.push(floor);
 
-      const rawAnchors: Array<{
+      let rawAnchors: Array<{
         label:       string;
         anchor_type: string;
         x_percent:   number | null;
         y_percent:   number | null;
       }> = Array.isArray(model.merged_anchors) ? model.merged_anchors : [];
+
+      // Fallback for source-backed jobs where extraction found tenants but
+      // layout intelligence could not produce anchors yet.
+      //
+      // This creates an AI-Assisted Prototype graph, not a verified digital twin:
+      // - repair stale/null shop floors to the requested floor
+      // - spread existing shops across a corridor-like band
+      // - allow the existing spine fallback below to create corridor hubs/edges
+      if (rawAnchors.length === 0) {
+        const { data: fallbackShopRows, error: fallbackShopErr } = await supabase
+          .from("mall_nodes")
+          .select("name, type, floor, x_coordinate, y_coordinate, source")
+          .eq("mall_id", mallId)
+          .eq("type", "shop")
+          .order("name", { ascending: true });
+
+        if (fallbackShopErr) {
+          validation_issues.push(`Fallback shop anchor load failed: ${fallbackShopErr.message}`);
+        } else {
+          const fallbackShops = (fallbackShopRows ?? []) as Array<{
+            name: string;
+            type: string;
+            floor: string | null;
+            x_coordinate: number | null;
+            y_coordinate: number | null;
+            source: string | null;
+          }>;
+
+          rawAnchors = fallbackShops
+            .filter((shop) => isRepairable(shop))
+            .map((shop, idx) => {
+              const total = Math.max(fallbackShops.length - 1, 1);
+              const progress = idx / total;
+              const row = Math.floor(idx / 12);
+              const col = idx % 12;
+
+              return {
+                label: shop.name,
+                anchor_type: "shop",
+                x_percent: Math.round(8 + (col / 11) * 84),
+                y_percent: Math.round(18 + row * 13 + (progress % 0.08) * 40),
+              };
+            });
+
+          if (rawAnchors.length > 0) {
+            validation_issues.push(
+              `AI-Assisted Prototype fallback: generated ${rawAnchors.length} shop anchors from existing nodes because layout model anchors were empty.`,
+            );
+          }
+        }
+      }
 
       // ── 4. Insert / repair / update / skip per anchor ─────────────────────
       for (const anchor of rawAnchors) {
