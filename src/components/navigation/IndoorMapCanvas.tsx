@@ -1,327 +1,408 @@
-import { Flag, MapPin, Navigation, Store } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { useMemo } from "react";
+import type { RouteStep } from "@/context/ShoppingSessionContext";
 
-export type IndoorMapNode = {
+interface MallNode {
   id: string;
   name: string;
-  type: string;
+  type: "shop" | "entrance" | "corridor";
   floor: string | null;
   x_coordinate: number | null;
   y_coordinate: number | null;
-  source?: string | null;
-};
-
-export type IndoorMapEdge = {
-  id: string;
-  from_node_id: string;
-  to_node_id: string;
-  distance_meters?: number | null;
-  instruction?: string | null;
-};
-
-export type IndoorRoutePoint = {
-  x: number;
-  y: number;
-  floor?: string | null;
-  label?: string;
-  instruction?: string;
-};
-
-type Props = {
-  floorPlanSvg?: string | null;
-  nodes: IndoorMapNode[];
-  edges: IndoorMapEdge[];
-  routePoints: IndoorRoutePoint[];
-  completedPointCount: number;
-  currentPoint?: IndoorRoutePoint | null;
-  destinationPoint?: IndoorRoutePoint | null;
-  activeFloor?: string | null;
-  className?: string;
-};
-
-function clampPct(value: number | null | undefined, fallback: number): number {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return fallback;
-  return Math.max(4, Math.min(96, n));
+  linked_shop_id: string | null;
 }
 
-function floorKey(value: string | null | undefined): string {
-  return String(value ?? "").trim().toLowerCase();
+export interface IndoorMapCanvasProps {
+  mallId: string | number | null;
+  activeFloor: string;
+  activeRouteSteps?: RouteStep[];
+  completedStepIndices?: Set<number>;
+  currentStepIndex?: number;
 }
 
-function shortName(name: string): string {
+const VIEW_W = 360;
+const VIEW_H = 172;
+const MARGIN_X = 28;
+const CORRIDOR_Y = VIEW_H / 2;
+
+function shortLabel(name: string): string {
   if (!name) return "Store";
-  if (name.length <= 14) return name;
-  return `${name.slice(0, 12)}…`;
+  if (name.length <= 11) return name;
+  const words = name.trim().split(/\s+/);
+  if (words[0]?.length >= 4) return words[0];
+  const two = `${words[0] ?? ""} ${words[1] ?? ""}`.trim();
+  return two.length <= 12 ? two : words[0] ?? "Store";
 }
 
-function shopAccent(index: number): string {
-  const variants = [
-    "border-violet-300/35 bg-violet-500/18",
-    "border-cyan-300/30 bg-cyan-500/15",
-    "border-emerald-300/28 bg-emerald-500/14",
-    "border-sky-300/30 bg-sky-500/15",
-    "border-primary/30 bg-primary/14",
-  ];
-  return variants[index % variants.length];
+function normalizeFloor(value: string | null | undefined): string {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "G";
+  if (/^ground floor$/i.test(raw)) return "Ground Floor";
+  if (/^g$/i.test(raw)) return "Ground Floor";
+  const level = raw.match(/^Level\s+(\d+)$/i);
+  if (level) return `Level ${level[1]}`;
+  return raw;
+}
+
+function isInternalNode(node: MallNode): boolean {
+  if (node.linked_shop_id) return false;
+  if (node.type !== "shop" && node.type !== "corridor") return false;
+  return /spine\s*node|corridor\s*node|junction\s*node|route\s*node|\bnode\s+\d+\b/i.test(node.name);
 }
 
 export default function IndoorMapCanvas({
-  floorPlanSvg,
-  nodes,
-  edges,
-  routePoints,
-  completedPointCount,
-  currentPoint,
-  destinationPoint,
+  mallId,
   activeFloor,
-  className,
-}: Props) {
-  const nodeMap = new Map(nodes.map((node) => [String(node.id), node]));
-  const activeFloorKey = floorKey(activeFloor);
+  activeRouteSteps = [],
+  completedStepIndices = new Set<number>(),
+  currentStepIndex = 0,
+}: IndoorMapCanvasProps) {
+  const safeSteps = Array.isArray(activeRouteSteps) ? activeRouteSteps : [];
+  const floor = normalizeFloor(activeFloor);
 
-  const visibleNodes = nodes.filter((node) => {
-    if (!activeFloorKey) return true;
-    return floorKey(node.floor) === activeFloorKey;
-  });
+  const floorSteps = useMemo(() => {
+    const exact = safeSteps.filter((step) => normalizeFloor(step.floor) === floor);
+    return exact.length > 0 ? exact : safeSteps;
+  }, [safeSteps, floor]);
 
-  const shops = visibleNodes.filter((node) => node.type === "shop").slice(0, 90);
-  const corridors = visibleNodes.filter((node) => node.type === "corridor");
-  const entrances = visibleNodes.filter((node) => node.type === "entrance");
+  const routeNodes = useMemo<MallNode[]>(() => {
+    return floorSteps.map((step, index) => {
+      const rawX = Number((step as any).x_coordinate);
+      const rawY = Number((step as any).y_coordinate);
 
-  const graphLines = edges
-    .map((edge) => {
-      const from = nodeMap.get(String(edge.from_node_id));
-      const to = nodeMap.get(String(edge.to_node_id));
-      if (!from || !to) return null;
+      const fallbackX = 10 + (index / Math.max(floorSteps.length - 1, 1)) * 80;
+      const fallbackY = index % 2 === 0 ? 50 : 62;
 
-      if (activeFloorKey) {
-        const fromFloor = floorKey(from.floor);
-        const toFloor = floorKey(to.floor);
-        if (fromFloor !== activeFloorKey && toFloor !== activeFloorKey) return null;
-      }
+      const name = step.node_name || step.instruction || `Route point ${index + 1}`;
+      const isEntrance = index === 0 || /entrance/i.test(name);
+      const isLast = index === floorSteps.length - 1;
 
       return {
-        id: edge.id,
-        x1: clampPct(from.x_coordinate, 50),
-        y1: clampPct(from.y_coordinate, 50),
-        x2: clampPct(to.x_coordinate, 50),
-        y2: clampPct(to.y_coordinate, 50),
-        corridor: from.type === "corridor" && to.type === "corridor",
+        id: step.node_id || `route-${index}`,
+        name,
+        type: isEntrance ? "entrance" : isLast ? "shop" : "corridor",
+        floor: normalizeFloor(step.floor ?? floor),
+        x_coordinate: Number.isFinite(rawX) ? Math.max(0, Math.min(100, rawX)) : fallbackX,
+        y_coordinate: Number.isFinite(rawY) ? Math.max(0, Math.min(100, rawY)) : fallbackY,
+        linked_shop_id: isLast ? step.node_id : null,
       };
-    })
-    .filter(Boolean) as Array<{
-      id: string;
-      x1: number;
-      y1: number;
-      x2: number;
-      y2: number;
-      corridor: boolean;
-    }>;
+    });
+  }, [floorSteps, floor]);
 
-  const routePolyline = routePoints.map((point) => `${point.x},${point.y}`).join(" ");
-  const completedPolyline = routePoints
-    .slice(0, Math.max(1, completedPointCount))
-    .map((point) => `${point.x},${point.y}`)
-    .join(" ");
+  const visibleNodes = routeNodes;
+
+  const { minX, rangeX } = useMemo(() => {
+    const xs = visibleNodes
+      .map((n) => n.x_coordinate)
+      .filter((v): v is number => v !== null && Number.isFinite(v));
+    if (xs.length < 2) return { minX: 0, rangeX: 100 };
+    const mn = Math.min(...xs);
+    const mx = Math.max(...xs);
+    return { minX: mn, rangeX: Math.max(mx - mn, 10) };
+  }, [visibleNodes]);
+
+  const svgX = (x: number | null): number => {
+    const v = x ?? minX + rangeX / 2;
+    return MARGIN_X + ((v - minX) / rangeX) * (VIEW_W - 2 * MARGIN_X);
+  };
+
+  const nodePositions = useMemo(() => {
+    const pos = new Map<string, { x: number; y: number }>();
+
+    visibleNodes.forEach((node, index) => {
+      if (node.type === "entrance") {
+        pos.set(node.id, { x: svgX(node.x_coordinate), y: CORRIDOR_Y + 32 });
+      } else if (node.type === "corridor" || isInternalNode(node)) {
+        pos.set(node.id, { x: svgX(node.x_coordinate), y: CORRIDOR_Y });
+      } else {
+        pos.set(node.id, {
+          x: svgX(node.x_coordinate),
+          y: index % 2 === 0 ? CORRIDOR_Y - 30 : CORRIDOR_Y + 30,
+        });
+      }
+    });
+
+    return pos;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visibleNodes, minX, rangeX]);
+
+  const routePoints = floorSteps
+    .map((step, index) => {
+      const pos = nodePositions.get(step.node_id || `route-${index}`);
+      if (!pos) return null;
+      return { ...pos, stepIdx: safeSteps.indexOf(step) };
+    })
+    .filter((p): p is { x: number; y: number; stepIdx: number } => p !== null);
+
+  const completedRoutePts = routePoints.filter((p) => completedStepIndices.has(p.stepIdx));
+  const remainingRoutePts = routePoints.filter((p) => !completedStepIndices.has(p.stepIdx));
+  const lastCompletedPt = completedRoutePts.at(-1);
+  const remainingWithBridge = lastCompletedPt
+    ? [lastCompletedPt, ...remainingRoutePts]
+    : remainingRoutePts;
+
+  const currentStep = safeSteps[currentStepIndex] ?? floorSteps[0];
+  const currentPos = currentStep
+    ? nodePositions.get(currentStep.node_id) ?? routePoints[0] ?? null
+    : routePoints[0] ?? null;
+
+  const lastStep = safeSteps[safeSteps.length - 1] ?? floorSteps[floorSteps.length - 1];
+  const destPos = lastStep
+    ? nodePositions.get(lastStep.node_id) ?? routePoints.at(-1) ?? null
+    : routePoints.at(-1) ?? null;
+  const destName = lastStep?.node_name ?? "Destination";
+
+  const shopNodes = visibleNodes.filter((n) => !isInternalNode(n) && n.type === "shop");
+  const entranceNodes = visibleNodes.filter((n) => n.type === "entrance");
+  const corridorNodes = visibleNodes.filter((n) => n.type === "corridor" || isInternalNode(n));
+
+  if (!mallId) {
+    return (
+      <div className="flex items-center justify-center w-full h-full">
+        <p className="text-xs text-muted-foreground">No mall selected.</p>
+      </div>
+    );
+  }
+
+  if (safeSteps.length === 0) {
+    return (
+      <div className="flex items-center justify-center w-full h-full">
+        <p className="text-xs text-muted-foreground">No active route data.</p>
+      </div>
+    );
+  }
 
   return (
-    <div
-      className={cn(
-        "absolute inset-0 z-[5] pointer-events-none overflow-hidden rounded-[1.35rem] bg-background",
-        className,
-      )}
+    <svg
+      viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
+      className="w-full h-full"
+      aria-label="Indoor mall schematic map"
+      style={{ display: "block" }}
     >
-      {/* dark premium base */}
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_16%_20%,hsl(var(--primary)/0.23),transparent_30%),radial-gradient(circle_at_74%_64%,hsl(var(--primary)/0.14),transparent_36%),linear-gradient(135deg,hsl(var(--background)),hsl(var(--muted)/0.52))]" />
-      <div className="absolute inset-0 opacity-[0.22] bg-[linear-gradient(hsl(var(--border))_1px,transparent_1px),linear-gradient(90deg,hsl(var(--border))_1px,transparent_1px)] bg-[size:22px_22px]" />
+      <defs>
+        <filter id="mmf-route-glow" x="-40%" y="-40%" width="180%" height="180%">
+          <feGaussianBlur stdDeviation="3.5" result="blur" />
+          <feMerge>
+            <feMergeNode in="blur" />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
 
-      {/* raised 2.5D mall deck */}
-      <div className="absolute left-[4%] right-[4%] top-[9%] h-[70%] rounded-[2.2rem] border border-primary/22 bg-primary/[0.05] shadow-[0_32px_90px_hsl(var(--background)/0.88),inset_0_1px_0_hsl(var(--primary)/0.18)]" />
-      <div className="absolute left-[8%] right-[8%] top-[14%] h-[58%] rounded-[1.7rem] border border-primary/12 bg-background/32 shadow-[inset_0_0_60px_hsl(var(--primary)/0.09)]" />
+        <filter id="mmf-dest-glow" x="-60%" y="-60%" width="220%" height="220%">
+          <feGaussianBlur stdDeviation="2.5" result="blur" />
+          <feMerge>
+            <feMergeNode in="blur" />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
+      </defs>
 
-      {/* broad mall zones so it reads as a floor plan even when generated data is simple */}
-      <div className="absolute left-[12%] top-[18%] h-[17%] w-[33%] rounded-2xl border border-violet-300/18 bg-violet-500/12 shadow-[0_12px_30px_hsl(var(--background)/0.5)]" />
-      <div className="absolute right-[13%] top-[18%] h-[16%] w-[30%] rounded-2xl border border-cyan-300/16 bg-cyan-500/10 shadow-[0_12px_30px_hsl(var(--background)/0.5)]" />
-      <div className="absolute left-[16%] top-[48%] h-[16%] w-[29%] rounded-2xl border border-emerald-300/16 bg-emerald-500/10 shadow-[0_12px_30px_hsl(var(--background)/0.5)]" />
-      <div className="absolute right-[16%] top-[47%] h-[17%] w-[31%] rounded-2xl border border-violet-300/16 bg-violet-500/10 shadow-[0_12px_30px_hsl(var(--background)/0.5)]" />
+      <rect width={VIEW_W} height={VIEW_H} fill="hsl(240 20% 4%)" />
 
-      {/* subtle Map Factory SVG texture behind the live graph */}
-      {floorPlanSvg && (
-        <div
-          className="absolute inset-0 opacity-[0.18] mix-blend-screen [&_svg]:h-full [&_svg]:w-full [&_rect]:stroke-primary/25"
-          dangerouslySetInnerHTML={{ __html: floorPlanSvg }}
+      <rect
+        x={14}
+        y={10}
+        width={VIEW_W - 28}
+        height={VIEW_H - 20}
+        rx={8}
+        fill="hsl(240 16% 7%)"
+        stroke="hsl(240 14% 16%)"
+        strokeWidth="0.5"
+      />
+
+      <rect
+        x={14}
+        y={CORRIDOR_Y - 8}
+        width={VIEW_W - 28}
+        height={16}
+        fill="hsl(240 14% 9%)"
+      />
+
+      <line
+        x1={18}
+        y1={CORRIDOR_Y}
+        x2={VIEW_W - 18}
+        y2={CORRIDOR_Y}
+        stroke="hsl(240 14% 22%)"
+        strokeWidth="0.8"
+        strokeDasharray="6 4"
+      />
+
+      {routePoints.length >= 2 && (
+        <polyline
+          points={routePoints.map((p) => `${p.x},${p.y}`).join(" ")}
+          fill="none"
+          stroke="hsl(240 14% 17%)"
+          strokeWidth="0.9"
+          strokeLinecap="round"
+          strokeLinejoin="round"
         />
       )}
 
-      {/* storefront blocks */}
-      {shops.map((node, index) => {
-        const x = clampPct(node.x_coordinate, 50);
-        const y = clampPct(node.y_coordinate, 50);
-        const isDestination =
-          destinationPoint &&
-          Math.abs(destinationPoint.x - x) < 1.8 &&
-          Math.abs(destinationPoint.y - y) < 1.8;
+      {shopNodes.map((node) => {
+        const pos = nodePositions.get(node.id);
+        if (!pos) return null;
+
+        const isAbove = pos.y < CORRIDOR_Y;
+        const BW = 50;
+        const BH = 19;
 
         return (
-          <div
-            key={`shop-${node.id}`}
-            className={cn(
-              "absolute -translate-x-1/2 -translate-y-1/2 rounded-xl border backdrop-blur-[1px]",
-              "shadow-[0_14px_30px_hsl(var(--background)/0.62),inset_0_1px_0_rgba(255,255,255,0.10)]",
-              shopAccent(index),
-              isDestination && "z-30 border-secondary/75 bg-secondary/18 shadow-[0_0_30px_hsl(var(--secondary)/0.45)]"
-            )}
-            style={{
-              left: `${x}%`,
-              top: `${y}%`,
-              width: node.name.length > 18 ? "70px" : "58px",
-              height: "36px",
-            }}
-            title={node.name}
-          >
-            {(isDestination || index < 18) && (
-              <div className="absolute inset-0 flex items-center justify-center px-1 text-center text-[8px] font-bold leading-none text-foreground/88">
-                {shortName(node.name)}
-              </div>
-            )}
-          </div>
+          <g key={node.id}>
+            <line
+              x1={pos.x}
+              y1={pos.y + (isAbove ? BH / 2 : -BH / 2)}
+              x2={pos.x}
+              y2={CORRIDOR_Y + (isAbove ? -8 : 8)}
+              stroke="hsl(240 14% 19%)"
+              strokeWidth="0.5"
+            />
+            <rect
+              x={pos.x - BW / 2}
+              y={pos.y - BH / 2}
+              width={BW}
+              height={BH}
+              rx={3}
+              fill="hsl(240 14% 11%)"
+              stroke="hsl(240 14% 24%)"
+              strokeWidth="0.6"
+            />
+            <text
+              x={pos.x}
+              y={pos.y + 3.5}
+              textAnchor="middle"
+              fontSize="5.7"
+              fontFamily="Inter, system-ui, sans-serif"
+              fill="hsl(240 8% 62%)"
+            >
+              {shortLabel(node.name)}
+            </text>
+          </g>
         );
       })}
 
-      <svg className="absolute inset-0 z-20 h-full w-full pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none">
-        {/* full mall graph */}
-        {graphLines.map((line) => (
-          <line
-            key={line.id}
-            x1={line.x1}
-            y1={line.y1}
-            x2={line.x2}
-            y2={line.y2}
-            stroke={line.corridor ? "hsl(var(--primary))" : "hsl(var(--border))"}
-            strokeOpacity={line.corridor ? 0.62 : 0.32}
-            strokeWidth={line.corridor ? 2.4 : 1.05}
-            strokeLinecap="round"
-          />
-        ))}
-
-        {/* active route glow */}
-        {routePoints.length > 1 && (
-          <polyline
-            points={routePolyline}
-            fill="none"
-            stroke="hsl(var(--primary))"
-            strokeOpacity="0.34"
-            strokeWidth="14"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        )}
-
-        {/* active route dashed line */}
-        {routePoints.length > 1 && (
-          <polyline
-            points={routePolyline}
-            fill="none"
-            stroke="hsl(var(--primary))"
-            strokeOpacity="0.94"
-            strokeWidth="4.4"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeDasharray="1.2 4"
-          />
-        )}
-
-        {/* completed route */}
-        {routePoints.length > 1 && (
-          <polyline
-            points={completedPolyline}
-            fill="none"
-            stroke="hsl(var(--primary))"
-            strokeWidth="5.6"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            style={{ filter: "drop-shadow(0 0 8px hsl(var(--primary)))" }}
-          />
-        )}
-      </svg>
-
-      {/* corridor hubs */}
-      {corridors.map((node) => {
-        const x = clampPct(node.x_coordinate, 50);
-        const y = clampPct(node.y_coordinate, 50);
+      {corridorNodes.map((node) => {
+        const pos = nodePositions.get(node.id);
+        if (!pos) return null;
 
         return (
-          <div
-            key={`corridor-${node.id}`}
-            className="absolute z-30 -translate-x-1/2 -translate-y-1/2"
-            style={{ left: `${x}%`, top: `${y}%` }}
-            title={node.name}
-          >
-            <div className="absolute -inset-5 rounded-full bg-primary/18 blur-xl" />
-            <div className="relative h-4 w-4 rounded-full border border-primary/60 bg-primary/38 shadow-[0_0_18px_hsl(var(--primary)/0.42)]" />
-          </div>
+          <circle
+            key={node.id}
+            cx={pos.x}
+            cy={pos.y}
+            r={2.1}
+            fill="hsl(190 100% 50% / 0.25)"
+            stroke="hsl(190 100% 50% / 0.45)"
+            strokeWidth="0.6"
+          />
         );
       })}
 
-      {/* entrances */}
-      {entrances.map((node) => {
-        const x = clampPct(node.x_coordinate, 8);
-        const y = clampPct(node.y_coordinate, 78);
+      {entranceNodes.map((node) => {
+        const pos = nodePositions.get(node.id);
+        if (!pos) return null;
 
         return (
-          <div
-            key={`entrance-${node.id}`}
-            className="absolute z-40 -translate-x-1/2 -translate-y-1/2"
-            style={{ left: `${x}%`, top: `${y}%` }}
-            title={node.name}
-          >
-            <div className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-background bg-primary text-primary-foreground shadow-[0_0_24px_hsl(var(--primary)/0.55)]">
-              <MapPin className="h-3.5 w-3.5" />
-            </div>
-          </div>
+          <g key={node.id} transform={`translate(${pos.x}, ${pos.y})`}>
+            <rect
+              x={-17}
+              y={-8}
+              width={34}
+              height={16}
+              rx={4}
+              fill="hsl(190 100% 50% / 0.12)"
+              stroke="hsl(190 100% 50% / 0.45)"
+              strokeWidth="0.8"
+            />
+            <text
+              x={0}
+              y={3.5}
+              textAnchor="middle"
+              fontSize="5"
+              fontFamily="Inter, system-ui, sans-serif"
+              fontWeight="700"
+              fill="hsl(190 100% 65%)"
+              letterSpacing="0.06em"
+            >
+              ENTRY
+            </text>
+          </g>
         );
       })}
 
-      {/* destination */}
-      {destinationPoint && (
-        <div
-          className="absolute z-50 -translate-x-1/2 -translate-y-1/2"
-          style={{ left: `${destinationPoint.x}%`, top: `${destinationPoint.y}%` }}
-        >
-          <div className="absolute -inset-5 rounded-full bg-secondary/24 blur-lg" />
-          <div className="relative flex h-9 w-9 items-center justify-center rounded-full bg-secondary text-secondary-foreground shadow-xl border-2 border-background">
-            <Flag className="h-4 w-4" />
-          </div>
-          <div className="absolute left-1/2 top-10 min-w-[112px] -translate-x-1/2 rounded-xl border border-secondary/35 bg-background/92 px-2 py-1 text-center text-[10px] font-bold shadow-lg">
-            {destinationPoint.label ?? "Destination"}
-          </div>
-        </div>
+      {completedRoutePts.length >= 2 && (
+        <polyline
+          points={completedRoutePts.map((p) => `${p.x},${p.y}`).join(" ")}
+          fill="none"
+          stroke="hsl(190 100% 50% / 0.2)"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
       )}
 
-      {/* current location */}
-      {currentPoint && (
-        <div
-          className="absolute z-[60] -translate-x-1/2 -translate-y-1/2"
-          style={{ left: `${currentPoint.x}%`, top: `${currentPoint.y}%` }}
-        >
-          <div className="absolute -inset-8 rounded-full bg-primary/24 blur-xl" />
-          <div className="absolute -inset-4 rounded-full border border-primary/60 animate-ping" />
-          <div className="relative flex h-10 w-10 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-xl border-2 border-background glow-primary">
-            <Navigation className="h-4.5 w-4.5" />
-          </div>
-          <div className="absolute left-1/2 top-11 min-w-[104px] -translate-x-1/2 rounded-xl border border-primary/35 bg-background/92 px-2 py-1 text-center text-[10px] font-bold shadow-lg">
-            You are here
-          </div>
-        </div>
+      {remainingWithBridge.length >= 2 && (
+        <>
+          <polyline
+            points={remainingWithBridge.map((p) => `${p.x},${p.y}`).join(" ")}
+            fill="none"
+            stroke="hsl(190 100% 50% / 0.25)"
+            strokeWidth="10"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            filter="url(#mmf-route-glow)"
+          />
+          <polyline
+            points={remainingWithBridge.map((p) => `${p.x},${p.y}`).join(" ")}
+            fill="none"
+            stroke="hsl(190 100% 55%)"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </>
       )}
 
-      <div className="absolute left-3 bottom-3 z-[70] rounded-2xl border border-primary/25 bg-background/86 px-3 py-2 text-[10px] shadow-xl backdrop-blur">
-        <div className="flex items-center gap-1.5 text-muted-foreground">
-          <Store className="h-3 w-3 text-primary" />
-          2.5D schematic layout · Map Factory
-        </div>
-      </div>
-    </div>
+      {destPos && (
+        <g transform={`translate(${destPos.x}, ${destPos.y})`} filter="url(#mmf-dest-glow)">
+          <circle r={7} fill="hsl(111 100% 54% / 0.18)" stroke="hsl(111 100% 54%)" strokeWidth="1.5" />
+          <circle r={3} fill="hsl(111 100% 58%)" />
+          <text
+            y={-11}
+            textAnchor="middle"
+            fontSize="5.5"
+            fontFamily="Inter, system-ui, sans-serif"
+            fontWeight="700"
+            fill="hsl(111 100% 62%)"
+          >
+            {shortLabel(destName)}
+          </text>
+        </g>
+      )}
+
+      {currentPos && (
+        <g transform={`translate(${currentPos.x}, ${currentPos.y})`}>
+          <circle
+            r={8}
+            fill="none"
+            stroke="hsl(190 100% 50% / 0.55)"
+            strokeWidth="1"
+            className="animate-ping"
+            style={
+              {
+                transformBox: "fill-box",
+                transformOrigin: "center",
+              } as React.CSSProperties
+            }
+          />
+          <circle
+            r={5.5}
+            fill="hsl(190 100% 50% / 0.25)"
+            stroke="hsl(190 100% 50%)"
+            strokeWidth="1.5"
+          />
+          <circle r={2.5} fill="hsl(190 100% 62%)" />
+        </g>
+      )}
+    </svg>
   );
 }
