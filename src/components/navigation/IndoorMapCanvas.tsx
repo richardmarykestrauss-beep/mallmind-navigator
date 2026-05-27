@@ -54,10 +54,21 @@ interface MapCounts {
   [key: string]: unknown;
 }
 
+
+interface MapFloorplan {
+  id: string;
+  floor_label: string | null;
+  svg_output: string | null;
+  layout_json: unknown;
+  status: string | null;
+  created_at: string | null;
+}
+
 export interface IndoorMapModel {
   nodes: MapNode[];
   edges: MapEdge[];
   counts: MapCounts;
+  floorplan?: MapFloorplan | null;
 }
 
 // ── Props ──────────────────────────────────────────────────────────────────────
@@ -95,6 +106,27 @@ function shortLabel(name: string): string {
   const two = `${words[0]} ${words[1] ?? ""}`.trim();
   return two.length <= 12 ? two : words[0];
 }
+
+/** Normalise floor identifiers so "G" and "Ground Floor" compare equal. */
+function normalizeFloorLabel(value: string | null | undefined): string {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "";
+  if (/^g$/i.test(raw)) return "Ground Floor";
+  if (/^ground$/i.test(raw)) return "Ground Floor";
+  if (/^ground floor$/i.test(raw)) return "Ground Floor";
+  const level = raw.match(/^l(?:evel)?\s*(\d+)$/i);
+  if (level) return `Level ${level[1]}`;
+  return raw;
+}
+
+/** Strip script tags and inline event handlers before embedding SVG as a data URI. */
+function sanitizeSvg(raw: string): string {
+  return raw
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/\son\w+\s*=\s*"[^"]*"/gi, "")
+    .replace(/\son\w+\s*=\s*'[^']*'/gi, "");
+}
+
 
 // ── Shared SVG defs ────────────────────────────────────────────────────────────
 
@@ -293,6 +325,20 @@ export default function IndoorMapCanvas({
   const allNodes: MapNode[] = mapModel.nodes ?? [];
   const allEdges: MapEdge[] = mapModel.edges ?? [];
 
+  const floorplan = mapModel.floorplan;
+  const floorplanLabel = normalizeFloorLabel(floorplan?.floor_label);
+  const activeFloorLabel = normalizeFloorLabel(activeFloor);
+  const floorplanMatches =
+    Boolean(floorplan?.svg_output) &&
+    (!floorplanLabel || floorplanLabel === activeFloorLabel);
+
+  const floorplanUri = floorplanMatches && floorplan?.svg_output
+    ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(sanitizeSvg(floorplan.svg_output))}`
+    : null;
+
+  const hasFloorplan = floorplanUri !== null;
+
+
   const floorNodes = allNodes.filter((n) => n.floor === activeFloor);
   const nodeById   = new Map<string, MapNode>(allNodes.map((n) => [n.id, n]));
 
@@ -402,6 +448,20 @@ export default function IndoorMapCanvas({
       <MapDefs />
       <DeckPlate />
 
+      {floorplanUri && (
+        <image
+          href={floorplanUri}
+          x={14}
+          y={10}
+          width={VIEW_W - 28}
+          height={VIEW_H - 20}
+          preserveAspectRatio="xMidYMid meet"
+          opacity={0.82}
+        />
+      )}
+
+
+
       {/* Edge network */}
       {visibleEdges.map((edge) => {
         const from = nodePositions.get(edge.from_node_id);
@@ -410,7 +470,7 @@ export default function IndoorMapCanvas({
         return (
           <line key={edge.id}
             x1={from.x} y1={from.y} x2={to.x} y2={to.y}
-            stroke="hsl(240 14% 18%)" strokeWidth="0.28" strokeOpacity="0.16" />
+            stroke="hsl(240 14% 18%)" strokeWidth="0.28" strokeOpacity={hasFloorplan ? "0.04" : "0.16"} />
         );
       })}
 
