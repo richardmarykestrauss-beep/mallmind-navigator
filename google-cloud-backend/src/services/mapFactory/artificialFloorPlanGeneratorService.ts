@@ -93,6 +93,27 @@ function escSvg(s: string): string {
     .replace(/"/g, '&quot;');
 }
 
+
+function normalizeFloorLabel(value: string | null | undefined): string {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '';
+  if (/^g$/i.test(raw)) return 'Ground Floor';
+  if (/^ground$/i.test(raw)) return 'Ground Floor';
+  if (/^ground floor$/i.test(raw)) return 'Ground Floor';
+  const level = raw.match(/^l(?:evel)?\s*(\d+)$/i);
+  if (level) return `Level ${level[1]}`;
+  return raw;
+}
+
+function mapMallNodeTypeToAnchorType(type: string | null | undefined): string {
+  const raw = String(type ?? '').trim().toLowerCase();
+  if (raw === 'corridor') return 'corridor_node';
+  if (raw === 'entrance') return 'entrance';
+  if (raw === 'shop') return 'shop';
+  return raw || 'landmark';
+}
+
+
 // ── Layout builder ────────────────────────────────────────────────────────────
 
 function buildLayout(anchors: LayoutAnchor[]): FloorPlanLayout {
@@ -314,9 +335,45 @@ export async function generateFloorPlan(
     if (!model)
       throw new Error(`No layout model found for job ${jobId}, floor "${floorLabel}"`);
 
-    const anchors: LayoutAnchor[] = Array.isArray(model.merged_anchors)
+    let anchors: LayoutAnchor[] = Array.isArray(model.merged_anchors)
       ? model.merged_anchors
       : [];
+
+    // Sprint 18B.5D:
+    // If Map Factory has no merged anchors for this floor, fall back to the
+    // published mall_nodes graph. This turns the generated floorplan from a
+    // corridor-only asset into a route-aware schematic with shop/entrance
+    // geometry, without changing the database schema or frontend contract.
+    if (anchors.length === 0) {
+      const normalizedFloor = normalizeFloorLabel(floorLabel);
+
+      const { data: mallNodes, error: mallNodesErr } = await supabase
+        .from('mall_nodes')
+        .select('id, name, type, floor, x_coordinate, y_coordinate, linked_shop_id')
+        .eq('mall_id', mallId);
+
+      if (mallNodesErr) throw new Error(mallNodesErr.message);
+
+      anchors = (mallNodes ?? [])
+        .filter((n: {
+          floor: string | null;
+          x_coordinate: number | null;
+          y_coordinate: number | null;
+        }) => normalizeFloorLabel(n.floor) === normalizedFloor && n.x_coordinate != null && n.y_coordinate != null)
+        .map((n: {
+          name: string;
+          type: string | null;
+          x_coordinate: number;
+          y_coordinate: number;
+        }) => ({
+          label: n.name,
+          anchor_type: mapMallNodeTypeToAnchorType(n.type),
+          x_percent: n.x_coordinate,
+          y_percent: n.y_coordinate,
+        }));
+
+      console.log(`[map-factory] floorplan fallback anchors from mall_nodes: ${anchors.length} for floor ${normalizedFloor}`);
+    }
 
     const layout  = buildLayout(anchors);
     const svg     = generateSvg(layout);
