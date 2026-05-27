@@ -2593,3 +2593,85 @@ export async function convertAnchorsToRouteNodes(
     accessToken,
   );
 }
+
+/**
+ * Indoor map model returned by backend /indoor-map-model.
+ * This keeps the frontend from querying raw mall_nodes/mall_edges directly.
+ */
+export interface IndoorMapModelNode {
+  id: string;
+  name: string;
+  type: string;
+  floor: string | null;
+  x_coordinate: number | null;
+  y_coordinate: number | null;
+  linked_shop_id?: string | null;
+  source?: string | null;
+}
+
+export interface IndoorMapModelEdge {
+  id: string;
+  from_node_id: string;
+  to_node_id: string;
+  distance_meters: number | null;
+  instruction: string | null;
+  floor_change: boolean | null;
+}
+
+export interface IndoorMapModel {
+  mall_id: string;
+  active_floor: string | null;
+  floors: string[];
+  nodes: IndoorMapModelNode[];
+  edges: IndoorMapModelEdge[];
+  floorplan: {
+    id: string;
+    floor_label: string | null;
+    svg_output: string | null;
+    layout_json: unknown;
+    status: string | null;
+    created_at: string | null;
+  } | null;
+  source: "backend_map_graph" | string;
+  reality_label: string;
+  counts: {
+    all_nodes: number;
+    all_edges: number;
+    floor_nodes: number;
+    floor_edges: number;
+    floorplans: number;
+  };
+}
+
+export interface IndoorMapModelResponse {
+  ok: boolean;
+  model: IndoorMapModel;
+  error?: string;
+  detail?: string;
+}
+
+export async function getIndoorMapModel(params: {
+  mall_id: string | number;
+  floor?: string | null;
+}): Promise<IndoorMapModelResponse> {
+  if (!BASE_URL) throw new Error("VITE_GOOGLE_BACKEND_URL is not configured");
+
+  const query = new URLSearchParams();
+  query.set("mall_id", String(params.mall_id));
+  if (params.floor) query.set("floor", params.floor);
+
+  const res = await fetch(`${BASE_URL}/indoor-map-model?${query.toString()}`, {
+    method: "GET",
+    headers: {
+      Accept: "application/json",
+    },
+  });
+
+  const json = await res.json().catch(() => null);
+
+  if (!res.ok) {
+    throw new Error(json?.error || json?.detail || `Indoor map model failed with ${res.status}`);
+  }
+
+  return json as IndoorMapModelResponse;
+}

@@ -14,6 +14,7 @@ import { useAuth } from "@/context/AuthContext";
 import { awardXP, XP_REWARDS } from "@/lib/xp";
 import { trackEvent } from "@/lib/analytics";
 import { cn } from "@/lib/utils";
+import { getIndoorMapModel, type IndoorMapModel } from "@/lib/googleBackendClient";
 
 function estimateRoute(stops: { floor: string | null }[]): { meters: number; minutes: number } {
   if (!stops.length) return { meters: 0, minutes: 0 };
@@ -49,6 +50,8 @@ const NavigateScreen = () => {
   const [completedStepIndices, setCompletedStepIndices] = useState<Set<number>>(new Set());
   const [completedStopIndices, setCompletedStopIndices] = useState<Set<number>>(new Set());
   const [xpToast, setXpToast] = useState<{ xp: number; leveledUp: boolean; badges: string[] } | null>(null);
+  const [indoorMapModel, setIndoorMapModel] = useState<IndoorMapModel | null>(null);
+  const [indoorMapModelStatus, setIndoorMapModelStatus] = useState<"idle" | "loading" | "ready" | "fallback" | "error">("idle");
 
   const xpAwardedRef = useRef(false);
 
@@ -57,6 +60,46 @@ const NavigateScreen = () => {
       setActiveFloor(activeRouteSteps[0].floor);
     }
   }, [activeRouteSteps]);
+
+  useEffect(() => {
+    const mallId = selectedMall?.id;
+
+    if (!mallId) {
+      setIndoorMapModel(null);
+      setIndoorMapModelStatus("idle");
+      return;
+    }
+
+    let cancelled = false;
+    setIndoorMapModelStatus("loading");
+
+    getIndoorMapModel({
+      mall_id: mallId,
+      floor: activeFloor,
+    })
+      .then((res) => {
+        if (cancelled) return;
+
+        if (res.ok && res.model) {
+          setIndoorMapModel(res.model);
+          setIndoorMapModelStatus("ready");
+        } else {
+          setIndoorMapModel(null);
+          setIndoorMapModelStatus("fallback");
+        }
+      })
+      .catch((err) => {
+        console.error("[NavigateScreen] Failed to load indoor map model", err);
+        if (!cancelled) {
+          setIndoorMapModel(null);
+          setIndoorMapModelStatus("error");
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedMall?.id, activeFloor]);
 
   const hasRealRoute = activeRouteSteps.length > 0;
 
@@ -225,6 +268,7 @@ const NavigateScreen = () => {
 
           <span className="text-[10px] text-muted-foreground/70">
             2.5D schematic · Map Factory
+            {indoorMapModelStatus === "ready" ? " · live graph" : indoorMapModelStatus === "loading" ? " · loading" : " · route fallback"}
           </span>
         </div>
 
@@ -260,6 +304,7 @@ const NavigateScreen = () => {
             activeRouteSteps={activeRouteSteps}
             completedStepIndices={completedStepIndices}
             currentStepIndex={currentStepNum}
+            mapModel={indoorMapModel}
           />
         </div>
       </div>
