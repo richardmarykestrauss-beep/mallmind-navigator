@@ -1,0 +1,30 @@
+[
+  {
+    "from": "NMS Entry Reference",
+    "to": "NMS Lower Spine Node 1",
+    "distance_meters": 28,
+    "floor_change": false,
+    "confidence": "stub"
+  },
+  {
+    "from": "NMS Lower Spine Node 1",
+    "to": "69 Belmont",
+    "distance_meters": 14,
+    "floor_change": false,
+    "confidence": "stub"
+  },
+  {
+    "from": "NMS Lower Spine Node 1",
+    "to": "NMS Public Square Reference",
+    "distance_meters": 35,
+    "floor_change": false,
+    "confidence": "stub"
+  },
+  {
+    "from": "NMS Public Square Reference",
+    "to": "Sandton City Connection Reference",
+    "distance_meters": 42,
+    "floor_change": false,
+    "confidence": "stub"
+  }
+]
