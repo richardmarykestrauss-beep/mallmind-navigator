@@ -150,7 +150,30 @@ async function main() {
   });
 
   console.log("");
-  console.log("APPROVED WRITE MODE: inserting draft floorplan row only.");
+  console.log("APPROVED WRITE MODE: creating dev-only map factory job, then inserting draft floorplan row only.");
+
+  const { data: job, error: jobErr } = await supabase
+    .from("map_factory_jobs")
+    .insert({
+      mall_id: MALL_ID,
+      status: "running",
+      stage: "floorplan_generation",
+      readiness_score: 0,
+      notes: [
+        "DEV-ONLY Sandton/NMS reference-led proprietary stub import.",
+        "Created by scripts/map-assets/import-sandton-nms-dev-only.mjs.",
+        "Draft floorplan only. No mall_nodes or mall_edges overwrite.",
+        "Coordinates approximate. Field verification required.",
+      ].join("\\n"),
+    })
+    .select("id, mall_id, status, stage, readiness_score, notes, created_at")
+    .single();
+
+  if (jobErr) {
+    throw new Error(jobErr.message);
+  }
+
+  const jobId = job.id;
 
   const { data: previousRows, error: previousErr } = await supabase
     .from("map_factory_generated_floorplans")
@@ -185,19 +208,25 @@ async function main() {
   const { data: inserted, error: insertErr } = await supabase
     .from("map_factory_generated_floorplans")
     .insert({
+      job_id: jobId,
       mall_id: MALL_ID,
       floor_label: FLOOR_LABEL,
       version: nextVersion,
       layout_json: layoutJson,
       svg_output: pack.svg,
       status: "draft",
+      notes: "DEV-ONLY imported Sandton/NMS proprietary stub floorplan. Field verification required.",
     })
-    .select("id, mall_id, floor_label, version, status, created_at")
+    .select("id, job_id, mall_id, floor_label, version, status, notes, created_at")
     .single();
 
   if (insertErr) {
     throw new Error(insertErr.message);
   }
+
+  console.log("");
+  console.log("✅ Dev-only map factory job created.");
+  console.log(JSON.stringify(job, null, 2));
 
   console.log("");
   console.log("✅ Draft floorplan inserted.");
