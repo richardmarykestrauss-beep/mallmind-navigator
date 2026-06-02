@@ -121,6 +121,7 @@ router.get("/", async (req: Request, res: Response): Promise<void> => {
           .from("map_factory_generated_floorplans")
           .select("id, floor_label, svg_output, layout_json, status, created_at")
           .eq("mall_id", mallId)
+          .in("status", ["published", "approved"])
           .order("created_at", { ascending: false })
           .limit(5),
       ]);
@@ -195,7 +196,7 @@ router.get("/", async (req: Request, res: Response): Promise<void> => {
             }
           : null,
         source: "backend_map_graph",
-        reality_label: "2.5D schematic · Map Factory",
+        reality_label: "2.5D schematic · Map Factory · published/approved floorplans only",
         counts: {
           all_nodes: nodes.length,
           all_edges: edges.length,
