@@ -1,246 +1,200 @@
 #!/usr/bin/env node
+
 /**
- * Sprint 18C.5 — Dev-only Sandton/NMS asset importer
+ * Sprint 18C.5 — Dev-Only Sandton/NMS Asset Importer
  *
- * DEFAULT MODE:
- * - dry run only
- * - no database writes
+ * Default mode: DRY RUN ONLY.
  *
- * LIVE WRITE MODE:
- * - requires APPROVE_IMPORT=YES
- * - requires SUPABASE_URL
- * - requires SUPABASE_SERVICE_ROLE_KEY
+ * Live write mode requires:
+ *   APPROVE_IMPORT=YES
+ *   SUPABASE_URL
+ *   SUPABASE_SERVICE_ROLE_KEY
  *
- * Current write scope:
- * - inserts a DRAFT generated floorplan row only
- * - does NOT overwrite mall_nodes
- * - does NOT overwrite mall_edges
- * - does NOT mark anything production/verified
+ * Current approved live scope:
+ *   - Insert one draft generated floorplan row only.
+ *   - Do NOT overwrite mall_nodes.
+ *   - Do NOT overwrite mall_edges.
+ *   - Do NOT mark production/verified.
  */
 
 import fs from "node:fs";
 import path from "node:path";
-import { createClient } from "@supabase/supabase-js";
+import process from "node:process";
 
-const repoRoot = process.cwd();
-const assetDir = path.join(repoRoot, "map-assets", "sandton-nms-lower");
+const ROOT = process.cwd();
 
-const files = {
-  svg: path.join(assetDir, "sandton-nms-lower.svg"),
-  layout: path.join(assetDir, "sandton-nms-lower.layout.json"),
-  nodes: path.join(assetDir, "sandton-nms-lower.nodes.json"),
-  edges: path.join(assetDir, "sandton-nms-lower.edges.json"),
-  previewJson: path.join(assetDir, "generated", "sandton-nms-import-preview.json"),
-  previewSql: path.join(assetDir, "generated", "sandton-nms-import-preview.sql"),
-};
+const ASSET_DIR = path.join(ROOT, "map-assets", "sandton-nms-lower");
+const SVG_PATH = path.join(ASSET_DIR, "sandton-nms-lower.svg");
+const LAYOUT_PATH = path.join(ASSET_DIR, "sandton-nms-lower.layout.json");
+const NODES_PATH = path.join(ASSET_DIR, "sandton-nms-lower.nodes.json");
+const EDGES_PATH = path.join(ASSET_DIR, "sandton-nms-lower.edges.json");
+const GENERATED_DIR = path.join(ASSET_DIR, "generated");
+const PREVIEW_PATH = path.join(GENERATED_DIR, "sandton-nms-dev-import-preview.json");
 
-const MALL_ID = "059ee9b0-c4f9-46c3-835e-0a4b30b9de0a";
-const FLOOR_LABEL = "Ground Floor";
+const APPROVED = process.env.APPROVE_IMPORT === "YES";
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+function fail(message) {
+  console.error(`\n❌ ${message}`);
+  process.exit(1);
+}
 
 function readText(filePath) {
-  if (!fs.existsSync(filePath)) {
-    throw new Error(`Missing required file: ${filePath}`);
-  }
+  if (!fs.existsSync(filePath)) fail(`Missing required file: ${filePath}`);
   return fs.readFileSync(filePath, "utf8");
 }
 
 function readJson(filePath) {
-  return JSON.parse(readText(filePath));
+  const raw = readText(filePath);
+  try {
+    return JSON.parse(raw);
+  } catch (error) {
+    fail(`Invalid JSON in ${filePath}: ${error.message}`);
+  }
 }
 
 function assertPercent(value, label) {
   if (typeof value !== "number" || Number.isNaN(value) || value < 0 || value > 100) {
-    throw new Error(`${label} must be a number from 0 to 100`);
+    fail(`${label} must be a number from 0 to 100. Received: ${value}`);
   }
 }
 
-function validatePack() {
-  const svg = readText(files.svg);
-  const layout = readJson(files.layout);
-  const nodes = readJson(files.nodes);
-  const edges = readJson(files.edges);
-  const preview = readJson(files.previewJson);
-  readText(files.previewSql);
+function getArrayPayload(payload, likelyKeys) {
+  if (Array.isArray(payload)) return payload;
 
-  if (!svg.includes("MallMind proprietary")) {
-    throw new Error("SVG missing MallMind proprietary marker");
+  for (const key of likelyKeys) {
+    if (Array.isArray(payload?.[key])) return payload[key];
   }
 
-  if (!Array.isArray(nodes)) {
-    throw new Error("nodes JSON must be an array");
-  }
-
-  if (!Array.isArray(edges)) {
-    throw new Error("edges JSON must be an array");
-  }
-
-  for (const [i, node] of nodes.entries()) {
-    if (!node.name) throw new Error(`Node ${i} missing name`);
-    if (!node.type) throw new Error(`Node ${i} missing type`);
-    if (!node.floor) throw new Error(`Node ${i} missing floor`);
-    assertPercent(node.x_percent, `Node ${node.name} x_percent`);
-    assertPercent(node.y_percent, `Node ${node.name} y_percent`);
-  }
-
-  const names = new Set(nodes.map((n) => n.name));
-  for (const [i, edge] of edges.entries()) {
-    if (!edge.from || !names.has(edge.from)) {
-      throw new Error(`Edge ${i} has invalid from node: ${edge.from}`);
-    }
-    if (!edge.to || !names.has(edge.to)) {
-      throw new Error(`Edge ${i} has invalid to node: ${edge.to}`);
-    }
-  }
-
-  const target = nodes.find((node) => node.name === "69 Belmont");
-  if (!target) {
-    throw new Error("Missing target node: 69 Belmont");
-  }
-
-  return { svg, layout, nodes, edges, preview, target };
+  fail(`Could not find array payload. Tried keys: ${likelyKeys.join(", ")}`);
 }
 
-async function main() {
-  const approve = process.env.APPROVE_IMPORT === "YES";
-  const pack = validatePack();
-
-  const summary = {
-    ok: true,
-    mode: approve ? "APPROVED_WRITE" : "DRY_RUN_ONLY",
-    mall_id: MALL_ID,
-    floor_label: FLOOR_LABEL,
-    asset_id: pack.layout.asset_id ?? null,
-    svg_bytes: Buffer.byteLength(pack.svg, "utf8"),
-    nodes: pack.nodes.length,
-    edges: pack.edges.length,
-    target: {
-      name: pack.target.name,
-      shop_number: pack.target.shop_number ?? null,
-      x_percent: pack.target.x_percent,
-      y_percent: pack.target.y_percent,
-      confidence: pack.target.confidence ?? null,
-    },
-    safety: [
-      "Importer writes only a draft floorplan row.",
-      "Importer does not overwrite mall_nodes.",
-      "Importer does not overwrite mall_edges.",
-      "Importer does not mark production/verified.",
-      "APPROVE_IMPORT=YES is required for live write.",
-    ],
-  };
-
-  console.log("===== SANDTON/NMS DEV IMPORTER CHECK =====");
-  console.log(JSON.stringify(summary, null, 2));
-
-  if (!approve) {
-    console.log("");
-    console.log("DRY RUN ONLY: no database writes performed.");
-    console.log("To write the draft floorplan later, explicitly run with APPROVE_IMPORT=YES.");
-    return;
-  }
-
-  const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY } = process.env;
-
-  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-    throw new Error("APPROVE_IMPORT=YES was set, but Supabase env vars are missing");
-  }
-
-  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-
-  console.log("");
-  console.log("APPROVED WRITE MODE: creating dev-only map factory job, then inserting draft floorplan row only.");
-
-  const { data: job, error: jobErr } = await supabase
-    .from("map_factory_jobs")
-    .insert({
-      mall_id: MALL_ID,
-      status: "running",
-      stage: "floorplan_generation",
-      readiness_score: 0,
-      notes: [
-        "DEV-ONLY Sandton/NMS reference-led proprietary stub import.",
-        "Created by scripts/map-assets/import-sandton-nms-dev-only.mjs.",
-        "Draft floorplan only. No mall_nodes or mall_edges overwrite.",
-        "Coordinates approximate. Field verification required.",
-      ].join("\\n"),
-    })
-    .select("id, mall_id, status, stage, readiness_score, notes, created_at")
-    .single();
-
-  if (jobErr) {
-    throw new Error(jobErr.message);
-  }
-
-  const jobId = job.id;
-
-  const { data: previousRows, error: previousErr } = await supabase
-    .from("map_factory_generated_floorplans")
-    .select("id, version, status, created_at")
-    .eq("mall_id", MALL_ID)
-    .eq("floor_label", FLOOR_LABEL)
-    .order("version", { ascending: false })
-    .limit(1);
-
-  if (previousErr) {
-    throw new Error(previousErr.message);
-  }
-
-  const previous = previousRows?.[0] ?? null;
-  const nextVersion = previous?.version ? Number(previous.version) + 1 : 1;
-
-  const layoutJson = {
-    ...pack.layout,
-    import_mode: "dev_only_approval_gate",
-    import_status: "draft",
-    imported_from: "map-assets/sandton-nms-lower",
-    nodes_preview: pack.nodes,
-    edges_preview: pack.edges,
-    warnings: [
-      "Reference-led proprietary stub.",
-      "Approximate coordinates.",
-      "Field verification required.",
-      "Do not mark production verified.",
-    ],
-  };
-
-  const { data: inserted, error: insertErr } = await supabase
-    .from("map_factory_generated_floorplans")
-    .insert({
-      job_id: jobId,
-      mall_id: MALL_ID,
-      floor_label: FLOOR_LABEL,
-      version: nextVersion,
-      layout_json: layoutJson,
-      svg_output: pack.svg,
-      status: "draft",
-      notes: "DEV-ONLY imported Sandton/NMS proprietary stub floorplan. Field verification required.",
-    })
-    .select("id, job_id, mall_id, floor_label, version, status, notes, created_at")
-    .single();
-
-  if (insertErr) {
-    throw new Error(insertErr.message);
-  }
-
-  console.log("");
-  console.log("✅ Dev-only map factory job created.");
-  console.log(JSON.stringify(job, null, 2));
-
-  console.log("");
-  console.log("✅ Draft floorplan inserted.");
-  console.log(JSON.stringify(inserted, null, 2));
-
-  console.log("");
-  console.log("IMPORTANT:");
-  console.log("- mall_nodes were not modified.");
-  console.log("- mall_edges were not modified.");
-  console.log("- imported asset is still draft/stub only.");
+function nodeName(node) {
+  return node.name || node.label || node.title || node.id;
 }
 
-main().catch((err) => {
-  console.error("❌ Importer failed:");
-  console.error(err);
-  process.exit(1);
+function edgeEndpoint(edge, keys) {
+  for (const key of keys) {
+    if (edge[key]) return edge[key];
+  }
+  return null;
+}
+
+fs.mkdirSync(GENERATED_DIR, { recursive: true });
+
+const svg = readText(SVG_PATH);
+const layout = readJson(LAYOUT_PATH);
+const nodesPayload = readJson(NODES_PATH);
+const edgesPayload = readJson(EDGES_PATH);
+
+const nodes = getArrayPayload(nodesPayload, ["nodes", "mall_nodes"]);
+const edges = getArrayPayload(edgesPayload, ["edges", "mall_edges"]);
+
+if (!svg.includes("MallMind")) {
+  fail("SVG must include a MallMind proprietary marker.");
+}
+
+if (svg.includes("<image") || svg.includes("base64")) {
+  fail("SVG appears to embed external/raster artwork. Keep this proprietary vector-only.");
+}
+
+if (!nodes.length) fail("Node list is empty.");
+if (!edges.length) fail("Edge list is empty.");
+
+const names = new Set();
+
+for (const node of nodes) {
+  const name = nodeName(node);
+  if (!name) fail(`Node missing name/label/title/id: ${JSON.stringify(node)}`);
+
+  const x = node.x_percent ?? node.xPercent ?? node.x;
+  const y = node.y_percent ?? node.yPercent ?? node.y;
+
+  assertPercent(x, `Node "${name}" x`);
+  assertPercent(y, `Node "${name}" y`);
+
+  names.add(name);
+}
+
+const belmont = nodes.find((node) => {
+  const serialised = JSON.stringify(node).toLowerCase();
+  return serialised.includes("69 belmont") || serialised.includes("l41");
 });
+
+if (!belmont) {
+  fail("Required target node not found: 69 Belmont / L41.");
+}
+
+for (const edge of edges) {
+  const from = edgeEndpoint(edge, ["from", "source", "source_name", "from_name", "fromNode", "sourceNode"]);
+  const to = edgeEndpoint(edge, ["to", "target", "target_name", "to_name", "toNode", "targetNode"]);
+
+  if (!from || !to) {
+    fail(`Edge missing from/to endpoint: ${JSON.stringify(edge)}`);
+  }
+
+  if (!names.has(from)) {
+    fail(`Edge references unknown source node "${from}".`);
+  }
+
+  if (!names.has(to)) {
+    fail(`Edge references unknown target node "${to}".`);
+  }
+}
+
+const preview = {
+  sprint: "18C.5",
+  mode: APPROVED ? "APPROVED_WRITE_REQUESTED" : "DRY_RUN_ONLY",
+  reality_label: "reference-led-proprietary-stub",
+  asset_pack: "sandton-nms-lower",
+  generated_at: new Date().toISOString(),
+  safety: {
+    writes_allowed: APPROVED,
+    approved_env_present: APPROVED,
+    supabase_url_present: Boolean(SUPABASE_URL),
+    service_role_key_present: Boolean(SUPABASE_SERVICE_ROLE_KEY),
+    writes_scope: "draft generated floorplan row only",
+    will_overwrite_mall_nodes: false,
+    will_overwrite_mall_edges: false,
+    will_mark_verified_or_production: false
+  },
+  validation: {
+    svg_chars: svg.length,
+    layout_keys: Object.keys(layout),
+    node_count: nodes.length,
+    edge_count: edges.length,
+    target_node: nodeName(belmont)
+  },
+  draft_floorplan_row_preview: {
+    mall_slug: "sandton-nms",
+    floor_label: "lower",
+    source_type: "mallmind-proprietary-reference-led-reconstruction",
+    reality_label: "reference-led-proprietary-stub",
+    status: "draft",
+    svg_output_chars: svg.length
+  }
+};
+
+fs.writeFileSync(PREVIEW_PATH, JSON.stringify(preview, null, 2));
+
+console.log("\n✅ Sandton/NMS dev importer validation passed.");
+console.log(`Mode: ${preview.mode}`);
+console.log(`Nodes: ${nodes.length}`);
+console.log(`Edges: ${edges.length}`);
+console.log(`Target: ${preview.validation.target_node}`);
+console.log(`Preview written: ${path.relative(ROOT, PREVIEW_PATH)}`);
+
+if (!APPROVED) {
+  console.log("\n🟡 DRY RUN ONLY. No Supabase write attempted.");
+  process.exit(0);
+}
+
+if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+  fail("APPROVE_IMPORT=YES was set, but SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY is missing.");
+}
+
+console.log("\n🛑 Live write mode is intentionally not implemented in Sprint 18C.5.");
+console.log("This sprint only proves the approval gate and dry-run validation.");
+console.log("Implement the actual Supabase insert separately in Sprint 18C.6 after review.");
+process.exit(0);
