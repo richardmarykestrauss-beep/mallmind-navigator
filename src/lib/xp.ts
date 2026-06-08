@@ -1,12 +1,21 @@
 /**
  * XP award utility.
- * Adds XP to a user's profile, recalculates their level, persists to Supabase,
- * and checks for newly unlocked achievements.
+ *
+ * Sprint 19B.2B:
+ * XP is now awarded through the Cloud Run backend instead of direct browser writes.
+ *
+ * SECURITY:
+ * - Frontend must not update profiles.xp / profiles.level directly.
+ * - Frontend must not insert user_achievements directly.
+ * - Backend uses service role and centralizes reward logic.
+ *
+ * TODO 19B.3:
+ * Backend should derive user_id from Authorization JWT instead of trusting request body.
  */
 
-import { supabase } from "@/lib/supabaseClient";
-import { xpForLevel } from "@/lib/levels";
-import { checkAchievements } from "@/lib/achievements";
+import { isGoogleBackendConfigured } from "@/lib/googleBackendClient";
+
+const GOOGLE_BACKEND_URL = ((import.meta.env.VITE_GOOGLE_BACKEND_URL as string | undefined) ?? "").replace(/\/+$/, "");
 
 export const XP_REWARDS = {
   PRICE_SUBMIT:    50,
@@ -15,39 +24,75 @@ export const XP_REWARDS = {
   FIRST_SEARCH:    10,
 } as const;
 
+export type XPReason = keyof typeof XP_REWARDS;
+
 export interface XPResult {
   newXp: number;
   newLevel: number;
   leveledUp: boolean;
   xpGained: number;
-  newAchievements: string[]; // display names of badges just unlocked
+  newAchievements: string[];
 }
 
-function calcLevel(xp: number): number {
-  let level = 1;
-  for (let l = 6; l >= 2; l--) {
-    if (xp >= xpForLevel(l)) { level = l; break; }
+interface BackendAwardXpResponse {
+  ok: boolean;
+  reason: XPReason;
+  xpGained: number;
+  newXp: number;
+  newLevel: number;
+  leveledUp: boolean;
+  newAchievements: string[];
+}
+
+function reasonFromAmount(amount: number): XPReason {
+  const match = Object.entries(XP_REWARDS).find(([, value]) => value === amount);
+
+  if (!match) {
+    throw new Error(`Unknown XP reward amount: ${amount}`);
   }
-  return level;
+
+  return match[0] as XPReason;
 }
 
+/**
+ * Award XP through the backend.
+ *
+ * currentXp/currentLevel are kept in the signature for backwards compatibility
+ * with existing callers, but are no longer trusted for writes.
+ */
 export async function awardXP(
   userId: string,
   amount: number,
-  currentXp: number,
-  currentLevel: number
+  _currentXp: number,
+  _currentLevel: number
 ): Promise<XPResult> {
-  const newXp    = currentXp + amount;
-  const newLevel = calcLevel(newXp);
-  const leveledUp = newLevel > currentLevel;
+  if (!isGoogleBackendConfigured() || !GOOGLE_BACKEND_URL) {
+    throw new Error("XP awards require the Google Cloud backend to be configured");
+  }
 
-  await supabase
-    .from("profiles")
-    .update({ xp: newXp, level: newLevel })
-    .eq("id", userId);
+  const reason = reasonFromAmount(amount);
 
-  // Check for newly earned badges (non-blocking — won't throw)
-  const newAchievements = await checkAchievements(userId, newXp);
+  const response = await fetch(`${GOOGLE_BACKEND_URL}/rewards/award-xp`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      user_id: userId,
+      reason,
+    }),
+  });
 
-  return { newXp, newLevel, leveledUp, xpGained: amount, newAchievements };
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(`XP award failed: ${response.status} ${text}`);
+  }
+
+  const data = (await response.json()) as BackendAwardXpResponse;
+
+  return {
+    newXp: data.newXp,
+    newLevel: data.newLevel,
+    leveledUp: data.leveledUp,
+    xpGained: data.xpGained,
+    newAchievements: data.newAchievements ?? [],
+  };
 }
