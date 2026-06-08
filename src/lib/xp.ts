@@ -9,11 +9,13 @@
  * - Frontend must not insert user_achievements directly.
  * - Backend uses service role and centralizes reward logic.
  *
- * TODO 19B.3:
- * Backend should derive user_id from Authorization JWT instead of trusting request body.
+ * Sprint 19B.3:
+ * Frontend sends the Supabase access token.
+ * Backend derives user_id from the verified JWT.
  */
 
 import { isGoogleBackendConfigured } from "@/lib/googleBackendClient";
+import { supabase } from "@/lib/supabaseClient";
 
 const GOOGLE_BACKEND_URL = ((import.meta.env.VITE_GOOGLE_BACKEND_URL as string | undefined) ?? "").replace(/\/+$/, "");
 
@@ -61,7 +63,7 @@ function reasonFromAmount(amount: number): XPReason {
  * with existing callers, but are no longer trusted for writes.
  */
 export async function awardXP(
-  userId: string,
+  _userId: string,
   amount: number,
   _currentXp: number,
   _currentLevel: number
@@ -72,11 +74,20 @@ export async function awardXP(
 
   const reason = reasonFromAmount(amount);
 
+  const { data: sessionData } = await supabase.auth.getSession();
+  const token = sessionData.session?.access_token;
+
+  if (!token) {
+    throw new Error("XP awards require an authenticated session");
+  }
+
   const response = await fetch(`${GOOGLE_BACKEND_URL}/rewards/award-xp`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
     body: JSON.stringify({
-      user_id: userId,
       reason,
     }),
   });

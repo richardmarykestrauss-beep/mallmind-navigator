@@ -23,7 +23,6 @@ const XP_REWARDS = {
 } as const;
 
 const AwardXpSchema = z.object({
-  user_id: z.string().uuid(),
   reason: z.enum(["PRICE_SUBMIT", "ROUTE_COMPLETE", "SESSION_START", "FIRST_SEARCH"]),
 });
 
@@ -99,10 +98,11 @@ async function unlockXpAchievements(userId: string, newXp: number): Promise<stri
  * - Frontend must not update profiles.xp directly.
  * - Frontend must not insert user_achievements directly.
  *
- * NOTE:
- * This route currently trusts user_id from the caller because the app's auth middleware
- * is not yet globally enforced. Sprint 19B.2B/19B.3 should add JWT verification and
- * derive user_id from the Authorization header instead of accepting it from body.
+ * SECURITY:
+ * - Requires Authorization: Bearer <Supabase access token>.
+ * - Verifies the token with Supabase Auth.
+ * - Derives user_id from the verified JWT.
+ * - Does not trust user_id from the request body.
  */
 router.post("/award-xp", async (req, res) => {
   try {
@@ -111,8 +111,23 @@ router.post("/award-xp", async (req, res) => {
       return res.status(400).json({ error: "Invalid request", details: parsed.error.flatten() });
     }
 
-    const { user_id, reason } = parsed.data;
+    const { reason } = parsed.data;
     const xpGained = XP_REWARDS[reason];
+
+    const authHeader = req.header("Authorization") ?? "";
+    const token = authHeader.startsWith("Bearer ") ? authHeader.slice("Bearer ".length).trim() : "";
+
+    if (!token) {
+      return res.status(401).json({ error: "Missing Authorization bearer token" });
+    }
+
+    const { data: authData, error: authErr } = await supabase.auth.getUser(token);
+
+    if (authErr || !authData.user?.id) {
+      return res.status(401).json({ error: "Invalid or expired token" });
+    }
+
+    const user_id = authData.user.id;
 
     const { data: profile, error: profileErr } = await supabase
       .from("profiles")
