@@ -7,13 +7,14 @@ import {
 import MobileShell from "@/components/MobileShell";
 import ScreenHeader from "@/components/ScreenHeader";
 import { Button } from "@/components/ui/button";
-import { supabase, type Product, type Shop } from "@/lib/supabaseClient";
+import type { Product, Shop } from "@/lib/supabaseClient";
 import { useShoppingSession } from "@/context/ShoppingSessionContext";
 import PriceSubmitModal from "@/components/PriceSubmitModal";
 import PriceAlertButton from "@/components/PriceAlertButton";
 import { trackSearch } from "@/lib/analytics";
 import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
+import { isGoogleBackendConfigured, recommendProducts } from "@/lib/googleBackendClient";
 
 const FLOOR_ORDER: Record<string, number> = { B1: 0, G: 1, L1: 2, L2: 3, L3: 4, L4: 5 };
 
@@ -63,58 +64,74 @@ const SearchPage = () => {
       setGroups([]);
       return;
     }
+
+    if (!isGoogleBackendConfigured()) {
+      console.warn("[SearchPage] Google backend is not configured; search disabled.");
+      setGroups([]);
+      return;
+    }
+
     setLoading(true);
     try {
-      // Get shops for this mall first
-      const { data: shopData, error: shopErr } = await supabase
-        .from("shops")
-        .select("id, mall_id, name, floor, unit_number, category, opening_hours")
-        .eq("mall_id", selectedMall.id);
+      const response = await recommendProducts({
+        mall_id: String(selectedMall.id),
+        query: q,
+      });
 
-      if (shopErr || !shopData?.length) {
+      const recommendations = response.recommendations ?? [];
+
+      if (!recommendations.length) {
         setGroups([]);
-        setLoading(false);
+        trackSearch(q, 0, selectedMall?.id, selectedMall?.name, user?.id);
         return;
       }
 
-      const shopIds = shopData.map((s) => s.id);
-      const shopMap = Object.fromEntries(shopData.map((s) => [String(s.id), s]));
-
-      // Get matching products from those shops
-      const { data: productData, error: prodErr } = await supabase
-        .from("products")
-        .select("id, shop_id, mall_id, name, category, brand, model, price, original_price, is_on_special, in_stock, verified, data_quality_status, price_verified_at")
-        .in("shop_id", shopIds)
-        .ilike("name", `%${q}%`)
-        .eq("in_stock", true)
-        .order("price", { ascending: true });
-
-      if (prodErr || !productData?.length) {
-        setGroups([]);
-        setLoading(false);
-        return;
-      }
-
-      // Group by product name
       const grouped = new Map<string, ProductMatch[]>();
-      for (const p of productData) {
-        const shop = shopMap[String(p.shop_id)] as Shop;
-        if (!shop) continue;
-        const effectivePrice = p.is_on_special && p.original_price != null ? p.price : p.price;
-        const key = p.name.toLowerCase();
+
+      for (const rec of recommendations) {
+        const product = {
+          id: rec.product_id,
+          shop_id: rec.shop_id,
+          mall_id: selectedMall.id,
+          name: rec.name,
+          category: rec.category ?? null,
+          brand: rec.brand ?? null,
+          model: null,
+          price: rec.price,
+          original_price: rec.original_price ?? null,
+          is_on_special: Boolean(rec.is_on_special),
+          in_stock: true,
+          verified: rec.data_quality_status === "manually_verified" || rec.data_quality_status === "live_feed",
+          data_quality_status: rec.data_quality_status ?? null,
+          price_verified_at: rec.price_verified_at ?? null,
+        } as Product & { data_quality_status?: string | null; price_verified_at?: string | null };
+
+        const shop = {
+          id: rec.shop_id,
+          mall_id: selectedMall.id,
+          name: rec.shop_name,
+          floor: rec.floor ?? null,
+          unit_number: rec.unit_number ?? null,
+          category: null,
+          opening_hours: null,
+        } as Shop;
+
+        const key = product.name.toLowerCase();
         if (!grouped.has(key)) grouped.set(key, []);
-        grouped.get(key)!.push({ product: p as Product, shop, effectivePrice });
+        grouped.get(key)!.push({ product, shop, effectivePrice: product.price });
       }
 
-      // Sort each group cheapest first
       const result: ProductGroup[] = [];
       for (const [, matches] of grouped) {
         matches.sort((a, b) => a.effectivePrice - b.effectivePrice);
         result.push({ name: matches[0].product.name, matches });
       }
+
       setGroups(result);
-      // Track search event (fire-and-forget)
       trackSearch(q, result.length, selectedMall?.id, selectedMall?.name, user?.id);
+    } catch (err) {
+      console.error("[SearchPage] backend product search failed", err);
+      setGroups([]);
     } finally {
       setLoading(false);
     }
