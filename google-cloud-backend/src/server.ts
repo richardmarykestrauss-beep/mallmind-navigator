@@ -13,6 +13,7 @@ import adminStatsRouter      from "./routes/adminStats.js";
 import adminVerifyProductRouter from "./routes/adminVerifyProduct.js";
 import analyticsEventRouter      from "./routes/analyticsEvent.js";
 import priceCorrectionsRouter    from "./routes/priceCorrections.js";
+import rewardsRouter             from "./routes/rewards.js";
 import mallDataCompilerRouter    from "./routes/mallDataCompiler.js";
 import dataGuardianRouter        from "./routes/dataGuardian.js";
 import dataBotsRouter            from "./routes/dataBots.js";
@@ -74,6 +75,7 @@ app.use("/admin/map-factory",      mapFactoryRouter);
 app.use("/admin",                 adminVerifyProductRouter);
 app.use("/analytics",           analyticsEventRouter);
 app.use("/price-corrections",   priceCorrectionsRouter);
+app.use("/rewards",             rewardsRouter);
 
 // 404 catch-all
 app.use((_req, res) => {
