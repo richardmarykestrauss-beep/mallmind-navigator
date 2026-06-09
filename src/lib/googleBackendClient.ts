@@ -746,6 +746,160 @@ export async function reviewPriceCorrection(
   return res.json() as Promise<{ ok: boolean; action: string }>;
 }
 
+
+// ── Retail Observation Admin Review API ──────────────────────────────────────
+
+export type RetailObservationReviewStatus =
+  | "pending"
+  | "approved"
+  | "rejected"
+  | "needs_more_info"
+  | "published";
+
+export interface RetailObservationAdminRow {
+  id: string;
+  created_at: string;
+  updated_at: string | null;
+  import_batch_id: string | null;
+  source_id: string | null;
+  snapshot_id: string | null;
+  mall_id: string;
+  shop_id: string | null;
+  product_id: string | null;
+  product_name: string;
+  brand: string | null;
+  model: string | null;
+  category: string | null;
+  price: number;
+  original_price: number | null;
+  is_on_special: boolean | null;
+  special_description: string | null;
+  in_stock: boolean | null;
+  observed_at: string | null;
+  valid_from: string | null;
+  valid_to: string | null;
+  trust_state: string;
+  verification_method: string | null;
+  confidence: number | null;
+  review_status: RetailObservationReviewStatus;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  review_note: string | null;
+  published_product_id: string | null;
+  published_at: string | null;
+  observation_hash: string | null;
+  shops?: {
+    name?: string | null;
+    unit_number?: string | null;
+    floor?: string | null;
+  } | null;
+  retail_data_sources?: {
+    name?: string | null;
+    source_type?: string | null;
+    retailer_name?: string | null;
+    legal_status?: string | null;
+    base_trust?: string | null;
+  } | null;
+  retail_source_snapshots?: {
+    ref_label?: string | null;
+    ref_uri?: string | null;
+    captured_at?: string | null;
+    notes?: string | null;
+  } | null;
+}
+
+export interface RetailObservationsAdminResponse {
+  observations: RetailObservationAdminRow[];
+  counts: Record<string, number>;
+}
+
+export interface ReviewRetailObservationRequest {
+  review_status: Exclude<RetailObservationReviewStatus, "published">;
+  review_note?: string;
+}
+
+export interface ReviewRetailObservationResponse {
+  ok: boolean;
+  observation: RetailObservationAdminRow;
+}
+
+/**
+ * GET /admin/retail-observations
+ *
+ * Fetch staged retail observations for admin review.
+ * Requires admin bearer token.
+ */
+export async function getRetailObservationsAdmin(
+  accessToken: string,
+  filters?: {
+    mall_id?: string;
+    review_status?: RetailObservationReviewStatus | "all";
+    limit?: number;
+  }
+): Promise<RetailObservationsAdminResponse> {
+  if (!BASE_URL) throw new Error("VITE_GOOGLE_BACKEND_URL is not configured");
+
+  const params = new URLSearchParams();
+  if (filters?.mall_id) params.set("mall_id", filters.mall_id);
+  if (filters?.review_status && filters.review_status !== "all") {
+    params.set("review_status", filters.review_status);
+  }
+  if (filters?.limit) params.set("limit", String(filters.limit));
+
+  const qs = params.toString();
+  const res = await fetch(`${BASE_URL}/admin/retail-observations${qs ? `?${qs}` : ""}`, {
+    method: "GET",
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+
+  if (!res.ok) {
+    let message = `Retail observations error ${res.status}`;
+    try {
+      const err = (await res.json()) as { error?: string };
+      if (err.error) message = err.error;
+    } catch { /* ignore */ }
+    throw new Error(message);
+  }
+
+  return res.json() as Promise<RetailObservationsAdminResponse>;
+}
+
+/**
+ * POST /admin/retail-observations/:id/review
+ *
+ * Review a staged retail observation. This only changes review_status;
+ * publishing to products remains a separate controlled step.
+ * Requires admin bearer token.
+ */
+export async function reviewRetailObservation(
+  observationId: string,
+  payload: ReviewRetailObservationRequest,
+  accessToken: string
+): Promise<ReviewRetailObservationResponse> {
+  if (!BASE_URL) throw new Error("VITE_GOOGLE_BACKEND_URL is not configured");
+
+  const res = await fetch(`${BASE_URL}/admin/retail-observations/${observationId}/review`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    let message = `Retail observation review error ${res.status}`;
+    try {
+      const err = (await res.json()) as { error?: string };
+      if (err.error) message = err.error;
+    } catch { /* ignore */ }
+    throw new Error(message);
+  }
+
+  return res.json() as Promise<ReviewRetailObservationResponse>;
+}
+
+
 // ── Mall Data Compiler public API ─────────────────────────────────────────────
 
 /**
