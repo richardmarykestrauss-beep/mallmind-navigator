@@ -4670,6 +4670,8 @@ function RetailObservationReviewQueue({ token }: { token?: string | null }) {
         Review only changes staged observation status. Publishing to live products remains a separate controlled step.
       </div>
 
+      <RetailObservationPublishPreviewPanel token={token} />
+
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h3 className="text-sm font-semibold">Retail Observation Queue</h3>
