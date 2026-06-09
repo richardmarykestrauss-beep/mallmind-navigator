@@ -5,6 +5,13 @@ const args = process.argv.slice(2);
 const apply = args.includes("--apply");
 const approvePending = args.includes("--approve-pending");
 
+if (approvePending) {
+  console.error("ERROR: --approve-pending is no longer allowed.");
+  console.error("Retail observations must be reviewed in Admin → Retail Review before publishing.");
+  console.error("Use review_status='approved' as the publishing gate.");
+  process.exit(1);
+}
+
 const mallArgIndex = args.findIndex((arg) => arg === "--mall-id");
 const mallId =
   mallArgIndex >= 0
@@ -103,7 +110,7 @@ async function main() {
   console.log("===== RETAIL STAGED OBSERVATION PUBLISHER =====");
   console.log("mode:", apply ? "APPLY" : "DRY RUN");
   console.log("mall_id:", mallId);
-  console.log("approvePending:", approvePending);
+  console.log("publishing gate: review_status=approved only");
 
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -116,7 +123,7 @@ async function main() {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
-  const statuses = approvePending ? ["pending", "approved"] : ["approved"];
+  const statuses = ["approved"];
 
   const { data: observations, error: obsErr } = await supabase
     .from("retail_price_observations")
@@ -238,7 +245,7 @@ async function main() {
         review_status: "published",
         reviewed_by: "scripts/retail/publish-staged-observations.mjs",
         reviewed_at: new Date().toISOString(),
-        review_note: "Approved and published by controlled 19C.1F script.",
+        review_note: "Published by approved-only 19C.3 publisher after admin review.",
         published_at: new Date().toISOString(),
       })
       .eq("id", item.observation_id);
