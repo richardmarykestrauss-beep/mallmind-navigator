@@ -65,6 +65,171 @@ function normalizeStatus(value: unknown): string | null {
   return trimmed.length ? trimmed : null;
 }
 
+const EVIDENCE_VERIFIED_METHODS = new Set([
+  "phone",
+  "website",
+  "flyer",
+  "receipt",
+  "store_visit",
+  "retailer_confirmation",
+  "scraper",
+  "retailer_api",
+]);
+
+function normalizeProductName(value: unknown): string {
+  return String(value ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function mapTrustStateToPreviewQuality(trustState: unknown, verificationMethod: unknown): string {
+  const state = String(trustState ?? "");
+  const method = String(verificationMethod ?? "");
+
+  if (["verified", "retailer_submitted", "flyer_extracted", "web_observed"].includes(state)) {
+    return "manually_verified";
+  }
+
+  if (state === "manual_fact_entry") {
+    return EVIDENCE_VERIFIED_METHODS.has(method) ? "manually_verified" : "needs_review";
+  }
+
+  if (state === "live_feed") return "live_feed";
+  if (state === "user_submitted") return "user_submitted";
+
+  return "needs_review";
+}
+
+function buildPreviewWarnings(row: any, productQuality: string): string[] {
+  const warnings: string[] = [];
+
+  if (row.trust_state === "manual_fact_entry" && productQuality === "needs_review") {
+    warnings.push("Manual CSV/admin-entered row will publish as needs_review, not Verified price.");
+  }
+
+  if (!EVIDENCE_VERIFIED_METHODS.has(String(row.verification_method ?? ""))) {
+    warnings.push(`Verification method '${row.verification_method ?? "none"}' is not external evidence-backed.`);
+  }
+
+  if (Number(row.confidence ?? 0) < 0.8) {
+    warnings.push(`Confidence is ${row.confidence}; consider stronger evidence before publishing.`);
+  }
+
+  return warnings;
+}
+
+/**
+ * GET /admin/retail-observations/publish-preview
+ *
+ * Read-only approved observation publish preview.
+ * Mirrors the approved-only publisher gate but does not write to products.
+ */
+router.get("/publish-preview", async (req: Request, res: Response) => {
+  const admin = await requireAdmin(req, res);
+  if (!admin) return;
+
+  const supabase = getSupabaseClient();
+
+  const mallId = typeof req.query.mall_id === "string"
+    ? req.query.mall_id
+    : "f4a2c1b3-8d7e-4f6a-9b0c-1d2e3f4a5b6c";
+  const limit = parseLimit(req.query.limit, 100);
+
+  try {
+    const { data: observations, error: obsError } = await supabase
+      .from("retail_price_observations")
+      .select(`
+        id,
+        created_at,
+        mall_id,
+        shop_id,
+        product_name,
+        brand,
+        model,
+        category,
+        price,
+        original_price,
+        trust_state,
+        verification_method,
+        confidence,
+        review_status,
+        review_note,
+        published_at,
+        shops(name, unit_number, floor),
+        retail_data_sources(name, source_type, retailer_name, legal_status, base_trust),
+        retail_source_snapshots(ref_label, ref_uri, captured_at, notes)
+      `)
+      .eq("mall_id", mallId)
+      .eq("review_status", "approved")
+      .is("published_at", null)
+      .order("created_at", { ascending: true })
+      .limit(limit);
+
+    if (obsError) {
+      return res.status(500).json({ error: obsError.message });
+    }
+
+    const rows = observations ?? [];
+
+    const { data: products, error: productsError } = await supabase
+      .from("products")
+      .select("id, mall_id, shop_id, name, price, data_quality_status")
+      .eq("mall_id", mallId)
+      .is("deleted_at", null);
+
+    if (productsError) {
+      return res.status(500).json({ error: productsError.message });
+    }
+
+    const productMap = new Map<string, any>();
+    for (const product of products ?? []) {
+      productMap.set(`${product.shop_id}|${normalizeProductName(product.name)}`, product);
+    }
+
+    const plan = rows.map((row: any) => {
+      const existing = productMap.get(`${row.shop_id}|${normalizeProductName(row.product_name)}`) ?? null;
+      const productQuality = mapTrustStateToPreviewQuality(row.trust_state, row.verification_method);
+
+      return {
+        observation_id: row.id,
+        action: existing ? "update" : "insert",
+        existing_product_id: existing?.id ?? null,
+        product_name: row.product_name,
+        category: row.category,
+        price: row.price,
+        original_price: row.original_price,
+        shop_name: row.shops?.name ?? null,
+        shop_unit_number: row.shops?.unit_number ?? null,
+        shop_floor: row.shops?.floor ?? null,
+        trust_state: row.trust_state,
+        verification_method: row.verification_method,
+        confidence: row.confidence,
+        review_note: row.review_note,
+        projected_product_quality: productQuality,
+        projected_verified: productQuality === "manually_verified" || productQuality === "live_feed",
+        existing_product_quality: existing?.data_quality_status ?? null,
+        existing_product_price: existing?.price ?? null,
+        source_name: row.retail_data_sources?.name ?? null,
+        source_type: row.retail_data_sources?.source_type ?? null,
+        snapshot_label: row.retail_source_snapshots?.ref_label ?? null,
+        warnings: buildPreviewWarnings(row, productQuality),
+      };
+    });
+
+    const warningCount = plan.reduce((sum, item) => sum + item.warnings.length, 0);
+
+    return res.json({
+      mall_id: mallId,
+      mode: "dry_run_preview",
+      publishing_gate: "review_status=approved only",
+      publishable_count: plan.length,
+      warning_count: warningCount,
+      plan,
+    });
+  } catch (error) {
+    console.error("[admin/retail-observations/publish-preview]", error);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 /**
  * GET /admin/retail-observations
  *
