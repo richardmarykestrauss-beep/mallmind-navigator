@@ -37,21 +37,34 @@ function normalizeName(value) {
     .replace(/\s+/g, " ");
 }
 
-function mapTrustStateToProductQuality(trustState) {
+function mapTrustStateToProductQuality(trustState, verificationMethod) {
+  const evidenceVerifiedMethods = new Set([
+    "phone",
+    "website",
+    "flyer",
+    "receipt",
+    "store_visit",
+    "retailer_confirmation",
+    "scraper",
+    "retailer_api",
+  ]);
+
   switch (trustState) {
     case "verified":
     case "retailer_submitted":
     case "flyer_extracted":
     case "web_observed":
-    case "manual_fact_entry":
       return "manually_verified";
+    case "manual_fact_entry":
+      return evidenceVerifiedMethods.has(verificationMethod)
+        ? "manually_verified"
+        : "needs_review";
     case "live_feed":
       return "live_feed";
     case "user_submitted":
       return "user_submitted";
     case "expired":
     case "stale":
-      return "stale";
     case "disputed":
     case "needs_review":
     default:
@@ -71,7 +84,7 @@ function mapVerificationMethod(method) {
 }
 
 function buildProductPayload(obs, source, snapshot) {
-  const productQuality = mapTrustStateToProductQuality(obs.trust_state);
+  const productQuality = mapTrustStateToProductQuality(obs.trust_state, obs.verification_method);
   const mappedMethod = mapVerificationMethod(obs.verification_method);
 
   const dataSourceParts = [
