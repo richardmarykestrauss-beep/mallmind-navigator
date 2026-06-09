@@ -823,6 +823,41 @@ export interface ReviewRetailObservationResponse {
   observation: RetailObservationAdminRow;
 }
 
+
+export interface RetailObservationPublishPreviewItem {
+  observation_id: string;
+  action: "insert" | "update";
+  existing_product_id: string | null;
+  product_name: string;
+  category: string | null;
+  price: number;
+  original_price: number | null;
+  shop_name: string | null;
+  shop_unit_number: string | null;
+  shop_floor: string | null;
+  trust_state: string | null;
+  verification_method: string | null;
+  confidence: number | null;
+  review_note: string | null;
+  projected_product_quality: string;
+  projected_verified: boolean;
+  existing_product_quality: string | null;
+  existing_product_price: number | null;
+  source_name: string | null;
+  source_type: string | null;
+  snapshot_label: string | null;
+  warnings: string[];
+}
+
+export interface RetailObservationPublishPreviewResponse {
+  mall_id: string;
+  mode: "dry_run_preview";
+  publishing_gate: string;
+  publishable_count: number;
+  warning_count: number;
+  plan: RetailObservationPublishPreviewItem[];
+}
+
 /**
  * GET /admin/retail-observations
  *
@@ -897,6 +932,41 @@ export async function reviewRetailObservation(
   }
 
   return res.json() as Promise<ReviewRetailObservationResponse>;
+}
+
+
+/**
+ * GET /admin/retail-observations/publish-preview
+ *
+ * Read-only preview of approved staged observations that the controlled publisher would publish.
+ * Requires admin bearer token.
+ */
+export async function getRetailObservationPublishPreview(
+  accessToken: string,
+  filters?: { mall_id?: string; limit?: number }
+): Promise<RetailObservationPublishPreviewResponse> {
+  if (!BASE_URL) throw new Error("VITE_GOOGLE_BACKEND_URL is not configured");
+
+  const params = new URLSearchParams();
+  if (filters?.mall_id) params.set("mall_id", filters.mall_id);
+  if (filters?.limit) params.set("limit", String(filters.limit));
+
+  const qs = params.toString();
+  const res = await fetch(`${BASE_URL}/admin/retail-observations/publish-preview${qs ? `?${qs}` : ""}`, {
+    method: "GET",
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+
+  if (!res.ok) {
+    let message = `Retail observation publish preview error ${res.status}`;
+    try {
+      const err = (await res.json()) as { error?: string };
+      if (err.error) message = err.error;
+    } catch { /* ignore */ }
+    throw new Error(message);
+  }
+
+  return res.json() as Promise<RetailObservationPublishPreviewResponse>;
 }
 
 
