@@ -97,6 +97,8 @@ import {
   runResearchItemAdminReview,
   runResearchItemFullPipeline,
   ingestMallResearchSource,
+  getRetailObservationsAdmin,
+  reviewRetailObservation,
   isGoogleBackendConfigured,
   type IngestSourceResult,
   type IngestionSummary,
@@ -125,6 +127,8 @@ import {
   type MallResearchItemStatus,
   type MallResearchFindingType,
   type PipelineBotResult,
+  type RetailObservationAdminRow,
+  type RetailObservationReviewStatus,
 } from "@/lib/googleBackendClient";
 import { cn } from "@/lib/utils";
 
@@ -4313,6 +4317,295 @@ function MallResearchBatches({ token }: { token: string }) {
   );
 }
 
+
+// ── RetailObservationReviewQueue ──────────────────────────────────────────────
+
+const RETAIL_REVIEW_STATUS_OPTIONS: Array<{
+  value: RetailObservationReviewStatus | "all";
+  label: string;
+}> = [
+  { value: "all",             label: "All" },
+  { value: "pending",         label: "Pending" },
+  { value: "approved",        label: "Approved" },
+  { value: "rejected",        label: "Rejected" },
+  { value: "needs_more_info", label: "Needs More Info" },
+  { value: "published",       label: "Published" },
+];
+
+function retailReviewStatusClass(status: string): string {
+  switch (status) {
+    case "published":       return "bg-emerald-100 text-emerald-800";
+    case "approved":        return "bg-green-100 text-green-800";
+    case "pending":         return "bg-yellow-100 text-yellow-800";
+    case "rejected":        return "bg-red-100 text-red-800";
+    case "needs_more_info": return "bg-orange-100 text-orange-800";
+    default:                return "bg-muted text-muted-foreground";
+  }
+}
+
+function retailTrustClass(trust: string): string {
+  switch (trust) {
+    case "verified":          return "bg-emerald-100 text-emerald-800";
+    case "manual_fact_entry": return "bg-blue-100 text-blue-800";
+    case "needs_review":      return "bg-orange-100 text-orange-800";
+    case "disputed":          return "bg-red-100 text-red-800";
+    default:                  return "bg-muted text-muted-foreground";
+  }
+}
+
+function formatRetailMoney(value: number | null | undefined): string {
+  if (value == null || Number.isNaN(Number(value))) return "—";
+  return `R${Number(value).toLocaleString("en-ZA", {
+    minimumFractionDigits: Number(value) % 1 === 0 ? 0 : 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
+
+function RetailObservationCard({
+  row,
+  token,
+  onReviewed,
+}: {
+  row: RetailObservationAdminRow;
+  token: string;
+  onReviewed: () => void;
+}) {
+  const [note, setNote] = useState(row.review_note ?? "");
+  const [busy, setBusy] = useState<RetailObservationReviewStatus | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const isPublished = row.review_status === "published";
+
+  async function submit(status: Exclude<RetailObservationReviewStatus, "published">) {
+    if (!token || isPublished) return;
+    setBusy(status);
+    setError(null);
+    try {
+      await reviewRetailObservation(row.id, {
+        review_status: status,
+        review_note: note.trim() || undefined,
+      }, token);
+      onReviewed();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <Card className="overflow-hidden">
+      <CardContent className="space-y-3 pt-4 pb-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold">{row.product_name}</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {[row.brand, row.model, row.category].filter(Boolean).join(" · ") || "Uncategorised"}
+            </p>
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              {row.shops?.name ?? "Unknown shop"}
+              {row.shops?.unit_number ? ` · ${row.shops.unit_number}` : ""}
+              {row.shops?.floor ? ` · Floor ${row.shops.floor}` : ""}
+            </p>
+          </div>
+          <div className="shrink-0 text-right">
+            <p className="text-sm font-bold">{formatRetailMoney(row.price)}</p>
+            {row.original_price != null && row.original_price !== row.price && (
+              <p className="text-[10px] text-muted-foreground line-through">
+                {formatRetailMoney(row.original_price)}
+              </p>
+            )}
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-1.5">
+          <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-medium", retailReviewStatusClass(row.review_status))}>
+            {row.review_status.replace(/_/g, " ")}
+          </span>
+          <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-medium", retailTrustClass(row.trust_state))}>
+            {row.trust_state.replace(/_/g, " ")}
+          </span>
+          {row.verification_method && (
+            <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">
+              {row.verification_method}
+            </span>
+          )}
+          {row.confidence != null && (
+            <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">
+              {(row.confidence * 100).toFixed(0)}% confidence
+            </span>
+          )}
+        </div>
+
+        <div className="rounded-md border bg-muted/30 p-2 text-[11px] text-muted-foreground">
+          <p><span className="font-medium text-foreground">Source:</span> {row.retail_data_sources?.name ?? "—"}</p>
+          <p><span className="font-medium text-foreground">Legal:</span> {row.retail_data_sources?.legal_status ?? "—"}</p>
+          <p><span className="font-medium text-foreground">Snapshot:</span> {row.retail_source_snapshots?.ref_label ?? "—"}</p>
+          {row.published_product_id && (
+            <p><span className="font-medium text-foreground">Published product:</span> <span className="font-mono">{row.published_product_id}</span></p>
+          )}
+        </div>
+
+        <textarea
+          className="h-20 w-full resize-none rounded-md border bg-background px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+          placeholder="Review note..."
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          disabled={isPublished}
+        />
+
+        {error && (
+          <div className="rounded border border-destructive/30 bg-destructive/5 p-2 text-xs text-destructive">
+            {error}
+          </div>
+        )}
+
+        <div className="grid grid-cols-3 gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 text-xs"
+            disabled={!token || isPublished || busy !== null}
+            onClick={() => submit("needs_more_info")}
+          >
+            {busy === "needs_more_info" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "More Info"}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 border-red-200 text-xs text-red-700 hover:bg-red-50"
+            disabled={!token || isPublished || busy !== null}
+            onClick={() => submit("rejected")}
+          >
+            {busy === "rejected" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Reject"}
+          </Button>
+          <Button
+            size="sm"
+            className="h-8 text-xs"
+            disabled={!token || isPublished || busy !== null}
+            onClick={() => submit("approved")}
+          >
+            {busy === "approved" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Approve"}
+          </Button>
+        </div>
+
+        {isPublished && (
+          <p className="text-[10px] text-muted-foreground">
+            Published rows are locked in this queue. Use the controlled publisher/reporting workflow for changes.
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function RetailObservationReviewQueue({ token }: { token?: string | null }) {
+  const [rows, setRows] = useState<RetailObservationAdminRow[]>([]);
+  const [counts, setCounts] = useState<Record<string, number>>({});
+  const [status, setStatus] = useState<RetailObservationReviewStatus | "all">("pending");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [refresh, setRefresh] = useState(0);
+
+  useEffect(() => {
+    if (!token) return;
+    setLoading(true);
+    setError(null);
+    getRetailObservationsAdmin(token, {
+      review_status: status,
+      limit: 100,
+    })
+      .then((resp) => {
+        setRows(resp.observations ?? []);
+        setCounts(resp.counts ?? {});
+      })
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)))
+      .finally(() => setLoading(false));
+  }, [token, status, refresh]);
+
+  if (!token) {
+    return (
+      <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
+        Sign in as an admin to load the retail review queue.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-md border border-orange-200 bg-orange-50 px-3 py-2 text-xs text-orange-800">
+        Review only changes staged observation status. Publishing to live products remains a separate controlled step.
+      </div>
+
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h3 className="text-sm font-semibold">Retail Observation Queue</h3>
+          <p className="text-xs text-muted-foreground">
+            Approve verified observations, reject weak rows, or request more evidence before publishing.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Select value={status} onValueChange={(v) => setStatus(v as RetailObservationReviewStatus | "all")}>
+            <SelectTrigger className="h-8 w-40 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {RETAIL_REVIEW_STATUS_OPTIONS.map((s) => (
+                <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => setRefresh((v) => v + 1)}>
+            <RefreshCw className="mr-1 h-3.5 w-3.5" />
+            Refresh
+          </Button>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap gap-2 text-[10px]">
+        {Object.entries(counts).map(([key, value]) => (
+          <span key={key} className={cn("rounded-full px-2 py-0.5 font-medium", retailReviewStatusClass(key))}>
+            {key.replace(/_/g, " ")}: {value}
+          </span>
+        ))}
+      </div>
+
+      {loading && (
+        <div className="flex justify-center py-12">
+          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        </div>
+      )}
+
+      {error && (
+        <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+          Failed to load retail observations: {error}
+        </div>
+      )}
+
+      {!loading && !error && rows.length === 0 && (
+        <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed py-12 text-center">
+          <Inbox className="h-8 w-8 text-muted-foreground/20" />
+          <p className="text-sm text-muted-foreground">No retail observations found for this filter.</p>
+        </div>
+      )}
+
+      {!loading && !error && rows.length > 0 && (
+        <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
+          {rows.map((row) => (
+            <RetailObservationCard
+              key={row.id}
+              row={row}
+              token={token}
+              onReviewed={() => setRefresh((v) => v + 1)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 type AdminTab =
@@ -4324,6 +4617,7 @@ type AdminTab =
   | "guardian"
   | "bots"
   | "research"
+  | "retail-review"
   | "expansion"
   | "mall-intelligence"
   | "map-factory";
@@ -4344,6 +4638,7 @@ const ADMIN_TABS: AdminTabDef[] = [
   { id: "guardian",    label: "Data Guardian",    icon: <Bot            className="h-3.5 w-3.5" />, requiresBackend: true },
   { id: "bots",        label: "Bot Suite",        icon: <Cpu            className="h-3.5 w-3.5" />, requiresBackend: true },
   { id: "research",    label: "Research Batches", icon: <ClipboardList  className="h-3.5 w-3.5" />, requiresBackend: true },
+  { id: "retail-review", label: "Retail Review",    icon: <ListChecks     className="h-3.5 w-3.5" />, requiresBackend: true },
   { id: "expansion",        label: "Data Expansion",     icon: <TrendingUp className="h-3.5 w-3.5" /> },
   { id: "mall-intelligence", label: "Mall Intelligence",  icon: <MapPin     className="h-3.5 w-3.5" />, requiresBackend: true },
   { id: "map-factory",      label: "Map Factory",        icon: <Layers     className="h-3.5 w-3.5" />, requiresBackend: true },
@@ -4410,7 +4705,7 @@ function AdminDashboardContent() {
 
   // "expansion" is intentionally excluded — it degrades gracefully without backend.
   const needsBackend = (tab: AdminTab) =>
-    ["analytics", "mall-data", "guardian", "bots", "research", "mall-intelligence"].includes(tab);
+    ["analytics", "mall-data", "guardian", "bots", "research", "retail-review", "mall-intelligence", "map-factory"].includes(tab);
 
   return (
     <div className="min-h-screen bg-background">
@@ -4563,6 +4858,7 @@ function AdminDashboardContent() {
                         { label: "Data Guardian",     tab: "guardian"    as AdminTab, desc: "Trust scoring",                icon: <Bot            className="h-3.5 w-3.5 text-muted-foreground" />, backend: true },
                         { label: "Bot Suite",         tab: "bots"        as AdminTab, desc: "Intelligence bots",            icon: <Cpu            className="h-3.5 w-3.5 text-muted-foreground" />, backend: true },
                         { label: "Research Batches",  tab: "research"    as AdminTab, desc: "Per-mall research workflow",    icon: <ClipboardList  className="h-3.5 w-3.5 text-muted-foreground" />, backend: true },
+                        { label: "Retail Review",      tab: "retail-review" as AdminTab, desc: "Approve staged retail rows",    icon: <ListChecks     className="h-3.5 w-3.5 text-muted-foreground" />, backend: true },
                         { label: "Data Expansion",    tab: "expansion"        as AdminTab, desc: "Dataset growth control room",    icon: <TrendingUp className="h-3.5 w-3.5 text-muted-foreground" /> },
                         { label: "Mall Intelligence", tab: "mall-intelligence" as AdminTab, desc: "Discover & harvest mall data",   icon: <MapPin     className="h-3.5 w-3.5 text-muted-foreground" />, backend: true },
                       ] as const).map((item) => {
@@ -4765,6 +5061,19 @@ function AdminDashboardContent() {
               </p>
             </div>
             <MallResearchBatches token={session.access_token} />
+          </div>
+        )}
+
+        {/* ── Retail Observation Review ───────────────────────────────────── */}
+        {activeTab === "retail-review" && backendOk && (
+          <div className="space-y-4">
+            <div>
+              <h2 className="text-sm font-semibold">Retail Observation Review</h2>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Review staged retail price observations before controlled publishing. This tab does not write to live products.
+              </p>
+            </div>
+            <RetailObservationReviewQueue token={session?.access_token} />
           </div>
         )}
 
