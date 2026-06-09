@@ -98,6 +98,7 @@ import {
   runResearchItemFullPipeline,
   ingestMallResearchSource,
   getRetailObservationsAdmin,
+  getRetailObservationPublishPreview,
   reviewRetailObservation,
   isGoogleBackendConfigured,
   type IngestSourceResult,
@@ -4359,6 +4360,138 @@ function formatRetailMoney(value: number | null | undefined): string {
     minimumFractionDigits: Number(value) % 1 === 0 ? 0 : 2,
     maximumFractionDigits: 2,
   })}`;
+}
+
+function RetailObservationPublishPreviewPanel({ token }: { token?: string | null }) {
+  const [preview, setPreview] = useState<RetailObservationPublishPreviewResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function loadPreview() {
+    if (!token) {
+      setError("Admin session token missing.");
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const data = await getRetailObservationPublishPreview(token, { limit: 50 });
+      setPreview(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load publish preview.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void loadPreview();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
+
+  const publishableCount = preview?.publishable_count ?? 0;
+  const warningCount = preview?.warning_count ?? 0;
+
+  return (
+    <Card className="border-dashed bg-muted/20">
+      <CardHeader className="space-y-2">
+        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+          <div>
+            <CardTitle className="text-base">Approved Publish Preview</CardTitle>
+            <CardDescription>
+              Read-only dry-run preview. This does not publish products. Gate:{" "}
+              <code className="rounded bg-background px-1">review_status=approved only</code>
+            </CardDescription>
+          </div>
+
+          <Button variant="outline" size="sm" onClick={loadPreview} disabled={loading || !token}>
+            {loading ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
+            Refresh Preview
+          </Button>
+        </div>
+      </CardHeader>
+
+      <CardContent className="space-y-4">
+        {error && (
+          <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            {error}
+          </div>
+        )}
+
+        <div className="grid gap-3 md:grid-cols-3">
+          <div className="rounded-lg border bg-background p-3">
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">Publishable approved rows</p>
+            <p className="mt-1 text-2xl font-semibold">{publishableCount}</p>
+          </div>
+          <div className="rounded-lg border bg-background p-3">
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">Preview warnings</p>
+            <p className={cn("mt-1 text-2xl font-semibold", warningCount ? "text-orange-700" : "text-emerald-700")}>
+              {warningCount}
+            </p>
+          </div>
+          <div className="rounded-lg border bg-background p-3">
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">Mode</p>
+            <p className="mt-1 text-sm font-medium">{preview?.mode ?? "dry_run_preview"}</p>
+          </div>
+        </div>
+
+        {preview && preview.plan.length === 0 && (
+          <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+            No approved rows are waiting to publish. Current staging state is safe.
+          </div>
+        )}
+
+        {preview && preview.plan.length > 0 && (
+          <div className="space-y-3">
+            {preview.plan.map((item) => (
+              <div key={item.observation_id} className="rounded-lg border bg-background p-3">
+                <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                  <div>
+                    <p className="font-medium text-foreground">{item.product_name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {item.shop_name ?? "Unknown shop"} · {item.category ?? "Uncategorised"} · R{Number(item.price).toFixed(2)}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <span className="rounded-full border px-2 py-0.5 text-xs">{item.action}</span>
+                    <span className={cn(
+                      "rounded-full px-2 py-0.5 text-xs font-medium",
+                      item.projected_product_quality === "manually_verified"
+                        ? "bg-emerald-100 text-emerald-800"
+                        : item.projected_product_quality === "needs_review"
+                          ? "bg-orange-100 text-orange-800"
+                          : "bg-muted text-muted-foreground"
+                    )}>
+                      {item.projected_product_quality.replace(/_/g, " ")}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="mt-3 grid gap-2 text-xs text-muted-foreground md:grid-cols-3">
+                  <p><span className="font-medium text-foreground">Trust:</span> {item.trust_state ?? "unknown"}</p>
+                  <p><span className="font-medium text-foreground">Method:</span> {item.verification_method ?? "none"}</p>
+                  <p><span className="font-medium text-foreground">Confidence:</span> {item.confidence ?? "n/a"}</p>
+                </div>
+
+                {item.warnings.length > 0 && (
+                  <div className="mt-3 rounded-md border border-orange-200 bg-orange-50 p-2">
+                    <p className="mb-1 text-xs font-semibold text-orange-800">Warnings</p>
+                    <ul className="list-disc space-y-1 pl-4 text-xs text-orange-800">
+                      {item.warnings.map((warning, idx) => (
+                        <li key={idx}>{warning}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
 }
 
 function RetailObservationCard({
