@@ -24,6 +24,7 @@ import {
   reportPriceCorrection,
   type WebResult,
   type AssistantResponse,
+  type AssistantShoppingAnswer,
 } from "@/lib/googleBackendClient";
 
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "@/lib/env";
@@ -43,6 +44,8 @@ interface ChatMessage {
   routeSummary?: string;
   routeSteps?: RouteStep[];
   routeId?: string | null;
+  /** Structured shopper-safe answer from the backend assistant engine */
+  shoppingAnswer?: AssistantShoppingAnswer | null;
   loading?: boolean;
   /** Context-aware text shown below the thinking dots while loading */
   loadingText?: string;
@@ -84,6 +87,131 @@ function computeTotalCost(products: ProductResult[]): number {
     }
   }
   return Object.values(groups).reduce((sum, price) => sum + price, 0);
+}
+
+// ── Shopping answer card ──────────────────────────────────────────────────────
+// Renders the structured shopper-safe `shopping_answer` from the backend
+// assistant engine. Only shopper-safe fields are read — never raw internal
+// statuses like data_quality_status.
+
+const CONFIDENCE_BADGE_STYLES: Record<string, string> = {
+  high: "border-emerald-500/30 bg-emerald-500/10 text-emerald-500",
+  medium: "border-amber-500/30 bg-amber-500/10 text-amber-600",
+  low: "border-border bg-surface text-muted-foreground",
+};
+
+function formatAnswerPrice(price: number | null): string {
+  return price != null ? `R${price.toLocaleString("en-ZA")}` : "Price not confirmed yet";
+}
+
+function ShoppingAnswerCard({
+  answer,
+  matchingProduct,
+  onTakeMeTo,
+  isLoading,
+}: {
+  answer: AssistantShoppingAnswer;
+  /** Product row matching bestOption, used to reuse the existing Take-me-to flow */
+  matchingProduct: ProductResult | null;
+  onTakeMeTo: (product: ProductResult, queryText: string) => void;
+  isLoading: boolean;
+}) {
+  const best = answer.bestOption;
+  const backup = answer.backupOption;
+  const canNavigate =
+    answer.nextAction.type === "navigate" && !!best?.shopName && !!matchingProduct;
+
+  return (
+    <div className="rounded-xl border border-primary/20 bg-primary/5 p-3 space-y-2 w-full max-w-[310px]">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[9px] uppercase tracking-wider text-primary/70 font-semibold flex items-center gap-1">
+          <Sparkles className="h-3 w-3" /> Best pick
+        </span>
+        {best && (
+          <span className={cn(
+            "rounded-full border px-2 py-0.5 text-[9px] font-semibold whitespace-nowrap",
+            CONFIDENCE_BADGE_STYLES[best.confidenceBand] ?? CONFIDENCE_BADGE_STYLES.low
+          )}>
+            {best.trustLabel}
+          </span>
+        )}
+      </div>
+
+      {best && (
+        <div className="space-y-1">
+          <p className="text-sm font-semibold leading-snug">{best.productName}</p>
+          <div className="flex items-center justify-between gap-2 text-xs">
+            {best.shopName && (
+              <span className="flex items-center gap-1 text-muted-foreground">
+                <Store className="h-3 w-3 shrink-0" /> {best.shopName}
+              </span>
+            )}
+            <span className="font-semibold text-primary">{formatAnswerPrice(best.price)}</span>
+          </div>
+          {best.reason && (
+            <p className="text-[10px] text-muted-foreground leading-relaxed">{best.reason}</p>
+          )}
+        </div>
+      )}
+
+      <p className="text-xs leading-relaxed text-foreground/90">{answer.shopperMessage}</p>
+
+      {backup && (
+        <div className="rounded-lg border border-border bg-surface px-2.5 py-2 space-y-0.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[9px] uppercase tracking-wider text-muted-foreground font-semibold">
+              Backup option
+            </span>
+            <span className={cn(
+              "rounded-full border px-2 py-0.5 text-[9px] font-semibold whitespace-nowrap",
+              CONFIDENCE_BADGE_STYLES[backup.confidenceBand] ?? CONFIDENCE_BADGE_STYLES.low
+            )}>
+              {backup.trustLabel}
+            </span>
+          </div>
+          <p className="text-xs leading-snug">
+            {backup.productName}
+            {backup.shopName ? ` · ${backup.shopName}` : ""} — {formatAnswerPrice(backup.price)}
+          </p>
+        </div>
+      )}
+
+      {answer.warnings.length > 0 && (
+        <div className="space-y-1">
+          {answer.warnings.map((w, i) => (
+            <div
+              key={i}
+              className="flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-600"
+            >
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0" /> {w}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {canNavigate && matchingProduct ? (
+        <button
+          onClick={() =>
+            onTakeMeTo(
+              matchingProduct,
+              `Take me to ${matchingProduct.shop_name} for the ${matchingProduct.name}`
+            )
+          }
+          disabled={isLoading}
+          className="w-full flex items-center justify-center gap-1.5 rounded-xl bg-primary px-3 py-2.5 text-xs font-semibold text-primary-foreground transition-opacity disabled:opacity-50"
+        >
+          {isLoading
+            ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Building route…</>
+            : <><Navigation className="h-3.5 w-3.5" /> {answer.nextAction.label}</>
+          }
+        </button>
+      ) : (
+        <div className="w-full flex items-center justify-center gap-1.5 rounded-xl border border-border bg-surface px-3 py-2.5 text-xs font-semibold text-muted-foreground">
+          <ChevronRight className="h-3.5 w-3.5" /> {answer.nextAction.label}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ── Web estimate card ─────────────────────────────────────────────────────────
@@ -730,6 +858,7 @@ const AssistantPage = () => {
         routeSummary: data.route_summary,
         routeSteps: data.route_steps?.length ? data.route_steps : undefined,
         routeId: data.route_id ?? null,
+        shoppingAnswer: data.shopping_answer ?? null,
       };
 
       setMessages((prev) => prev.filter((m) => !m.loading).concat(assistantMsg));
@@ -1180,6 +1309,19 @@ const AssistantPage = () => {
                         : renderMarkdown(msg.content)
                       }
                     </div>
+                  )}
+
+                  {msg.shoppingAnswer && (
+                    <ShoppingAnswerCard
+                      answer={msg.shoppingAnswer}
+                      matchingProduct={
+                        msg.products?.find(
+                          (p) => p.product_id === msg.shoppingAnswer?.bestOption?.productId
+                        ) ?? null
+                      }
+                      onTakeMeTo={handleTakeMeTo}
+                      isLoading={isLoading}
+                    />
                   )}
 
                   {msg.products && msg.products.length > 0 && (
