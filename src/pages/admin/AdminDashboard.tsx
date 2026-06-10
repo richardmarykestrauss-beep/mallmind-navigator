@@ -99,6 +99,7 @@ import {
   ingestMallResearchSource,
   getRetailObservationsAdmin,
   getRetailObservationPublishPreview,
+  type RetailObservationPublishPreviewResponse,
   reviewRetailObservation,
   isGoogleBackendConfigured,
   type IngestSourceResult,

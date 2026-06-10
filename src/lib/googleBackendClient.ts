@@ -826,8 +826,10 @@ export interface ReviewRetailObservationResponse {
 
 export interface RetailObservationPublishPreviewItem {
   observation_id: string;
-  action: "insert" | "update";
+  action: "insert" | "update" | "skip_ambiguous";
   existing_product_id: string | null;
+  match_strategy: "product_id" | "shop_name" | "insert_new" | "ambiguous";
+  ambiguous_candidate_ids: string[];
   product_name: string;
   category: string | null;
   price: number;
@@ -841,6 +843,7 @@ export interface RetailObservationPublishPreviewItem {
   review_note: string | null;
   projected_product_quality: string;
   projected_verified: boolean;
+  projected_verification_method: string | null;
   existing_product_quality: string | null;
   existing_product_price: number | null;
   source_name: string | null;
@@ -855,6 +858,7 @@ export interface RetailObservationPublishPreviewResponse {
   publishing_gate: string;
   publishable_count: number;
   warning_count: number;
+  ambiguous_count: number;
   plan: RetailObservationPublishPreviewItem[];
 }
 

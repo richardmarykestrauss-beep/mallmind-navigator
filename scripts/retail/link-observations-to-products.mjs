@@ -10,12 +10,25 @@ const mallId =
     ? args[mallArgIndex + 1]
     : "f4a2c1b3-8d7e-4f6a-9b0c-1d2e3f4a5b6c";
 
-function normalizeName(value) {
-  return String(value ?? "")
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, " ");
+// Shared Retail Intelligence Core (compiled) — same normalization/matching as
+// the publisher and admin publish preview.
+const CORE_DIST_URL = new URL(
+  "../../google-cloud-backend/dist/services/retail/index.js",
+  import.meta.url
+);
+
+let core;
+try {
+  core = await import(CORE_DIST_URL.href);
+} catch (err) {
+  console.error("ERROR: Retail Intelligence Core build not found.");
+  console.error("Run `npm run build` inside google-cloud-backend first, then re-run this script.");
+  console.error(`(Tried to load: ${CORE_DIST_URL.pathname})`);
+  console.error(`Underlying error: ${err?.message ?? err}`);
+  process.exit(1);
 }
+
+const { buildProductIndex, matchObservationToProduct } = core;
 
 function statusRank(status) {
   switch (status) {
@@ -84,33 +97,23 @@ async function main() {
 
   if (productsErr) throw new Error(`Failed to load products: ${productsErr.message}`);
 
-  const productBuckets = new Map();
-
-  for (const product of products ?? []) {
-    const key = `${product.shop_id}|${normalizeName(product.name)}`;
-    const existing = productBuckets.get(key) ?? [];
-    existing.push(product);
-    productBuckets.set(key, existing);
-  }
+  const productIndex = buildProductIndex(products ?? []);
 
   const plan = [];
 
   for (const obs of observations ?? []) {
-    const matchKey = `${obs.shop_id}|${normalizeName(obs.product_name)}`;
-    const candidates = productBuckets.get(matchKey) ?? [];
+    // Query selects only product_id IS NULL rows, so the shared matcher always
+    // takes the shop/name path here.
+    const match = matchObservationToProduct(obs, productIndex);
 
-    let decision = "no_match";
-    let matchedProduct = null;
-    let reason = "No product with same shop_id and normalized name.";
-
-    if (candidates.length === 1) {
-      decision = "link";
-      matchedProduct = candidates[0];
-      reason = "Exactly one product matched by shop_id + normalized name.";
-    } else if (candidates.length > 1) {
-      decision = "ambiguous";
-      reason = `${candidates.length} products matched; manual review required.`;
-    }
+    const decision =
+      match.strategy === "shop_name"
+        ? "link"
+        : match.strategy === "ambiguous"
+          ? "ambiguous"
+          : "no_match";
+    const matchedProduct = match.product;
+    const reason = match.reason;
 
     plan.push({
       observation_id: obs.id,

@@ -1,5 +1,6 @@
 import { Router, Request, Response } from "express";
 import { getSupabaseClient } from "../lib/supabase.js";
+import { buildPublishPlan } from "../services/retail/index.js";
 
 const router = Router();
 
@@ -63,57 +64,6 @@ function normalizeStatus(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length ? trimmed : null;
-}
-
-const EVIDENCE_VERIFIED_METHODS = new Set([
-  "phone",
-  "website",
-  "flyer",
-  "receipt",
-  "store_visit",
-  "retailer_confirmation",
-  "scraper",
-  "retailer_api",
-]);
-
-function normalizeProductName(value: unknown): string {
-  return String(value ?? "").trim().toLowerCase().replace(/\s+/g, " ");
-}
-
-function mapTrustStateToPreviewQuality(trustState: unknown, verificationMethod: unknown): string {
-  const state = String(trustState ?? "");
-  const method = String(verificationMethod ?? "");
-
-  if (["verified", "retailer_submitted", "flyer_extracted", "web_observed"].includes(state)) {
-    return "manually_verified";
-  }
-
-  if (state === "manual_fact_entry") {
-    return EVIDENCE_VERIFIED_METHODS.has(method) ? "manually_verified" : "needs_review";
-  }
-
-  if (state === "live_feed") return "live_feed";
-  if (state === "user_submitted") return "user_submitted";
-
-  return "needs_review";
-}
-
-function buildPreviewWarnings(row: any, productQuality: string): string[] {
-  const warnings: string[] = [];
-
-  if (row.trust_state === "manual_fact_entry" && productQuality === "needs_review") {
-    warnings.push("Manual CSV/admin-entered row will publish as needs_review, not Verified price.");
-  }
-
-  if (!EVIDENCE_VERIFIED_METHODS.has(String(row.verification_method ?? ""))) {
-    warnings.push(`Verification method '${row.verification_method ?? "none"}' is not external evidence-backed.`);
-  }
-
-  if (Number(row.confidence ?? 0) < 0.8) {
-    warnings.push(`Confidence is ${row.confidence}; consider stronger evidence before publishing.`);
-  }
-
-  return warnings;
 }
 
 /**
@@ -180,54 +130,46 @@ router.get("/publish-preview", async (req: Request, res: Response) => {
       return res.status(500).json({ error: productsError.message });
     }
 
-    const productMap = new Map<string, any>();
-    const productById = new Map<string, any>();
+    // Shared Retail Intelligence Core planner — same matching/trust/warning
+    // logic as the controlled publisher script. No nowIso/verifiedBy: this
+    // route is dry-run only and never writes payloads.
+    const corePlan = buildPublishPlan(rows as any[], (products ?? []) as any[]);
+    const rowById = new Map<string, any>(rows.map((row: any) => [row.id, row]));
 
-    for (const product of products ?? []) {
-      productMap.set(`${product.shop_id}|${normalizeProductName(product.name)}`, product);
-      productById.set(product.id, product);
-    }
-
-    const plan = rows.map((row: any) => {
-      const linkedExisting = row.product_id ? productById.get(row.product_id) : null;
-      const nameMatchedExisting =
-        productMap.get(`${row.shop_id}|${normalizeProductName(row.product_name)}`) ?? null;
-      const existing = linkedExisting ?? nameMatchedExisting ?? null;
-      const match_strategy = linkedExisting
-        ? "product_id"
-        : nameMatchedExisting
-          ? "shop_name"
-          : "insert_new";
-      const productQuality = mapTrustStateToPreviewQuality(row.trust_state, row.verification_method);
+    const plan = corePlan.map((item) => {
+      const row = rowById.get(item.observation_id) ?? {};
 
       return {
-        observation_id: row.id,
-        action: existing ? "update" : "insert",
-        existing_product_id: existing?.id ?? null,
-        match_strategy,
-        product_name: row.product_name,
-        category: row.category,
-        price: row.price,
-        original_price: row.original_price,
+        observation_id: item.observation_id,
+        action: item.action,
+        existing_product_id: item.existing_product_id,
+        match_strategy: item.match_strategy,
+        ambiguous_candidate_ids: item.ambiguous_candidate_ids,
+        product_name: item.product_name,
+        category: item.category,
+        price: item.price,
+        original_price: item.original_price,
         shop_name: row.shops?.name ?? null,
         shop_unit_number: row.shops?.unit_number ?? null,
         shop_floor: row.shops?.floor ?? null,
-        trust_state: row.trust_state,
-        verification_method: row.verification_method,
-        confidence: row.confidence,
-        review_note: row.review_note,
-        projected_product_quality: productQuality,
-        projected_verified: productQuality === "manually_verified" || productQuality === "live_feed",
-        existing_product_quality: existing?.data_quality_status ?? null,
-        existing_product_price: existing?.price ?? null,
+        trust_state: item.trust_state,
+        verification_method: item.verification_method,
+        confidence: item.confidence,
+        review_note: item.review_note,
+        projected_product_quality: item.projected_product_quality,
+        projected_verified: item.projected_verified,
+        projected_verification_method: item.projected_verification_method,
+        existing_product_quality: item.existing_product?.data_quality_status ?? null,
+        existing_product_price: item.existing_product?.price ?? null,
         source_name: row.retail_data_sources?.name ?? null,
         source_type: row.retail_data_sources?.source_type ?? null,
         snapshot_label: row.retail_source_snapshots?.ref_label ?? null,
-        warnings: buildPreviewWarnings(row, productQuality),
+        warnings: item.warnings,
       };
     });
 
     const warningCount = plan.reduce((sum, item) => sum + item.warnings.length, 0);
+    const ambiguousCount = plan.filter((item) => item.match_strategy === "ambiguous").length;
 
     return res.json({
       mall_id: mallId,
@@ -235,6 +177,7 @@ router.get("/publish-preview", async (req: Request, res: Response) => {
       publishing_gate: "review_status=approved only",
       publishable_count: plan.length,
       warning_count: warningCount,
+      ambiguous_count: ambiguousCount,
       plan,
     });
   } catch (error) {

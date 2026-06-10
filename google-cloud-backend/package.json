@@ -11,6 +11,7 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "lint": "tsc --noEmit",
+    "test:retail-core": "ts-node --transpile-only src/services/retail/__tests__/retailCoreHarness.ts",
     "test:health": "curl -s http://localhost:8080/health | jq ."
   },
   "dependencies": {

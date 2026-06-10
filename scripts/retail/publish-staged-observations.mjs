@@ -1,4 +1,15 @@
 #!/usr/bin/env node
+// Controlled retail observation publisher (19C.3 gate + Retail Intelligence Core).
+//
+// Trust rules enforced here:
+//   - review_status='approved' is the ONLY publish gate.
+//   - Dry-run by default; writes happen only with --apply.
+//   - Ambiguous product matches are never published.
+//
+// Matching/trust/planning logic is shared with the admin publish preview via
+// the Retail Intelligence Core (google-cloud-backend/src/services/retail/),
+// consumed here from its compiled output.
+
 import { createClient } from "@supabase/supabase-js";
 
 const args = process.argv.slice(2);
@@ -18,112 +29,30 @@ const mallId =
     ? args[mallArgIndex + 1]
     : "f4a2c1b3-8d7e-4f6a-9b0c-1d2e3f4a5b6c";
 
-const validProductVerificationMethods = new Set([
-  "phone",
-  "website",
-  "flyer",
-  "receipt",
-  "store_visit",
-  "retailer_confirmation",
-  "scraper",
-  "retailer_api",
-  "user_submission",
-]);
+const CORE_DIST_URL = new URL(
+  "../../google-cloud-backend/dist/services/retail/index.js",
+  import.meta.url
+);
 
-function normalizeName(value) {
-  return String(value ?? "")
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, " ");
+let core;
+try {
+  core = await import(CORE_DIST_URL.href);
+} catch (err) {
+  console.error("ERROR: Retail Intelligence Core build not found.");
+  console.error("Run `npm run build` inside google-cloud-backend first, then re-run this script.");
+  console.error(`(Tried to load: ${CORE_DIST_URL.pathname})`);
+  console.error(`Underlying error: ${err?.message ?? err}`);
+  process.exit(1);
 }
 
-function mapTrustStateToProductQuality(trustState, verificationMethod) {
-  const evidenceVerifiedMethods = new Set([
-    "phone",
-    "website",
-    "flyer",
-    "receipt",
-    "store_visit",
-    "retailer_confirmation",
-    "scraper",
-    "retailer_api",
-  ]);
-
-  switch (trustState) {
-    case "verified":
-    case "retailer_submitted":
-    case "flyer_extracted":
-    case "web_observed":
-      return "manually_verified";
-    case "manual_fact_entry":
-      return evidenceVerifiedMethods.has(verificationMethod)
-        ? "manually_verified"
-        : "needs_review";
-    case "live_feed":
-      return "live_feed";
-    case "user_submitted":
-      return "user_submitted";
-    case "expired":
-    case "stale":
-    case "disputed":
-    case "needs_review":
-    default:
-      return "needs_review";
-  }
-}
-
-function mapVerificationMethod(method) {
-  if (!method) return null;
-  if (validProductVerificationMethods.has(method)) return method;
-
-  // product.price_verification_method currently does not allow csv_manual,
-  // affiliate_feed, or partner_feed. Keep product column valid and preserve the
-  // original method in products.data_source instead.
-  if (method === "affiliate_feed" || method === "partner_feed") return "retailer_api";
-  return null;
-}
-
-function buildProductPayload(obs, source, snapshot) {
-  const productQuality = mapTrustStateToProductQuality(obs.trust_state, obs.verification_method);
-  const mappedMethod = mapVerificationMethod(obs.verification_method);
-
-  const dataSourceParts = [
-    "retail_observation",
-    source?.source_type ? `source:${source.source_type}` : null,
-    obs.trust_state ? `trust:${obs.trust_state}` : null,
-    obs.verification_method ? `method:${obs.verification_method}` : null,
-    source?.id ? `source_id:${source.id}` : null,
-    snapshot?.id ? `snapshot_id:${snapshot.id}` : null,
-  ].filter(Boolean);
-
-  return {
-    shop_id: obs.shop_id,
-    mall_id: obs.mall_id,
-    name: obs.product_name,
-    category: obs.category,
-    brand: obs.brand,
-    model: obs.model,
-    price: obs.price,
-    original_price: obs.original_price,
-    is_on_special: obs.is_on_special,
-    special_description: obs.special_description,
-    image_url: null,
-    in_stock: obs.in_stock,
-    verified: productQuality === "manually_verified" || productQuality === "live_feed",
-    price_verified_at: new Date().toISOString(),
-    data_quality_status: productQuality,
-    price_verification_method: mappedMethod,
-    data_source: dataSourceParts.join("|"),
-    verified_by: "scripts/retail/publish-staged-observations.mjs",
-    deleted_at: null,
-  };
-}
+const { buildPublishPlan } = core;
 
 async function main() {
   console.log("===== RETAIL STAGED OBSERVATION PUBLISHER =====");
   console.log("mode:", apply ? "APPLY" : "DRY RUN");
   console.log("mall_id:", mallId);
   console.log("publishing gate: review_status=approved only");
+  console.log("matching: shared Retail Intelligence Core (product_id → shop/name → insert_new; ambiguous rows are skipped)");
 
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -176,45 +105,10 @@ async function main() {
 
   if (productsErr) throw new Error(`Failed to load products: ${productsErr.message}`);
 
-  const productMap = new Map();
-  const productById = new Map();
-
-  for (const product of existingProducts ?? []) {
-    const key = `${product.shop_id}|${normalizeName(product.name)}`;
-    productMap.set(key, product);
-    productById.set(product.id, product);
-  }
-
-  const plan = [];
-
-  for (const obs of rows) {
-    const source = obs.retail_data_sources ?? null;
-    const snapshot = obs.retail_source_snapshots ?? null;
-    const payload = buildProductPayload(obs, source, snapshot);
-    const matchKey = `${obs.shop_id}|${normalizeName(obs.product_name)}`;
-    const linkedExisting = obs.product_id ? productById.get(obs.product_id) : null;
-    const nameMatchedExisting = productMap.get(matchKey);
-    const existing = linkedExisting ?? nameMatchedExisting ?? null;
-    const match_strategy = linkedExisting
-      ? "product_id"
-      : nameMatchedExisting
-        ? "shop_name"
-        : "insert_new";
-
-    plan.push({
-      observation_id: obs.id,
-      action: existing ? "update" : "insert",
-      existing_product_id: existing?.id ?? null,
-      match_strategy,
-      product_name: obs.product_name,
-      shop_id: obs.shop_id,
-      category: obs.category,
-      price: obs.price,
-      trust_state: obs.trust_state,
-      product_quality: payload.data_quality_status,
-      payload,
-    });
-  }
+  const plan = buildPublishPlan(rows, existingProducts ?? [], {
+    nowIso: new Date().toISOString(),
+    verifiedBy: "scripts/retail/publish-staged-observations.mjs",
+  });
 
   console.table(
     plan.map((item) => ({
@@ -223,11 +117,23 @@ async function main() {
       category: item.category,
       price: item.price,
       trust_state: item.trust_state,
-      product_quality: item.product_quality,
+      product_quality: item.projected_product_quality,
       match_strategy: item.match_strategy,
       existing_product_id: item.existing_product_id,
     }))
   );
+
+  const ambiguousItems = plan.filter((item) => item.action === "skip_ambiguous");
+  if (ambiguousItems.length) {
+    console.warn("");
+    console.warn(`WARNING: ${ambiguousItems.length} ambiguous row(s) will NOT be published:`);
+    for (const item of ambiguousItems) {
+      console.warn(
+        `  - ${item.product_name} (observation ${item.observation_id}): ${item.match_reason}`
+      );
+    }
+    console.warn("Resolve ambiguity by linking product_id explicitly, then re-run.");
+  }
 
   if (!apply) {
     console.log("Dry run only. Re-run with --apply to publish.");
@@ -236,10 +142,16 @@ async function main() {
 
   let inserted = 0;
   let updated = 0;
+  let skippedAmbiguous = 0;
   let markedPublished = 0;
   const touchedBatchIds = new Set();
 
   for (const item of plan) {
+    if (item.action === "skip_ambiguous") {
+      skippedAmbiguous++;
+      continue;
+    }
+
     let productId = item.existing_product_id;
 
     if (item.action === "update") {
@@ -313,6 +225,7 @@ async function main() {
 
   console.log("updated:", updated);
   console.log("inserted:", inserted);
+  console.log("skipped_ambiguous:", skippedAmbiguous);
   console.log("markedPublished:", markedPublished);
 }
 
