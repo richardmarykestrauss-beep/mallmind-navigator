@@ -177,9 +177,12 @@ async function main() {
   if (productsErr) throw new Error(`Failed to load products: ${productsErr.message}`);
 
   const productMap = new Map();
+  const productById = new Map();
+
   for (const product of existingProducts ?? []) {
     const key = `${product.shop_id}|${normalizeName(product.name)}`;
     productMap.set(key, product);
+    productById.set(product.id, product);
   }
 
   const plan = [];
@@ -189,12 +192,20 @@ async function main() {
     const snapshot = obs.retail_source_snapshots ?? null;
     const payload = buildProductPayload(obs, source, snapshot);
     const matchKey = `${obs.shop_id}|${normalizeName(obs.product_name)}`;
-    const existing = productMap.get(matchKey);
+    const linkedExisting = obs.product_id ? productById.get(obs.product_id) : null;
+    const nameMatchedExisting = productMap.get(matchKey);
+    const existing = linkedExisting ?? nameMatchedExisting ?? null;
+    const match_strategy = linkedExisting
+      ? "product_id"
+      : nameMatchedExisting
+        ? "shop_name"
+        : "insert_new";
 
     plan.push({
       observation_id: obs.id,
       action: existing ? "update" : "insert",
       existing_product_id: existing?.id ?? null,
+      match_strategy,
       product_name: obs.product_name,
       shop_id: obs.shop_id,
       category: obs.category,
@@ -213,6 +224,7 @@ async function main() {
       price: item.price,
       trust_state: item.trust_state,
       product_quality: item.product_quality,
+      match_strategy: item.match_strategy,
       existing_product_id: item.existing_product_id,
     }))
   );
