@@ -141,6 +141,7 @@ router.get("/publish-preview", async (req: Request, res: Response) => {
         created_at,
         mall_id,
         shop_id,
+        product_id,
         product_name,
         brand,
         model,
@@ -180,18 +181,30 @@ router.get("/publish-preview", async (req: Request, res: Response) => {
     }
 
     const productMap = new Map<string, any>();
+    const productById = new Map<string, any>();
+
     for (const product of products ?? []) {
       productMap.set(`${product.shop_id}|${normalizeProductName(product.name)}`, product);
+      productById.set(product.id, product);
     }
 
     const plan = rows.map((row: any) => {
-      const existing = productMap.get(`${row.shop_id}|${normalizeProductName(row.product_name)}`) ?? null;
+      const linkedExisting = row.product_id ? productById.get(row.product_id) : null;
+      const nameMatchedExisting =
+        productMap.get(`${row.shop_id}|${normalizeProductName(row.product_name)}`) ?? null;
+      const existing = linkedExisting ?? nameMatchedExisting ?? null;
+      const match_strategy = linkedExisting
+        ? "product_id"
+        : nameMatchedExisting
+          ? "shop_name"
+          : "insert_new";
       const productQuality = mapTrustStateToPreviewQuality(row.trust_state, row.verification_method);
 
       return {
         observation_id: row.id,
         action: existing ? "update" : "insert",
         existing_product_id: existing?.id ?? null,
+        match_strategy,
         product_name: row.product_name,
         category: row.category,
         price: row.price,
