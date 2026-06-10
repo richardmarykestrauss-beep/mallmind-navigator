@@ -108,6 +108,30 @@ export interface AssistantRequest {
   budget?: number | null;
 }
 
+export interface AssistantShoppingAnswerOption {
+  productId: string;
+  productName: string;
+  shopName: string | null;
+  price: number | null;
+  trustLabel: string;
+  confidenceBand: "high" | "medium" | "low";
+  reason: string;
+  routeAvailable: boolean;
+}
+
+/** Additive structured answer from the backend Shopping Assistant Engine. */
+export interface AssistantShoppingAnswer {
+  intent: string;
+  bestOption: AssistantShoppingAnswerOption | null;
+  backupOption: AssistantShoppingAnswerOption | null;
+  warnings: string[];
+  nextAction: {
+    type: "navigate" | "compare" | "confirm_price" | "search_again";
+    label: string;
+  };
+  shopperMessage: string;
+}
+
 export interface AssistantResponse {
   message: string;
   products?: ProductResult[];
@@ -117,6 +141,7 @@ export interface AssistantResponse {
   build_route?: boolean;
   route_shop_ids?: string[];
   route_summary?: string;
+  shopping_answer?: AssistantShoppingAnswer | null;
 }
 
 // ── Health check ─────────────────────────────────────────────────────────────

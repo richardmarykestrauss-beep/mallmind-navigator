@@ -3,6 +3,8 @@ import { recommendProducts } from "./productService.js";
 import { buildRoute, buildRouteNoSession } from "./routingService.js";
 import { getSupabaseClient } from "../lib/supabase.js";
 import type { ScoredProduct, RouteStep } from "../lib/types.js";
+import { buildShoppingAnswer } from "./assistant/index.js";
+import type { ShopperCandidate, ShoppingAnswer } from "./assistant/index.js";
 
 // ── Route intent detection ────────────────────────────────────────────────────
 // Deterministic check on the raw user message — does NOT call Gemini.
@@ -285,6 +287,40 @@ export interface AssistantResult {
   build_route: boolean;
   route_shop_ids: string[];
   route_summary: string;
+  /** Additive: structured shopper-safe answer from the assistant engine. */
+  shopping_answer: ShoppingAnswer | null;
+}
+
+// ── Shopping Assistant Intelligence Engine bridge (additive) ─────────────────
+// Maps already-fetched ScoredProducts into the pure assistant engine.
+// Read-only: never queries the DB, never alters message/products fields.
+// routeBuilt reflects whether a real route exists for this response — the
+// engine only offers "Take me there" when it is true.
+
+function buildShoppingAnswerForResult(
+  products: ScoredProduct[],
+  userQuery: string,
+  budget: number | null | undefined,
+  routeBuilt: boolean
+): ShoppingAnswer | null {
+  if (!products.length) return null;
+  const candidates: ShopperCandidate[] = products.map((p) => ({
+    productId: p.product_id,
+    productName: p.name,
+    shopId: p.shop_id,
+    shopName: p.shop_name,
+    floor: p.floor ?? null,
+    unitNumber: p.unit_number ?? null,
+    price: p.price ?? null,
+    isOnSpecial: p.is_on_special ?? null,
+    discountPct: p.discount_pct ?? null,
+    trustState: p.trust_state ?? null,
+    dataQualityStatus: p.data_quality_status ?? null,
+    isOpenNow: p.is_open_now ?? null,
+    routeAvailable: routeBuilt,
+    relevanceScore: typeof p.score === "number" ? Math.min(p.score / 5, 20) : null,
+  }));
+  return buildShoppingAnswer({ query: userQuery, candidates, budget: budget ?? null });
 }
 
 
@@ -599,6 +635,7 @@ export async function runAssistant(
               build_route: true,
               route_shop_ids: routeShopIds,
               route_summary: routeSummary,
+              shopping_answer: null,
             };
           }
         } catch (err) {
@@ -725,6 +762,9 @@ export async function runAssistant(
         build_route: routeShopIds.length > 0,
         route_shop_ids: routeShopIds,
         route_summary: routeSummary,
+        shopping_answer: buildShoppingAnswerForResult(
+          allProducts, lastMessage.content, ctx.budget, routeSteps.length > 0
+        ),
       };
     }
 
@@ -850,5 +890,8 @@ export async function runAssistant(
     build_route: routeShopIds.length > 0,
     route_shop_ids: routeShopIds,
     route_summary: routeSummary,
+    shopping_answer: buildShoppingAnswerForResult(
+      allProducts, lastMessage.content, ctx.budget, routeSteps.length > 0
+    ),
   };
 }
