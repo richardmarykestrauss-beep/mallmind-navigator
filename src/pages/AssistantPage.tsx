@@ -1227,6 +1227,27 @@ const AssistantPage = () => {
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4 pb-6">
+        {/* Environment guardrail — premium shopping answers require the Google
+            backend. Without VITE_GOOGLE_BACKEND_URL the app silently falls back
+            to the legacy edge path, which cannot return shopping_answer, so the
+            Shopping Answer Card would look "broken". Fail loudly instead.
+            Only the variable NAME is shown — never its value. */}
+        {!isGoogleBackendConfigured() && (
+          <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 space-y-1.5">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0" />
+              <span className="text-[10px] uppercase tracking-wider text-amber-500 font-semibold">
+                Demo backend not connected
+              </span>
+            </div>
+            <p className="text-[11px] leading-relaxed text-amber-600">
+              Set <span className="font-mono font-semibold">VITE_GOOGLE_BACKEND_URL</span> to
+              enable trusted shopping answers and route tools. Without it, answers use a legacy
+              fallback and the premium Shopping Answer Card may not appear.
+            </p>
+          </div>
+        )}
+
         {/* Empty state */}
         {isEmpty && (
           <div className="flex flex-col items-center gap-5 pt-8 animate-fade-in">
