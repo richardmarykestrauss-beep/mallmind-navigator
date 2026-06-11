@@ -1241,24 +1241,43 @@ const AssistantPage = () => {
               <p className="text-sm text-muted-foreground mt-1 max-w-[260px] leading-relaxed">
                 Tell me what you're looking for and I'll find the best prices across all stores.
               </p>
+              <p className="text-[11px] text-primary/80 mt-2 max-w-[260px] mx-auto leading-relaxed">
+                I check trusted mall product data first — verified prices are labelled, and I'll
+                tell you honestly when a price still needs confirmation.
+              </p>
             </div>
             {!selectedMall && (
-              <Button variant="glass" size="sm" onClick={() => navigate("/malls")}>
-                <MapPin className="h-4 w-4" />
-                Choose a Mall First
-              </Button>
+              <div className="flex flex-col items-center gap-2">
+                <Button variant="glass" size="sm" onClick={() => navigate("/malls")}>
+                  <MapPin className="h-4 w-4" />
+                  Choose a Mall First
+                </Button>
+                <p className="text-[11px] text-muted-foreground max-w-[260px] text-center leading-relaxed">
+                  Demo tip: pick{" "}
+                  <span className="text-primary font-medium">Mall@Reds (Centurion)</span>{" "}
+                  — it has live verified prices to try.
+                </p>
+              </div>
             )}
             <div className="w-full">
               <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground px-1 mb-3">
                 Try asking
               </p>
+              {/* Featured demo query — the one-tap happy path */}
+              <button
+                onClick={() => sendMessage(STARTERS[0])}
+                className="w-full flex items-center justify-center gap-2 rounded-2xl bg-primary px-4 py-3 mb-3 text-sm font-semibold text-primary-foreground shadow-[0_0_20px_hsl(190_100%_50%/0.25)] hover:shadow-[0_0_28px_hsl(190_100%_50%/0.35)] transition-all active:scale-[0.98]"
+              >
+                <Sparkles className="h-4 w-4 shrink-0" />
+                {STARTERS[0]}
+              </button>
               {/* Horizontal scrolling chip row */}
               <div
                 className="overflow-x-auto -mx-4 px-4 pb-1"
                 style={{ scrollbarWidth: "none", msOverflowStyle: "none" } as React.CSSProperties}
               >
                 <div className="flex gap-2 w-max">
-                  {STARTERS.map((s) => (
+                  {STARTERS.slice(1).map((s) => (
                     <button
                       key={s}
                       onClick={() => sendMessage(s)}
@@ -1297,20 +1316,9 @@ const AssistantPage = () => {
                 <InlineThinkingState text={msg.loadingText} />
               ) : (
                 <>
-                  {msg.content && (
-                    <div className={cn(
-                      "rounded-2xl px-4 py-3",
-                      msg.role === "user"
-                        ? "rounded-br-sm bg-primary text-primary-foreground text-sm leading-relaxed"
-                        : "rounded-bl-sm border border-border bg-surface"
-                    )}>
-                      {msg.role === "user"
-                        ? msg.content
-                        : renderMarkdown(msg.content)
-                      }
-                    </div>
-                  )}
-
+                  {/* When a structured shopping answer exists it IS the answer —
+                      render the trusted card first and demote the free-text
+                      bubble to a small supporting aside below it. */}
                   {msg.shoppingAnswer && (
                     <ShoppingAnswerCard
                       answer={msg.shoppingAnswer}
@@ -1322,6 +1330,26 @@ const AssistantPage = () => {
                       onTakeMeTo={handleTakeMeTo}
                       isLoading={isLoading}
                     />
+                  )}
+
+                  {msg.content && (
+                    msg.role === "assistant" && msg.shoppingAnswer ? (
+                      <p className="text-[11px] text-muted-foreground/80 px-1 leading-relaxed max-w-[310px]">
+                        {msg.content}
+                      </p>
+                    ) : (
+                      <div className={cn(
+                        "rounded-2xl px-4 py-3",
+                        msg.role === "user"
+                          ? "rounded-br-sm bg-primary text-primary-foreground text-sm leading-relaxed"
+                          : "rounded-bl-sm border border-border bg-surface"
+                      )}>
+                        {msg.role === "user"
+                          ? msg.content
+                          : renderMarkdown(msg.content)
+                        }
+                      </div>
+                    )
                   )}
 
                   {msg.products && msg.products.length > 0 && (
