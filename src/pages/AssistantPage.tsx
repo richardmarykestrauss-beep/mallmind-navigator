@@ -64,7 +64,7 @@ function getLoadingText(userMessage: string): string {
 const FLOOR_ORDER: Record<string, number> = { B1: 0, G: 1, L1: 2, L2: 3, L3: 4, L4: 5 };
 
 const STARTERS = [
-  "Find me a TV under R5000",
+  "I need a TV under R4000",
   "Compare Nike sneakers",
   "What's the cheapest iPhone?",
   "I need headphones and a laptop bag",

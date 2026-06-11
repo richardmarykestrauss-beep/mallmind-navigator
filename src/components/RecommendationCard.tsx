@@ -150,6 +150,8 @@ export default function RecommendationCard({
 }: RecommendationCardProps) {
   const hasDiscount = p.is_on_special && p.original_price != null;
   const savings = hasDiscount ? Math.round(p.original_price! - p.price) : null;
+  const shopperSafeDataSource =
+    p.data_source && !/[|_]/.test(p.data_source) ? p.data_source : null;
 
   const { state: trustState, label: trustLabel } = resolveTrustState(p);
   const isHighTrust = trustState === "verified" || trustState === "live";
@@ -281,9 +283,9 @@ export default function RecommendationCard({
         )}
 
         {/* Verified source line */}
-        {isHighTrust && p.data_source && !compact && (
+        {isHighTrust && shopperSafeDataSource && !compact && (
           <p className="text-[10px] text-emerald-400/60">
-            Source: {p.data_source}
+            Source: {shopperSafeDataSource}
           </p>
         )}
 
