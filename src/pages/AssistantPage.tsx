@@ -1353,6 +1353,26 @@ const AssistantPage = () => {
                     />
                   )}
 
+                  {/* Route handoff hint — shown only when the card itself does
+                      not offer navigation AND a real route trigger exists below
+                      (the product-list "Take me to" button targets products[0]).
+                      Never claims route availability the UI cannot deliver. */}
+                  {msg.shoppingAnswer?.bestOption?.shopName &&
+                    msg.shoppingAnswer.nextAction.type !== "navigate" &&
+                    !msg.routeShopIds?.length &&
+                    msg.products?.[0]?.shop_name === msg.shoppingAnswer.bestOption.shopName && (
+                    <p className="flex items-start gap-1.5 text-[11px] text-primary/80 px-1 max-w-[310px] leading-relaxed">
+                      <Navigation className="h-3 w-3 shrink-0 mt-0.5" />
+                      <span>
+                        Want to go there? Tap{" "}
+                        <span className="font-semibold">
+                          Take me to {msg.shoppingAnswer.bestOption.shopName}
+                        </span>{" "}
+                        below, or ask &ldquo;Take me to {msg.shoppingAnswer.bestOption.shopName}.&rdquo;
+                      </span>
+                    </p>
+                  )}
+
                   {msg.content && (
                     msg.role === "assistant" && msg.shoppingAnswer ? (
                       <p className="text-[11px] text-muted-foreground/80 px-1 leading-relaxed max-w-[310px]">
