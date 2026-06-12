@@ -138,7 +138,8 @@ calls. Best calling window: weekday mid-morning.
 ## 12. Immediate next step
 
 1. Review this pack (product selection, shops, evidence plan).
-2. Capture evidence per §5 (the three phone calls, five website checks, one
-   PEP visit).
+2. Capture evidence per §5 — full operator procedure, call scripts and note
+   templates in the
+   [evidence work order](./mallreds-batch2-evidence-work-order.md) (22F).
 3. A later approved sprint runs the staging flow in §8 — **dry-run first,
    nothing applied without the §10 checklist passing**.
