@@ -168,7 +168,17 @@ console.log("[3] BROWSER-ONLY — cannot be verified from the CLI. Follow these 
   "Product list 'LIVE MALL PRICES' appears below as evidence.",
   "Route handoff hint appears when the card action is not 'navigate':",
   "  'Want to go there? Tap Take me to Game below, or ask \"Take me to Game.\"'",
-  "Tap 'Take me to Game' → route panel: 1 stop · ~1 min walk · Start Navigation.",
+  "Tap 'Take me to Game' → route panel: 'Route ready' · 1 stop · ~1 min walk ·",
+  "  'Preview route ready…' helper line · Start Navigation button.",
+  "Tap Start Navigation → the Navigate screen (/navigate) opens, also for",
+  "  anonymous sessions (21B fix).",
+  "Navigate screen honesty: 'Prototype route preview' badge, map chip says",
+  "  'Preview' (NOT 'GPS'), and below the map: 'Follow these steps on the mall",
+  "  map. Live indoor positioning is not active in this demo.'",
+  "Route steps/stops, map preview and stats bar still render; no fake GPS,",
+  "  blue-dot, tracking or live-positioning claims anywhere.",
+  "Deals path (21C): open /deals → tap 'Navigate There' on a Game deal →",
+  "  /navigate opens with the Game stop loaded and the same honesty copy.",
   "Scan the page: no internal status/source tokens anywhere.",
 ].forEach((s) => console.log(`  • ${s}`));
 console.log("");

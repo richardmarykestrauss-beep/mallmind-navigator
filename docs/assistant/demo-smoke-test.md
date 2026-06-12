@@ -37,6 +37,29 @@ quota available — see failure modes).
 | 12 | Tap **Take me to Game** (or type "Take me to Game") | Route panel: "1 stop · ~1 min walk", numbered steps (Main Entrance → walk toward Game → arrived), **Start Navigation** button |
 | 13 | Scan all visible text | NO internal tokens anywhere (see list below) |
 
+## 1b. Route preview honesty (Sprints 21A–21C)
+
+Assistant → Navigate handoff:
+
+| # | Step | Expected result |
+|---|------|-----------------|
+| 1 | Ask **"Take me to Game"** in `/assistant` | Route panel header reads **"Route ready"** with summary "1 stop · ~1 min walk" beside it (21A) |
+| 2 | Panel body | "AI-assisted prototype route" badge + helper line: *"Preview route ready. Start Navigation opens the indoor route view with these steps on the mall map."* (21A) |
+| 3 | Tap **Start Navigation** | The **Navigate screen opens** (`/navigate`) — this works for anonymous sessions too (21B bugfix; previously the button silently did nothing without a route_id) |
+| 4 | Navigate screen badge | **"Prototype route preview"** (fallback/stop-list mode) or "AI-Assisted Route" (real backend route) — never "Prototype Tracking" |
+| 5 | Map overlay chip | Says **"Preview"** — NOT "GPS" (21B) |
+| 6 | Below the map | *"Follow these steps on the mall map. Live indoor positioning is not active in this demo."* (21B) |
+| 7 | Route content | Steps/stops list, map preview canvas, stats bar (minutes/metres/done) all still render |
+| 8 | Scan the screen | NO fake GPS, tracking, blue-dot, or live-positioning claims anywhere |
+
+Deals → Navigate path (21C):
+
+| # | Step | Expected result |
+|---|------|-----------------|
+| 1 | Open `/deals` with Mall@Reds selected | Deal cards render (e.g. Hisense TV / JBL earbuds at Game) with **"Navigate There"** buttons |
+| 2 | Tap **"Navigate There"** on a Game deal | Opens `/navigate` with the Game stop loaded (21C fixed the broken `opening_hours` shop lookup that silently dumped this to search) |
+| 3 | Navigate screen | Same honesty copy as above ("Preview" chip, positioning disclaimer); stop shows Game · Unit Shop G01 |
+
 ## 2. Internal tokens that must never be visible
 
 `manual_fact_entry`, `csv_manual`, `needs_review`, `manually_verified`,
@@ -62,6 +85,7 @@ Shopper-safe labels only: "Verified option", "Verified price",
 - Visual dominance/order of the card vs the Gemini text
 - The featured chip, demo tip, env-guardrail panel rendering
 - The route panel UI and Start Navigation behaviour
+- The Navigate screen honesty copy and the Deals → Navigate There path
 - Anything requiring a click
 
-Those are browser steps 1–13 above.
+Those are browser sections 1 and 1b above.
