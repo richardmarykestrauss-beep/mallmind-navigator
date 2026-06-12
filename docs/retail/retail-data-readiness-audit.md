@@ -237,6 +237,9 @@ observation staging.
 - Accept: no scheduled job can write products; documented.
 
 **22D — Mall@Reds Catalogue Batch 2**
+*(Update: planned in Sprint 22E as a source/evidence pack — see
+[mallreds-batch2-source-pack.md](./mallreds-batch2-source-pack.md); staging
+runs in a later approved sprint after evidence capture.)*
 - Goal: stage + review + publish ~20–30 new evidence-backed observations
   (phone/website verification) through the existing CSV → review → publish
   loop; first real exercise of the pipeline at small scale.
