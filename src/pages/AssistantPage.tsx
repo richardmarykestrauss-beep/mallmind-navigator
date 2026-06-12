@@ -1548,11 +1548,14 @@ const AssistantPage = () => {
                         ? "border-primary/50 bg-primary/10"
                         : "border-primary/30 bg-primary/8"
                     )}>
-                      {/* Route header */}
+                      {/* Route header — clear handoff: title + summary side by side */}
                       <div className="space-y-2">
-                        <div className="flex items-center gap-2">
-                          <RouteIcon className="h-4 w-4 text-primary shrink-0" />
-                          <p className="text-xs font-semibold text-primary">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <RouteIcon className="h-4 w-4 text-primary shrink-0" />
+                            <p className="text-xs font-semibold text-primary">Route ready</p>
+                          </div>
+                          <p className="text-[10px] font-medium text-primary/80 shrink-0">
                             {msg.routeSummary || (msg.routeSteps?.length
                               ? `${msg.routeSteps.length} steps`
                               : `${msg.routeShopIds.length} stop${msg.routeShopIds.length !== 1 ? "s" : ""}`)}
@@ -1583,7 +1586,12 @@ const AssistantPage = () => {
                         </div>
                       )}
 
-                      {/* Start navigation CTA */}
+                      {/* Start navigation CTA — explain the handoff honestly:
+                          this opens the indoor route view; no live-GPS claim. */}
+                      <p className="text-[10px] text-muted-foreground leading-relaxed">
+                        Preview route ready. Start Navigation opens the indoor route view
+                        with these steps on the mall map.
+                      </p>
                       <Button
                         variant="neon"
                         size="sm"
