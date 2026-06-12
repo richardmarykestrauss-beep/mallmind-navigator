@@ -179,7 +179,10 @@ observation staging.
 1. **Demo freshness (URGENT)** — 7-day verification expiry means the tagged
    demo's "Verified price" degrades to "Verification expired" around
    **2026-06-16** unless `price_verified_at` is refreshed via a real
-   re-verification. No tooling currently exists for scheduled re-verification.
+   re-verification. **Update (22B):** an operator-gated re-verification
+   helper now exists (`scripts/retail/reverify-demo-prices.mjs`, see
+   `demo-price-reverification.md`) — a human still has to actually verify
+   and run it weekly.
 2. **Legacy scraper lane (CONFIRMED scheduled in-code)** — a nightly
    `scrape-prices.yml` workflow wired to `SUPABASE_SERVICE_KEY` exists. If
    the secret is set, it bypasses every 19C gate nightly. Check GitHub

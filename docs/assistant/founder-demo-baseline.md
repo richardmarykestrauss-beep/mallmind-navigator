@@ -76,6 +76,9 @@ Then walk the browser checklist — sections **1** and **1b** of
 [demo-smoke-test.md](./demo-smoke-test.md) — and manually test both
 **Assistant → Navigate** and **Deals → Navigate** paths.
 
+**Weekly:** re-verify the demo's verified prices (7-day trust expiry) — see
+[demo-price-reverification.md](../retail/demo-price-reverification.md).
+
 ## Next build lane
 
 **Retail data expansion / Mall Intelligence ingestion.** The demo and route
