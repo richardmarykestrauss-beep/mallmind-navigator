@@ -93,7 +93,10 @@ const Deals = () => {
 
       const { data: shops } = await supabase
         .from("shops")
-        .select("id, mall_id, name, floor, unit_number, category, opening_hours")
+        // shops has opening_time/closing_time — the non-existent opening_hours
+        // column made this query 400 and silently sent deal taps to search
+        // instead of the route view (same bug fixed in AssistantPage, 21B).
+        .select("id, mall_id, name, floor, unit_number, category, opening_time, closing_time")
         .eq("mall_id", mallRows[0].id)
         .ilike("name", `%${deal.shop_name.split(" ").slice(0, 2).join(" ")}%`)
         .limit(1);
