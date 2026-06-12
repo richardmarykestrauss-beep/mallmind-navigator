@@ -262,7 +262,7 @@ const NavigateScreen = () => {
           <div className="flex items-center gap-1.5">
             <div className="h-1.5 w-1.5 rounded-full bg-secondary animate-pulse" />
             <span className="text-[10px] font-bold tracking-widest text-secondary uppercase">
-              {hasRealRoute ? "AI-Assisted Route" : "Prototype Tracking"}
+              {hasRealRoute ? "AI-Assisted Route" : "Prototype route preview"}
             </span>
           </div>
 
@@ -276,9 +276,10 @@ const NavigateScreen = () => {
           className="relative rounded-2xl border border-primary/18 overflow-hidden"
           style={{ height: 252, background: "hsl(240 20% 4%)" }}
         >
+          {/* Honest badge — this is a route preview; no live GPS/blue-dot positioning */}
           <div className="absolute left-3 top-3 z-10 flex items-center gap-1 rounded-lg border border-border/50 bg-background/80 backdrop-blur-sm px-2 py-1">
             <Navigation className="h-3 w-3 text-primary" />
-            <span className="text-[9px] font-bold text-primary uppercase tracking-widest">GPS</span>
+            <span className="text-[9px] font-bold text-primary uppercase tracking-widest">Preview</span>
           </div>
 
           <div className="absolute right-3 top-3 z-10 flex flex-col gap-1 rounded-xl border border-border/50 bg-background/85 backdrop-blur-sm p-1">
@@ -307,6 +308,12 @@ const NavigateScreen = () => {
             mapModel={indoorMapModel}
           />
         </div>
+
+        {/* Demo honesty line — matches the 21A Assistant handoff copy */}
+        <p className="mt-2 px-0.5 text-[10px] text-muted-foreground leading-relaxed">
+          Follow these steps on the mall map. Live indoor positioning is not active
+          in this demo.
+        </p>
       </div>
 
       <div className="mx-4 mb-3 flex items-center justify-between rounded-xl border border-primary/12 bg-primary/5 px-4 py-2">

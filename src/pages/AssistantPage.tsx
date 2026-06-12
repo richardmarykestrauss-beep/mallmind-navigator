@@ -1051,10 +1051,13 @@ const AssistantPage = () => {
       return;
     }
 
-    // Fallback: load shops and sort by floor for stop-list mode
+    // Fallback: load shops and sort by floor for stop-list mode.
+    // NOTE: shops has opening_time/closing_time — selecting the non-existent
+    // opening_hours column made this query 400 and silently broke the
+    // Start Navigation button for anonymous (no route_id) sessions.
     const { data } = await supabase
       .from("shops")
-      .select("id, mall_id, name, floor, unit_number, category, opening_hours")
+      .select("id, mall_id, name, floor, unit_number, category, opening_time, closing_time")
       .in("id", shopIds);
 
     if (!data?.length) return;
@@ -1088,7 +1091,7 @@ const AssistantPage = () => {
   async function handleNavigateToShop(product: ProductResult) {
     const { data } = await supabase
       .from("shops")
-      .select("id, mall_id, name, floor, unit_number, category, opening_hours")
+      .select("id, mall_id, name, floor, unit_number, category, opening_time, closing_time")
       .eq("id", product.shop_id)
       .single();
 
