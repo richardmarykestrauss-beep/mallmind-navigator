@@ -1,5 +1,27 @@
 # MallMind Data Scripts
 
+> ## ⚠️ QUARANTINED — legacy code, do not run against live Supabase
+>
+> **This directory predates the 19C retail trust pipeline** (Sprint 22C
+> quarantine). Everything below this banner describes the OLD workflow and is
+> kept only as raw material for a future rebuild.
+>
+> - **Do not run these scrapers against production/dev Supabase with a
+>   service-role key.** They write directly to `products`/`shops`, bypassing
+>   `retail_data_sources` → `retail_source_snapshots` →
+>   `retail_import_batches` → `retail_price_observations` → admin review →
+>   the approved-only publisher.
+> - The scheduled GitHub Actions (`scrape-prices.yml`, `scrape-malls.yml`)
+>   were de-scheduled and gated in Sprint 22C. Do not re-add `schedule:`
+>   triggers.
+> - If the `SUPABASE_SERVICE_KEY` repository secret is still configured in
+>   GitHub, a human must inspect/remove it (Settings → Secrets).
+> - **Any future scraper rebuild must output observation rows** (snapshots +
+>   import batches + `retail_price_observations`), never direct product
+>   writes. See `docs/retail/retail-data-readiness-audit.md`.
+
+---
+
 Two ways to get data into MallMind — run once manually, then automate.
 
 ---

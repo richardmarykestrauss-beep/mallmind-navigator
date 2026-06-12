@@ -184,6 +184,10 @@ observation staging.
    `scrape-prices.yml` workflow wired to `SUPABASE_SERVICE_KEY` exists. If
    the secret is set, it bypasses every 19C gate nightly. Check GitHub
    Actions history; disable schedules pending quarantine (Sprint 22C).
+   **Update (22C): quarantined** — both workflows de-scheduled, renamed
+   `[QUARANTINED]`, gated behind a typed acknowledgement on manual dispatch,
+   and `scripts/scraper/README.md` now carries a do-not-run banner. The
+   repository secret itself still requires a human check in GitHub settings.
 3. **Stale `valid_to` unused** — observations carry `valid_to` but nothing
    appears to enforce/expire on it after publish [inferred; no code found
    reading valid_to post-publish].
