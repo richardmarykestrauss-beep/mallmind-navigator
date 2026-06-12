@@ -259,6 +259,9 @@ observation staging.
   report lists collisions; zero writes.
 
 **22G — Source Registry Expansion**
+*(Update: the registry design itself was delivered in Sprint 22D — see
+[source-registry-v1.md](./source-registry-v1.md); this sprint becomes the
+later application/expansion of that registry.)*
 - Goal: register 2–3 named, legally-clear sources (e.g. retailer public
   website checks, flyer photos) in `retail_data_sources` with correct
   `legal_status`/`base_trust`, documenting the evidence standard per type.
