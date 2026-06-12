@@ -82,3 +82,4 @@ Then walk the browser checklist — sections **1** and **1b** of
 polish are now stable enough to pause unless bugs appear; the highest-value
 next work is widening trusted retail data (more sources, more verified
 products, more malls) through the existing approval-gated pipeline.
+Readiness audit: [retail-data-readiness-audit.md](../retail/retail-data-readiness-audit.md).
