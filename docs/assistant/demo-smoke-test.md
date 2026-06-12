@@ -2,7 +2,8 @@
 
 Repeatable verification for the exact founder demo journey on `/assistant`.
 Sprint 20E. Companion script: `scripts/assistant/demo-smoke-check.mjs`
-(`npm run demo:smoke`).
+(`npm run demo:smoke`). Baseline snapshot:
+[founder-demo-baseline.md](./founder-demo-baseline.md).
 
 The CLI script verifies environment + backend response shape. The visual
 steps below must be checked in a real browser — the CLI cannot see rendering.
