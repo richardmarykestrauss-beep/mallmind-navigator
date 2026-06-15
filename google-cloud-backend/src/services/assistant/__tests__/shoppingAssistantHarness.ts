@@ -244,6 +244,58 @@ console.log("\nSA14 — backup option included when 2+ candidates");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+console.log("\nSA16 — verified product outranks cheaper demo for normal/budget search");
+{
+  const pool = () => [
+    candidate({ productId: "demo-cheap", productName: "Samsung 32\" HD Smart TV", price: 2999, trustState: null, dataQualityStatus: "demo", routeAvailable: false }),
+    candidate({ productId: "verified", productName: "Hisense 43\" FHD LED TV", price: 3499, trustState: "verified", isOnSpecial: true, discountPct: 13, routeAvailable: false }),
+  ];
+
+  const budgetAnswer = buildShoppingAnswer({ query: "I need a TV under R4000", candidates: pool() });
+  assertEqual(budgetAnswer.bestOption?.productId, "verified", "verified beats cheaper demo for budget search");
+  assertEqual(budgetAnswer.bestOption?.trustLabel, "Verified option", "best option is labelled 'Verified option'");
+  assertEqual(budgetAnswer.backupOption?.productId, "demo-cheap", "cheaper demo appears as backup");
+  assert(budgetAnswer.backupOption?.confidenceBand !== "high", "backup demo is not high-confidence");
+  assert(!containsInternalStatus([budgetAnswer.shopperMessage, ...budgetAnswer.warnings].join(" ")), "budget answer leaks no internal tokens");
+
+  const productAnswer = buildShoppingAnswer({ query: "show me a TV", candidates: pool() });
+  assertEqual(productAnswer.bestOption?.productId, "verified", "verified beats cheaper demo for product search");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+console.log("\nSA17 — cheapest intent: cheapest wins, with trust warning + verified alternative");
+{
+  const answer = buildShoppingAnswer({
+    query: "What is the cheapest TV under R4000?",
+    candidates: [
+      candidate({ productId: "demo-cheap", productName: "Samsung 32\" HD Smart TV", price: 2999, trustState: null, dataQualityStatus: "demo", routeAvailable: false }),
+      candidate({ productId: "verified", productName: "Hisense 43\" FHD LED TV", price: 3499, trustState: "verified", routeAvailable: false }),
+    ],
+  });
+  assertEqual(answer.intent, "cheapest_option", "intent is cheapest_option");
+  assertEqual(answer.bestOption?.productId, "demo-cheap", "cheapest wins for an explicit cheapest request");
+  assert(answer.bestOption?.trustLabel !== "Verified option", "cheapest winner is not mislabelled as Verified");
+  assert(answer.bestOption?.confidenceBand !== "high", "cheapest winner is clearly lower-confidence");
+  assertEqual(answer.backupOption?.productId, "verified", "verified option surfaced as the trade-off alternative");
+  assert(/verified price/i.test(answer.shopperMessage), "message communicates the verified alternative");
+  assert(answer.warnings.some((w) => /isn't confirmed|not confirmed/i.test(w)), "trust trade-off warning present");
+  assert(!containsInternalStatus([answer.shopperMessage, ...answer.warnings].join(" ")), "cheapest answer leaks no internal tokens");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+console.log("\nSA18 — affordability guard: over-budget verified is not shown as best for a budget query");
+{
+  const answer = buildShoppingAnswer({
+    query: "I need a TV under R4000",
+    candidates: [
+      candidate({ productId: "over", productName: "Sony 65\" OLED", price: 8000, trustState: "verified", routeAvailable: false }),
+      candidate({ productId: "afford", productName: "Hisense 43\" FHD LED TV", price: 3499, trustState: null, dataQualityStatus: "demo", routeAvailable: false }),
+    ],
+  });
+  assertEqual(answer.bestOption?.productId, "afford", "an affordable option outranks an over-budget verified one for a budget query");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 console.log("\nSA15 — engine purity: no Supabase/env/network/fs in core modules");
 {
   const coreDir = path.resolve(__dirname, "..");

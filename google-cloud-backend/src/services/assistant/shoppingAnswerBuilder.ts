@@ -99,6 +99,21 @@ export function buildShoppingAnswer(input: BuildAnswerInput): ShoppingAnswer {
   const backup = ranked[1] ?? null;
   const warnings: string[] = [];
 
+  const isCheapestIntent = intentResult.intent === "cheapest_option";
+
+  // A more-trusted affordable alternative to surface when the chosen best is
+  // not itself a verified option (used to communicate the cheapest trade-off
+  // honestly: cheapest known price vs verified price).
+  const trustedAlternative =
+    best && best.confidenceBand !== "high"
+      ? ranked.find(
+          (c) =>
+            c.confidenceBand === "high" &&
+            c.productId !== best.productId &&
+            (budget == null || typeof c.price !== "number" || c.price <= budget)
+        ) ?? null
+      : null;
+
   if (!best) {
     return {
       intent: intentResult.intent,
@@ -112,9 +127,16 @@ export function buildShoppingAnswer(input: BuildAnswerInput): ShoppingAnswer {
 
   const parts: string[] = [];
 
-  // Best option sentence
-  let bestSentence = `Best option: ${describeOption(best)}.`;
-  parts.push(bestSentence);
+  // Best option sentence — framing reflects trust and intent so a demo/sample
+  // pick is never presented as a confident "best option", and an explicit
+  // cheapest request is answered as the cheapest (with the trust caveat).
+  const lead =
+    best.confidenceBand === "high"
+      ? "Best option"
+      : isCheapestIntent
+        ? "Cheapest I found"
+        : "Closest match I found";
+  parts.push(`${lead}: ${describeOption(best)}.`);
 
   // Trust + budget fit
   const qualifiers: string[] = [trustSentence(best)];
@@ -148,27 +170,41 @@ export function buildShoppingAnswer(input: BuildAnswerInput): ShoppingAnswer {
     parts.push("I can show you the shop, but I don't have a route ready yet.");
   }
 
-  // Backup option
-  if (backup) {
-    const backupTrust =
-      backup.confidenceBand === "high"
-        ? "also a solid choice"
-        : "but the price may need confirmation";
-    parts.push(`Backup: ${describeOption(backup)} — ${backupTrust}.`);
+  // Backup / trade-off option. When the chosen best is not verified but a
+  // verified option exists (the cheapest-intent case), surface that verified
+  // option as the highlighted alternative — it is more useful to the shopper
+  // than the next-cheapest unconfirmed item.
+  const backupCandidate = trustedAlternative ?? backup;
+  if (backupCandidate) {
+    if (trustedAlternative) {
+      parts.push(
+        `If you'd prefer a verified price, ${describeOption(trustedAlternative)} — it is a verified option.`
+      );
+    } else {
+      const backupTrust =
+        backupCandidate.confidenceBand === "high"
+          ? "also a solid choice"
+          : "but the price may need confirmation";
+      parts.push(`Backup: ${describeOption(backupCandidate)} — ${backupTrust}.`);
+    }
   }
 
-  if (best.confidenceBand === "low") {
-    warnings.push("Best match is not confirmed yet — please check with the store before walking over.");
+  // Trust caveat — one concise line, not a pile-up.
+  if (trustedAlternative) {
+    warnings.push("Cheapest option isn't confirmed — a verified option is available.");
+  } else if (best.confidenceBand === "low") {
+    warnings.push("This match isn't confirmed yet — please check with the store before heading over.");
   }
-  if (backup && backup.confidenceBand === "low") {
-    warnings.push("Backup option is not confirmed yet.");
+  if (!trustedAlternative && backupCandidate?.confidenceBand === "low") {
+    warnings.push("Backup option isn't confirmed yet.");
   }
 
   return {
     intent: intentResult.intent,
     bestOption: toAnswerOption(best),
-    backupOption: backup ? toAnswerOption(backup) : null,
-    warnings: warnings.map(scrubInternalStatus),
+    backupOption: backupCandidate ? toAnswerOption(backupCandidate) : null,
+    // Cap warnings so the card stays clear and confident, not overwhelming.
+    warnings: warnings.slice(0, 3).map(scrubInternalStatus),
     nextAction: buildNextAction(best),
     shopperMessage: scrubInternalStatus(parts.join(" ")),
   };

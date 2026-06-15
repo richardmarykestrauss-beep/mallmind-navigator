@@ -10,15 +10,27 @@
  */
 
 import {
+  ConfidenceBand,
   RankContext,
   RankedCandidate,
   ShopperCandidate,
 } from "./assistantTypes";
 import { getShopperTrustInfo } from "./shopperTrustLabels";
 
-// Score weights. Trust dominates: a high-trust option outscores a low-trust
-// cheapest option (40 vs 15) unless several other signals stack against it.
+// Score weights used for the WITHIN-tier tiebreak (price, walking, special,
+// open, etc.). The cross-tier ordering itself is decided by TIER_RANK below,
+// not by these weights — see the sort at the end of rankCandidates.
 const TRUST_SCORE = { high: 40, medium: 15, low: 0 } as const;
+
+// Trust tier is the dominant ranking key for normal shopper queries: a
+// verified/trusted option always outranks a demo/sample option, never the
+// reverse. Only an explicit "cheapest" request overrides this (price-first).
+const TIER_RANK: Record<ConfidenceBand, number> = { high: 2, medium: 1, low: 0 };
+
+/** True when the option has no known price or its price is within budget. */
+function isAffordable(price: number | null | undefined, budget: number | null): boolean {
+  return budget == null || typeof price !== "number" || price <= budget;
+}
 const CHEAPEST_BONUS = 15;
 const NEAR_CHEAPEST_BONUS = 7;
 const WALKING_BONUS_CEILING = 12; // minutes; closer than this earns points
@@ -124,5 +136,32 @@ export function rankCandidates(
     };
   });
 
-  return ranked.sort((a, b) => b.rankScore - a.rankScore);
+  const priceFirst = intent === "cheapest_option";
+
+  return ranked.sort((a, b) => {
+    // 1. Affordable options always beat over-budget ones (every intent).
+    //    Keeps an over-budget verified TV from being shown as "best" for a
+    //    budget query.
+    const aAff = isAffordable(a.price, budget) ? 1 : 0;
+    const bAff = isAffordable(b.price, budget) ? 1 : 0;
+    if (aAff !== bAff) return bAff - aAff;
+
+    if (priceFirst) {
+      // Explicit "cheapest" request: the lowest known price wins outright.
+      // Trust is only a tiebreaker here; the trust trade-off is surfaced as a
+      // label + warning by the answer builder, never by hiding the cheapest.
+      const ap = typeof a.price === "number" ? a.price : Infinity;
+      const bp = typeof b.price === "number" ? b.price : Infinity;
+      if (ap !== bp) return ap - bp;
+      return b.rankScore - a.rankScore;
+    }
+
+    // 2. Trust tier dominates for normal queries (product/budget/value/etc.):
+    //    any verified option outranks any demo/sample option. Within the same
+    //    tier, the nuanced score (price, walking, special, open) decides.
+    const at = TIER_RANK[a.confidenceBand];
+    const bt = TIER_RANK[b.confidenceBand];
+    if (at !== bt) return bt - at;
+    return b.rankScore - a.rankScore;
+  });
 }
