@@ -36,6 +36,10 @@ const { rankCandidates } =
 const { buildShoppingAnswer } =
   require("../shoppingAnswerBuilder") as typeof import("../shoppingAnswerBuilder");
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { extractProductTarget, normalizeAssistantSearchQuery } =
+  require("../productTargetExtractor") as typeof import("../productTargetExtractor");
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 let passed = 0;
@@ -293,6 +297,38 @@ console.log("\nSA18 — affordability guard: over-budget verified is not shown a
     ],
   });
   assertEqual(answer.bestOption?.productId, "afford", "an affordable option outranks an over-budget verified one for a budget query");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+console.log("\nSA19 — product-target extraction separates intent words from the product");
+{
+  assertEqual(extractProductTarget("What is the cheapest TV under R4000?"), "tv", "cheapest TV question → 'tv'");
+  assertEqual(extractProductTarget("Show me the cheapest TV"), "tv", "'show me the cheapest TV' → 'tv'");
+  assertEqual(extractProductTarget("Which TV is cheapest?"), "tv", "'which TV is cheapest' → 'tv'");
+  assertEqual(extractProductTarget("Best TV under R4000"), "tv", "'best TV under R4000' → 'tv'");
+  assertEqual(extractProductTarget("Lowest price TV"), "tv", "'lowest price TV' → 'tv'");
+  assertEqual(extractProductTarget("TV under R4000"), "tv", "'TV under R4000' → 'tv'");
+  assertEqual(extractProductTarget("I need a TV under R4000"), "tv", "'I need a TV under R4000' → 'tv'");
+  assertEqual(extractProductTarget("cheapest Samsung TV"), "samsung tv", "brand is preserved as part of the target");
+  assertEqual(extractProductTarget("cheapest"), "", "intent-only phrase → empty target");
+  assertEqual(extractProductTarget("show me the lowest price"), "", "no product noun → empty target");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+console.log("\nSA20 — search-query normalization recovers the product when the model drops it");
+{
+  // Model passed an intent-only query; the user message still has the noun.
+  assertEqual(
+    normalizeAssistantSearchQuery("cheapest", "What is the cheapest TV under R4000?"),
+    "tv",
+    "model query 'cheapest' falls back to 'tv' from the user message",
+  );
+  // Model passed a clean query.
+  assertEqual(normalizeAssistantSearchQuery("TV", "What is the cheapest TV under R4000?"), "tv", "clean model query 'TV' → 'tv'");
+  assertEqual(normalizeAssistantSearchQuery("cheapest TV under R4000", "x"), "tv", "polluted model query → 'tv'");
+  // Neither has a product noun → never empty (no worse than before).
+  assertEqual(normalizeAssistantSearchQuery("cheapest", "cheapest"), "cheapest", "no product noun anywhere → returns the model query unchanged");
+  assertEqual(normalizeAssistantSearchQuery("", "I need a TV under R4000"), "tv", "empty model query → 'tv' from user message");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

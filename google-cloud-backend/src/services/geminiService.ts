@@ -3,7 +3,7 @@ import { recommendProducts } from "./productService.js";
 import { buildRoute, buildRouteNoSession } from "./routingService.js";
 import { getSupabaseClient } from "../lib/supabase.js";
 import type { ScoredProduct, RouteStep } from "../lib/types.js";
-import { buildShoppingAnswer } from "./assistant/index.js";
+import { buildShoppingAnswer, normalizeAssistantSearchQuery } from "./assistant/index.js";
 import type { ShopperCandidate, ShoppingAnswer } from "./assistant/index.js";
 
 // ── Route intent detection ────────────────────────────────────────────────────
@@ -778,16 +778,22 @@ export async function runAssistant(
         if (fn.name === "recommend_products") {
           const args = fn.args as { query: string; budget?: number; category?: string };
           if (ctx.mall_id) {
+            // Normalise the search query to the product target. Superlative /
+            // question phrasing ("What is the cheapest TV?") sometimes makes
+            // the model pass an intent-only query ("cheapest") with no product
+            // noun, which retrieves nothing. Falls back to the shopper's own
+            // message so the product target is never lost.
+            const searchQuery = normalizeAssistantSearchQuery(args.query, lastMessage.content);
             const found = await recommendProducts({
               mall_id: ctx.mall_id,
-              query: args.query,
+              query: searchQuery,
               budget: args.budget ?? ctx.budget ?? null,
               category: args.category ?? null,
             });
             allProducts.push(...found);
             toolResult = found.length
               ? JSON.stringify({ found: true, count: found.length, results: found })
-              : JSON.stringify({ found: false, message: `No products found for "${args.query}" at this mall.` });
+              : JSON.stringify({ found: false, message: `No products found for "${searchQuery}" at this mall.` });
           } else {
             toolResult = JSON.stringify({ found: false, message: "No mall selected. Ask the user to select a mall." });
           }
