@@ -118,8 +118,11 @@ function ShoppingAnswerCard({
 }) {
   const best = answer.bestOption;
   const backup = answer.backupOption;
-  const canNavigate =
-    answer.nextAction.type === "navigate" && !!best?.shopName && !!matchingProduct;
+  // A route can be built whenever the best option maps to a real shop product
+  // in this message — independent of the structured action type. This makes
+  // the card's primary button a working "Take me there" for product answers,
+  // not just when the backend already pre-built a route.
+  const canRoute = !!best?.shopName && !!matchingProduct;
 
   return (
     <div className="rounded-xl border border-primary/20 bg-primary/5 p-3 space-y-2 w-full max-w-[310px]">
@@ -189,22 +192,26 @@ function ShoppingAnswerCard({
         </div>
       )}
 
-      {canNavigate && matchingProduct ? (
+      {canRoute && matchingProduct ? (
+        // Working route action — sends the clean "Take me to {shop}" request,
+        // which the backend routes deterministically (shopping_answer stays
+        // null for the route response). Reuses the existing send flow.
         <button
-          onClick={() =>
-            onTakeMeTo(
-              matchingProduct,
-              `Take me to ${matchingProduct.shop_name} for the ${matchingProduct.name}`
-            )
-          }
+          onClick={() => onTakeMeTo(matchingProduct, `Take me to ${best!.shopName}`)}
           disabled={isLoading}
           className="w-full flex items-center justify-center gap-1.5 rounded-xl bg-primary px-3 py-2.5 text-xs font-semibold text-primary-foreground transition-opacity disabled:opacity-50"
         >
           {isLoading
             ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Building route…</>
-            : <><Navigation className="h-3.5 w-3.5" /> {answer.nextAction.label}</>
+            : <><Navigation className="h-3.5 w-3.5" /> Take me to {best!.shopName}</>
           }
         </button>
+      ) : best?.shopName ? (
+        // Shop known but not routable from this answer — honest fallback, no
+        // fake route button.
+        <div className="w-full rounded-xl border border-border bg-surface px-3 py-2.5 text-[11px] text-muted-foreground text-center leading-snug">
+          I can show you {best.shopName}, but I don&rsquo;t have a route ready yet.
+        </div>
       ) : (
         <div className="w-full flex items-center justify-center gap-1.5 rounded-xl border border-border bg-surface px-3 py-2.5 text-xs font-semibold text-muted-foreground">
           <ChevronRight className="h-3.5 w-3.5" /> {answer.nextAction.label}
@@ -1356,25 +1363,9 @@ const AssistantPage = () => {
                     />
                   )}
 
-                  {/* Route handoff hint — shown only when the card itself does
-                      not offer navigation AND a real route trigger exists below
-                      (the product-list "Take me to" button targets products[0]).
-                      Never claims route availability the UI cannot deliver. */}
-                  {msg.shoppingAnswer?.bestOption?.shopName &&
-                    msg.shoppingAnswer.nextAction.type !== "navigate" &&
-                    !msg.routeShopIds?.length &&
-                    msg.products?.[0]?.shop_name === msg.shoppingAnswer.bestOption.shopName && (
-                    <p className="flex items-start gap-1.5 text-[11px] text-primary/80 px-1 max-w-[310px] leading-relaxed">
-                      <Navigation className="h-3 w-3 shrink-0 mt-0.5" />
-                      <span>
-                        Want to go there? Tap{" "}
-                        <span className="font-semibold">
-                          Take me to {msg.shoppingAnswer.bestOption.shopName}
-                        </span>{" "}
-                        below, or ask &ldquo;Take me to {msg.shoppingAnswer.bestOption.shopName}.&rdquo;
-                      </span>
-                    </p>
-                  )}
+                  {/* (Sprint 20A.4) The route hint that pointed to the product
+                      list is now redundant: the Shopping Answer Card carries a
+                      working "Take me to {shop}" button directly. */}
 
                   {msg.content && (
                     msg.role === "assistant" && msg.shoppingAnswer ? (
