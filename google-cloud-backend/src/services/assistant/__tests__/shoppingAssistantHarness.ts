@@ -33,7 +33,7 @@ const { rankCandidates } =
   require("../productRecommendationRanker") as typeof import("../productRecommendationRanker");
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { buildShoppingAnswer } =
+const { buildShoppingAnswer, alignAssistantMessage } =
   require("../shoppingAnswerBuilder") as typeof import("../shoppingAnswerBuilder");
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -329,6 +329,34 @@ console.log("\nSA20 — search-query normalization recovers the product when the
   // Neither has a product noun → never empty (no worse than before).
   assertEqual(normalizeAssistantSearchQuery("cheapest", "cheapest"), "cheapest", "no product noun anywhere → returns the model query unchanged");
   assertEqual(normalizeAssistantSearchQuery("", "I need a TV under R4000"), "tv", "empty model query → 'tv' from user message");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+console.log("\nSA21 — free-text message aligns with shopping_answer (no bubble/card contradiction)");
+{
+  const answer = buildShoppingAnswer({
+    query: "What is the cheapest TV under R4000?",
+    candidates: [
+      candidate({ productId: "samsung", productName: "Samsung 32\" HD Smart TV", price: 2999, trustState: null, dataQualityStatus: "demo", routeAvailable: false }),
+      candidate({ productId: "hisense", productName: "Hisense 43\" FHD LED TV", price: 3499, trustState: "verified", routeAvailable: false }),
+    ],
+  });
+  // A contradicting legacy/model message (Gemini "best bet is Hisense...").
+  const legacy = "Okay, the best bet for a TV under R4000 is the Hisense 43\" FHD LED TV at Game.";
+
+  const aligned = alignAssistantMessage(legacy, answer, false);
+  assertEqual(aligned, answer.shopperMessage, "with a shopping_answer and no route, message becomes the shopperMessage");
+  assert(aligned !== legacy, "contradicting legacy message is not used");
+  assert(/cheapest/i.test(aligned), "aligned message reflects the cheapest framing");
+  assert(/verified/i.test(aligned), "aligned message still surfaces the verified alternative");
+  assert(!containsInternalStatus(aligned), "aligned message leaks no internal tokens");
+
+  // A built route keeps its own confirmation message — never overwritten.
+  const routeMsg = "Route to Game is ready. Follow the steps on screen.";
+  assertEqual(alignAssistantMessage(routeMsg, answer, true), routeMsg, "a built route keeps its route message");
+
+  // No structured answer → legacy message is used as fallback.
+  assertEqual(alignAssistantMessage(legacy, null, false), legacy, "no shopping_answer → legacy message is the fallback");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

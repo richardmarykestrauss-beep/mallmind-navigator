@@ -209,3 +209,21 @@ export function buildShoppingAnswer(input: BuildAnswerInput): ShoppingAnswer {
     shopperMessage: scrubInternalStatus(parts.join(" ")),
   };
 }
+
+/**
+ * Reconcile the assistant's free-text message with the structured answer.
+ *
+ * `shopping_answer` is the source of truth for the shopper recommendation, so
+ * when it exists the free-text bubble must say the same thing as the card —
+ * never contradict it. The legacy/model message is used only as a fallback
+ * (no structured answer), and a built route always keeps its own route
+ * confirmation message (the shopper's immediate intent is navigation).
+ */
+export function alignAssistantMessage(
+  legacyMessage: string,
+  shoppingAnswer: ShoppingAnswer | null,
+  routeBuilt: boolean
+): string {
+  if (shoppingAnswer && !routeBuilt) return shoppingAnswer.shopperMessage;
+  return legacyMessage;
+}

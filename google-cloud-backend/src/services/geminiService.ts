@@ -3,7 +3,7 @@ import { recommendProducts } from "./productService.js";
 import { buildRoute, buildRouteNoSession } from "./routingService.js";
 import { getSupabaseClient } from "../lib/supabase.js";
 import type { ScoredProduct, RouteStep } from "../lib/types.js";
-import { buildShoppingAnswer, normalizeAssistantSearchQuery } from "./assistant/index.js";
+import { buildShoppingAnswer, normalizeAssistantSearchQuery, alignAssistantMessage } from "./assistant/index.js";
 import type { ShopperCandidate, ShoppingAnswer } from "./assistant/index.js";
 
 // ── Route intent detection ────────────────────────────────────────────────────
@@ -754,6 +754,14 @@ export async function runAssistant(
         message = buildRouteConfirmationMessage(allProducts, routeSummary);
       }
 
+      // shopping_answer is the source of truth for the shopper recommendation;
+      // align the free-text message to it so the bubble never contradicts the
+      // card. (A built route keeps its own route confirmation message.)
+      const shoppingAnswer = buildShoppingAnswerForResult(
+        allProducts, lastMessage.content, ctx.budget, routeSteps.length > 0
+      );
+      message = alignAssistantMessage(message, shoppingAnswer, routeShopIds.length > 0);
+
       return {
         message,
         products: allProducts,
@@ -762,9 +770,7 @@ export async function runAssistant(
         build_route: routeShopIds.length > 0,
         route_shop_ids: routeShopIds,
         route_summary: routeSummary,
-        shopping_answer: buildShoppingAnswerForResult(
-          allProducts, lastMessage.content, ctx.budget, routeSteps.length > 0
-        ),
+        shopping_answer: shoppingAnswer,
       };
     }
 
@@ -888,16 +894,18 @@ export async function runAssistant(
     ? buildProductFallbackMessage(allProducts, ctx.budget)
     : "I ran into an issue processing your request. Please try again.";
 
+  const exhaustedAnswer = buildShoppingAnswerForResult(
+    allProducts, lastMessage.content, ctx.budget, routeSteps.length > 0
+  );
+
   return {
-    message: exhaustedMessage,
+    message: alignAssistantMessage(exhaustedMessage, exhaustedAnswer, routeShopIds.length > 0),
     products: allProducts,
     route_steps: routeSteps,
     route_id: routeId,
     build_route: routeShopIds.length > 0,
     route_shop_ids: routeShopIds,
     route_summary: routeSummary,
-    shopping_answer: buildShoppingAnswerForResult(
-      allProducts, lastMessage.content, ctx.budget, routeSteps.length > 0
-    ),
+    shopping_answer: exhaustedAnswer,
   };
 }
