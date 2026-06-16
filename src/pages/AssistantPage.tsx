@@ -943,12 +943,13 @@ const AssistantPage = () => {
           metadata: { budget },
         });
       }
-    } catch {
+    } catch (error) {
+      console.error("[AssistantPage] sendMessage failed", error);
       setMessages((prev) =>
         prev.filter((m) => !m.loading).concat({
           id: crypto.randomUUID(),
           role: "assistant",
-          content: "Something went wrong. Please check your connection and try again.",
+          content: "Something went wrong while contacting MallMind. Please try again.",
         })
       );
     } finally {
