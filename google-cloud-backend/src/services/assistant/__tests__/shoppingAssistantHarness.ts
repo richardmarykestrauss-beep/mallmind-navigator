@@ -40,6 +40,10 @@ const { buildShoppingAnswer, alignAssistantMessage } =
 const { extractProductTarget, normalizeAssistantSearchQuery } =
   require("../productTargetExtractor") as typeof import("../productTargetExtractor");
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { extractDirectRouteDestination } =
+  require("../routeIntentExtractor") as typeof import("../routeIntentExtractor");
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 let passed = 0;
@@ -357,6 +361,32 @@ console.log("\nSA21 — free-text message aligns with shopping_answer (no bubble
 
   // No structured answer → legacy message is used as fallback.
   assertEqual(alignAssistantMessage(legacy, null, false), legacy, "no shopping_answer → legacy message is the fallback");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+console.log("\nSA22 — direct route intent: explicit navigation commands extract a shop destination");
+{
+  // Direct navigation commands → destination candidate (these must bypass Gemini).
+  assertEqual(extractDirectRouteDestination("Take me to Game"), "Game", "'Take me to Game' → 'Game'");
+  assertEqual(extractDirectRouteDestination("Where is Game?"), "Game", "'Where is Game?' → 'Game'");
+  assertEqual(extractDirectRouteDestination("where's Clicks"), "Clicks", "\"where's Clicks\" → 'Clicks'");
+  assertEqual(extractDirectRouteDestination("Directions to Clicks"), "Clicks", "'Directions to Clicks' → 'Clicks'");
+  assertEqual(extractDirectRouteDestination("Navigate to Dis-Chem"), "Dis-Chem", "'Navigate to Dis-Chem' → 'Dis-Chem' (hyphen kept)");
+  assertEqual(extractDirectRouteDestination("Show me the way to Woolworths"), "Woolworths", "'Show me the way to Woolworths' → 'Woolworths'");
+  assertEqual(extractDirectRouteDestination("Route to Game"), "Game", "'Route to Game' → 'Game'");
+  assertEqual(extractDirectRouteDestination("How do I get to Clicks?"), "Clicks", "'How do I get to Clicks?' → 'Clicks'");
+  assertEqual(extractDirectRouteDestination("Take me to Imaginary Shop"), "Imaginary Shop", "non-existent shop still extracts a candidate (caller's lookup decides)");
+
+  // Vague / product-dependent → null (these must stay on the AI/product flow).
+  assertEqual(extractDirectRouteDestination("Take me to the cheapest TV"), null, "'Take me to the cheapest TV' → null");
+  assertEqual(extractDirectRouteDestination("Take me to the shop with TVs"), null, "'Take me to the shop with TVs' → null");
+  assertEqual(extractDirectRouteDestination("Where can I buy a TV?"), null, "'Where can I buy a TV?' → null");
+  assertEqual(extractDirectRouteDestination("Find me the cheapest phone"), null, "'Find me the cheapest phone' → null");
+  assertEqual(extractDirectRouteDestination("Find me something for my dad"), null, "'Find me something for my dad' → null");
+  assertEqual(extractDirectRouteDestination("I need a TV under R4000"), null, "'I need a TV under R4000' → null (product query)");
+  assertEqual(extractDirectRouteDestination("What is the cheapest TV under R4000?"), null, "cheapest TV question → null (product query)");
+  assertEqual(extractDirectRouteDestination("I need shoes under R500"), null, "'I need shoes under R500' → null");
+  assertEqual(extractDirectRouteDestination(""), null, "empty → null");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -3,7 +3,7 @@ import { recommendProducts } from "./productService.js";
 import { buildRoute, buildRouteNoSession } from "./routingService.js";
 import { getSupabaseClient } from "../lib/supabase.js";
 import type { ScoredProduct, RouteStep } from "../lib/types.js";
-import { buildShoppingAnswer, normalizeAssistantSearchQuery, alignAssistantMessage } from "./assistant/index.js";
+import { buildShoppingAnswer, normalizeAssistantSearchQuery, alignAssistantMessage, extractDirectRouteDestination } from "./assistant/index.js";
 import type { ShopperCandidate, ShoppingAnswer } from "./assistant/index.js";
 
 // ── Route intent detection ────────────────────────────────────────────────────
@@ -23,28 +23,9 @@ function detectRouteIntent(message: string): boolean {
   return ROUTE_INTENT_PATTERNS.some((p) => p.test(message));
 }
 
-function extractRouteDestination(message: string): string | null {
-  const patterns = [
-    /\btake me to\s+(.+)$/i,
-    /\bdirections?\s+to\s+(.+)$/i,
-    /\broute\s+to\s+(.+)$/i,
-    /\bnavigate\s+to\s+(.+)$/i,
-    /\bshow me the way to\s+(.+)$/i,
-    /\bhow do i get to\s+(.+)$/i,
-  ];
-
-  for (const p of patterns) {
-    const match = message.match(p);
-    if (match?.[1]) {
-      return match[1]
-        .replace(/[?.!]+$/g, "")
-        .replace(/^the\s+/i, "")
-        .trim();
-    }
-  }
-
-  return null;
-}
+// Destination extraction now lives in the pure, tested assistant engine
+// (extractDirectRouteDestination) so it covers more phrasings ("where is …",
+// "find …") and rejects vague/product-dependent requests.
 
 async function findRouteShopsByName(mallId: string, destinationName: string) {
   const supabase = getSupabaseClient();
@@ -602,45 +583,59 @@ export async function runAssistant(
   // we still return build_route=true with correct shop IDs.
   const routeIntentDetected = intent === "route_request";
 
-  // Deterministic store-name routing for malls that may not have product inventory.
-  // Example: "Take me to 69 Belmont" should build a route to the shop directly,
-  // not first search products and fail because inventory is missing.
-  if (routeIntentDetected && ctx.mall_id) {
-    const destinationName = extractRouteDestination(lastMessage.content);
-    if (destinationName) {
-      const routeShops = await findRouteShopsByName(ctx.mall_id, destinationName);
+  // ── Deterministic route bypass (no Gemini) ──────────────────────────────────
+  // Explicit navigation commands to a named shop ("Take me to Game", "Where is
+  // Game?", "Directions to Clicks") are mall operations, not AI operations.
+  // Resolve them here, BEFORE Gemini, so direct navigation keeps working even
+  // when Gemini quota is exhausted. Vague / product-dependent requests return a
+  // null destination and fall through to the normal AI flow.
+  const directRouteDestination =
+    ctx.mall_id && lastMessage.role === "user"
+      ? extractDirectRouteDestination(lastMessage.content)
+      : null;
 
-      if (routeShops.length > 0) {
-        routeShopIds = routeShops.map((s) => String(s.id));
+  if (directRouteDestination && ctx.mall_id) {
+    const routeShops = await findRouteShopsByName(ctx.mall_id, directRouteDestination);
 
-        try {
-          if (ctx.session_id) {
-            const r = await buildRoute(ctx.session_id, routeShopIds, ctx.user_id ?? null);
-            routeSteps = r.steps;
-            routeId = r.route_id;
-            routeSummary = `${r.stop_count} stop${r.stop_count !== 1 ? "s" : ""} · ~${r.estimated_minutes} min walk`;
-          } else {
-            const r = await buildRouteNoSession(ctx.mall_id, routeShopIds);
-            routeSteps = r.steps;
-            routeId = null;
-            routeSummary = `${r.stop_count} stop${r.stop_count !== 1 ? "s" : ""} · ~${r.estimated_minutes} min walk`;
-          }
+    // One confident match only: prefer an exact normalized name match; accept a
+    // single fuzzy match; never guess between multiple ambiguous matches (those
+    // fall through to Gemini). Never hallucinate a shop.
+    const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+    const exact = routeShops.filter((s) => norm(s.name) === norm(directRouteDestination));
+    const chosen =
+      exact.length === 1 ? exact[0] : routeShops.length === 1 ? routeShops[0] : null;
 
-          if (routeSteps.length > 0) {
-            return {
-              message: buildStoreRouteMessage(destinationName, routeShops, routeSummary),
-              products: [],
-              route_steps: routeSteps,
-              route_id: routeId,
-              build_route: true,
-              route_shop_ids: routeShopIds,
-              route_summary: routeSummary,
-              shopping_answer: null,
-            };
-          }
-        } catch (err) {
-          console.error("[assistant] deterministic store-name route failed:", err);
+    if (chosen) {
+      routeShopIds = [String(chosen.id)];
+
+      try {
+        if (ctx.session_id) {
+          const r = await buildRoute(ctx.session_id, routeShopIds, ctx.user_id ?? null);
+          routeSteps = r.steps;
+          routeId = r.route_id;
+          routeSummary = `${r.stop_count} stop${r.stop_count !== 1 ? "s" : ""} · ~${r.estimated_minutes} min walk`;
+        } else {
+          const r = await buildRouteNoSession(ctx.mall_id, routeShopIds);
+          routeSteps = r.steps;
+          routeId = null;
+          routeSummary = `${r.stop_count} stop${r.stop_count !== 1 ? "s" : ""} · ~${r.estimated_minutes} min walk`;
         }
+
+        if (routeSteps.length > 0) {
+          // Skips Gemini entirely — direct route is quota-independent.
+          return {
+            message: buildStoreRouteMessage(directRouteDestination, [chosen], routeSummary),
+            products: [],
+            route_steps: routeSteps,
+            route_id: routeId,
+            build_route: true,
+            route_shop_ids: routeShopIds,
+            route_summary: routeSummary,
+            shopping_answer: null,
+          };
+        }
+      } catch (err) {
+        console.error("[assistant] deterministic store-name route failed:", err);
       }
     }
   }

@@ -7,6 +7,7 @@
 
 export * from "./assistantTypes";
 export * from "./productTargetExtractor";
+export * from "./routeIntentExtractor";
 export * from "./shoppingIntentClassifier";
 export * from "./shopperTrustLabels";
 export * from "./productRecommendationRanker";
