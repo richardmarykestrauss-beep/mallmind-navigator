@@ -88,3 +88,21 @@ export function assembleDeterministicShoppingAnswer<T extends MappableProductRow
     message: shopping_answer.shopperMessage,
   };
 }
+
+/**
+ * Honest no-result message for a STRICT "verified only" request when no verified
+ * candidate exists (20A.6D.1). We must not widen to medium/low-trust matches —
+ * that breaks "only" — nor claim none exist or anything is out of stock. We say
+ * we have no verified option and offer less-confirmed matches without ever
+ * labelling them verified.
+ *
+ * Pure. `productTarget` is used as-is (no pluralisation gymnastics); a blank
+ * target degrades to a neutral "product".
+ */
+export function buildVerifiedOnlyNoResultMessage(productTarget: string): string {
+  const target = String(productTarget ?? "").trim() || "product";
+  return (
+    `I couldn't find a verified ${target} option in this mall right now. ` +
+    `I can show less-confirmed ${target} matches if you want, but I won't label them as verified.`
+  );
+}

@@ -53,7 +53,7 @@ const { filterDeterministicCandidates } =
   require("../deterministicProductFilter") as typeof import("../deterministicProductFilter");
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { assembleDeterministicShoppingAnswer } =
+const { assembleDeterministicShoppingAnswer, buildVerifiedOnlyNoResultMessage } =
   require("../deterministicShoppingAnswer") as typeof import("../deterministicShoppingAnswer");
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -715,6 +715,94 @@ console.log("\nSA26 — deterministic shopping bypass wiring contract (20A.6D, p
     assertEqual(b.bypass, false, `'${phrase}' → not a deterministic shopping bypass (→ Gemini)`);
     assertEqual(b.reason, "no-intent", `'${phrase}' → vague/mission excluded`);
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+console.log("\nSA27 — verified-only no-candidate guard prevents fallback widening (20A.6D.1, pure)");
+{
+  const sp = (over: Record<string, unknown> = {}): any => ({
+    product_id: "p", shop_id: "s1", name: 'Generic 40" TV', brand: null,
+    shop_name: "Game", floor: "1", unit_number: "L1-10",
+    price: 3499, original_price: null, is_on_special: false, discount_pct: null,
+    is_open_now: true, is_cheapest: false, score: 10, reason: "",
+    price_verified_at: null, data_quality_status: "demo",
+    price_verification_method: null, data_source: null, verified_by: null,
+    trust_state: null, ...over,
+  });
+  const hisense = sp({ product_id: "hisense", name: 'Hisense 43" FHD LED TV', price: 3499, trust_state: "verified", data_quality_status: "manually_verified" });
+  const samsung = sp({ product_id: "samsung", name: 'Samsung 32" HD Smart TV', shop_name: "Incredible", price: 2999, trust_state: "sample", data_quality_status: "demo" });
+
+  // Mirrors the geminiService preflight EXACTLY, INCLUDING 20A.6D.1's guard:
+  // extract intent → retrieval filter (6B) → assemble → if no answer AND the
+  // request was strict verified_only, return a deterministic no-result (NOT
+  // Gemini); any other no-result falls through to Gemini.
+  const decide = (text: string, rawCandidates: any[]): any => {
+    const intent = extractDeterministicShoppingIntent(text);
+    if (!intent) return { action: "gemini", reason: "no-intent", result: null };
+    const candidates = filterDeterministicCandidates(rawCandidates, intent); // 6B retrieval filter
+    const a = assembleDeterministicShoppingAnswer(candidates, intent);
+    if (a.shopping_answer) {
+      return { action: "deterministic", reason: "answered", result: { build_route: false, products: a.products, shopping_answer: a.shopping_answer } };
+    }
+    if (intent.trustPreference === "verified_only") {
+      return {
+        action: "deterministic-no-result",
+        reason: "verified-only-guard",
+        result: {
+          message: buildVerifiedOnlyNoResultMessage(intent.productTarget),
+          products: [], route_steps: [], route_id: null, build_route: false,
+          route_shop_ids: [], route_summary: "", shopping_answer: null,
+        },
+      };
+    }
+    return { action: "gemini", reason: "no-candidates", result: null };
+  };
+
+  // intent carries the verified_only preference.
+  assertEqual(extractDeterministicShoppingIntent("Show me verified TVs only")?.trustPreference, "verified_only",
+    "'Show me verified TVs only' → trustPreference verified_only");
+
+  // verified_only with only a low-trust TV → retrieval drops it → guard fires,
+  // Gemini is skipped, and NO medium/low product is returned.
+  {
+    const d = decide("Show me verified TVs only", [samsung]);
+    assertEqual(d.action, "deterministic-no-result", "verified_only + only demo TV → deterministic no-result (no Gemini)");
+    assertEqual(d.result.products.length, 0, "guard returns zero products");
+    assertEqual(d.result.shopping_answer, null, "guard returns shopping_answer null");
+    assertEqual(d.result.build_route, false, "guard keeps build_route false");
+    assert(/couldn't find/i.test(d.result.message), "guard message admits it couldn't find one");
+    assert(/verified/i.test(d.result.message), "guard message mentions verified");
+    assert(/\btv\b/i.test(d.result.message), "guard message names the product target (tv)");
+    assert(!containsInternalStatus(d.result.message), "guard message has no internal status tokens");
+  }
+
+  // verified_only WITH a verified candidate → normal deterministic answer (guard
+  // does NOT fire); the demo Samsung is filtered out, only verified considered.
+  {
+    const d = decide("Show me verified TVs only", [hisense, samsung]);
+    assertEqual(d.action, "deterministic", "verified_only + a verified TV → deterministic answer");
+    assertEqual(d.result.products.length, 1, "only the verified candidate is considered");
+    assertEqual(d.result.shopping_answer?.bestOption?.productId, "hisense", "best option is the verified Hisense");
+  }
+
+  // Normal (non-verified) no-candidate query STILL falls through to Gemini.
+  {
+    const d = decide("I need a TV under R4000", []);
+    assertEqual(d.action, "gemini", "normal no-candidate query → still falls through to Gemini");
+    assertEqual(d.reason, "no-candidates", "fall-through reason is no-candidates");
+  }
+
+  // Normal query with a low-trust candidate is NOT guarded (no verified_only) —
+  // it still answers deterministically with the demo option.
+  {
+    const d = decide("I need a TV under R4000", [samsung]);
+    assertEqual(d.action, "deterministic", "normal query + demo candidate → deterministic answer (no guard)");
+    assertEqual(d.result.shopping_answer?.bestOption?.productId, "samsung", "demo Samsung is surfaced for a non-verified query");
+  }
+
+  // Helper wording is natural for other targets and never fabricates verification.
+  assert(/verified shoe option/i.test(buildVerifiedOnlyNoResultMessage("shoe")), "message adapts to productTarget 'shoe'");
+  assert(!containsInternalStatus(buildVerifiedOnlyNoResultMessage("tv")), "no-result message is internal-status clean");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

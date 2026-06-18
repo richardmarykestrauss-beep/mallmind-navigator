@@ -3,7 +3,7 @@ import { recommendProducts, buildDeterministicShoppingAnswer } from "./productSe
 import { buildRoute, buildRouteNoSession } from "./routingService.js";
 import { getSupabaseClient } from "../lib/supabase.js";
 import type { ScoredProduct, RouteStep } from "../lib/types.js";
-import { buildShoppingAnswer, normalizeAssistantSearchQuery, alignAssistantMessage, extractDirectRouteDestination, extractDeterministicShoppingIntent, mapProductRowsToCandidates } from "./assistant/index.js";
+import { buildShoppingAnswer, normalizeAssistantSearchQuery, alignAssistantMessage, extractDirectRouteDestination, extractDeterministicShoppingIntent, mapProductRowsToCandidates, buildVerifiedOnlyNoResultMessage } from "./assistant/index.js";
 import type { ShoppingAnswer } from "./assistant/index.js";
 
 // ── Route intent detection ────────────────────────────────────────────────────
@@ -659,7 +659,29 @@ export async function runAssistant(
             shopping_answer: deterministic.shopping_answer,
           };
         }
-        // shopping_answer null (no candidates) → fall through to Gemini.
+
+        // Strict "verified only" with no verified candidate: do NOT fall through
+        // to Gemini (that widens to medium/low-trust matches and breaks "only").
+        // Return an honest deterministic no-result instead — no fabricated
+        // answer, no medium/low products, nothing labelled verified.
+        if (shoppingIntent.trustPreference === "verified_only") {
+          console.log(
+            `[assistant] verified-only no-result guard: target="${shoppingIntent.productTarget}" ` +
+            `(no verified candidate; Gemini skipped to avoid widening)`,
+          );
+          return {
+            message: buildVerifiedOnlyNoResultMessage(shoppingIntent.productTarget),
+            products: [],
+            route_steps: [],
+            route_id: null,
+            build_route: false,
+            route_shop_ids: [],
+            route_summary: "",
+            shopping_answer: null,
+          };
+        }
+
+        // Otherwise shopping_answer null (no candidates) → fall through to Gemini.
       } catch (err) {
         // Any failure (e.g. DB hiccup) must not break the assistant — fall
         // through to the normal AI flow rather than surfacing an error.
