@@ -44,6 +44,10 @@ const { extractProductTarget, normalizeAssistantSearchQuery } =
 const { extractDirectRouteDestination } =
   require("../routeIntentExtractor") as typeof import("../routeIntentExtractor");
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { extractDeterministicShoppingIntent } =
+  require("../deterministicShoppingIntent") as typeof import("../deterministicShoppingIntent");
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 let passed = 0;
@@ -387,6 +391,67 @@ console.log("\nSA22 — direct route intent: explicit navigation commands extrac
   assertEqual(extractDirectRouteDestination("What is the cheapest TV under R4000?"), null, "cheapest TV question → null (product query)");
   assertEqual(extractDirectRouteDestination("I need shoes under R500"), null, "'I need shoes under R500' → null");
   assertEqual(extractDirectRouteDestination(""), null, "empty → null");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+console.log("\nSA23 — deterministic shopping intent extraction for clear product requests");
+{
+  const di = (s: string) => extractDeterministicShoppingIntent(s);
+
+  // Clear product / budget / cheapest queries → deterministic intent.
+  assertEqual(JSON.stringify(di("I need a TV under R4000")),
+    JSON.stringify({ productTarget: "tv", budget: 4000, intent: "budget_search", trustPreference: null }),
+    "'I need a TV under R4000' → tv/4000/budget_search/null");
+  assertEqual(JSON.stringify(di("TV under R4000")),
+    JSON.stringify({ productTarget: "tv", budget: 4000, intent: "budget_search", trustPreference: null }),
+    "'TV under R4000' → tv/4000/budget_search/null");
+  assertEqual(JSON.stringify(di("Show me TVs under R4000")),
+    JSON.stringify({ productTarget: "tv", budget: 4000, intent: "budget_search", trustPreference: null }),
+    "'Show me TVs under R4000' → tv/4000/budget_search/null (singularised)");
+  assertEqual(JSON.stringify(di("What is the cheapest TV under R4000?")),
+    JSON.stringify({ productTarget: "tv", budget: 4000, intent: "cheapest_option", trustPreference: null }),
+    "'What is the cheapest TV under R4000?' → tv/4000/cheapest_option/null");
+  assertEqual(JSON.stringify(di("Show me verified TVs only")),
+    JSON.stringify({ productTarget: "tv", budget: null, intent: "product_search", trustPreference: "verified_only" }),
+    "'Show me verified TVs only' → tv/null/product_search/verified_only");
+  assertEqual(JSON.stringify(di("Where can I buy a TV?")),
+    JSON.stringify({ productTarget: "tv", budget: null, intent: "product_search", trustPreference: null }),
+    "'Where can I buy a TV?' → tv/null/product_search/null");
+
+  // Vague / mission / no-product requests → null (caller falls back to Gemini).
+  assertEqual(di("Find me a gift for my dad"), null, "'Find me a gift for my dad' → null");
+  assertEqual(di("I need something nice for my apartment"), null, "'I need something nice for my apartment' → null");
+  assertEqual(di("What should I buy?"), null, "'What should I buy?' → null");
+  assertEqual(di("Something for my girlfriend"), null, "'Something for my girlfriend' → null");
+  assertEqual(di("A present for a child"), null, "'A present for a child' → null");
+  assertEqual(di(""), null, "empty string → null");
+
+  // Navigation commands are not shopping intents (handled by the route bypass).
+  assertEqual(di("Take me to Game"), null, "'Take me to Game' → null (route, not shopping)");
+
+  // ── Polish (20A.6A): cheapest-no-budget, best, plural, budget phrasings ──
+  assertEqual(JSON.stringify(di("cheapest TV")),
+    JSON.stringify({ productTarget: "tv", budget: null, intent: "cheapest_option", trustPreference: null }),
+    "'cheapest TV' → tv/null/cheapest_option/null (cheapest without a budget)");
+  assertEqual(JSON.stringify(di("Best TV under R4000")),
+    JSON.stringify({ productTarget: "tv", budget: 4000, intent: "budget_search", trustPreference: null }),
+    "'Best TV under R4000' → tv/4000/budget_search ('best TV' is not 'best value/deal/option')");
+  assertEqual(JSON.stringify(di("shoes under R500")),
+    JSON.stringify({ productTarget: "shoe", budget: 500, intent: "budget_search", trustPreference: null }),
+    "'shoes under R500' → shoe/500/budget_search (current convention: trailing-s singularised)");
+  assertEqual(JSON.stringify(di("Show me TVs")),
+    JSON.stringify({ productTarget: "tv", budget: null, intent: "product_search", trustPreference: null }),
+    "'Show me TVs' → tv/null/product_search/null");
+
+  // Budget-phrasing variants (keyword-anchored; spaced amounts tolerated).
+  assertEqual(di("TV below R4000")?.budget, 4000, "'TV below R4000' → budget 4000");
+  assertEqual(di("TV less than R4000")?.budget, 4000, "'TV less than R4000' → budget 4000");
+  assertEqual(di("TV under R 4 000")?.budget, 4000, "'TV under R 4 000' → budget 4000 (spaced amount)");
+
+  // Spatial and generic-noun phrasings → null (not deterministic product search).
+  assertEqual(di("nearest TV"), null, "'nearest TV' → null (spatial → Gemini)");
+  assertEqual(di("Get me a thing"), null, "'Get me a thing' → null (generic non-product)");
+  assertEqual(di("Find me stuff"), null, "'Find me stuff' → null (generic non-product)");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
