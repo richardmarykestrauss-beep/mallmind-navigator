@@ -1,10 +1,10 @@
 import { GoogleGenAI, Type, Tool, FunctionDeclaration, FunctionCallingConfigMode } from "@google/genai";
-import { recommendProducts } from "./productService.js";
+import { recommendProducts, buildDeterministicShoppingAnswer } from "./productService.js";
 import { buildRoute, buildRouteNoSession } from "./routingService.js";
 import { getSupabaseClient } from "../lib/supabase.js";
 import type { ScoredProduct, RouteStep } from "../lib/types.js";
-import { buildShoppingAnswer, normalizeAssistantSearchQuery, alignAssistantMessage, extractDirectRouteDestination } from "./assistant/index.js";
-import type { ShopperCandidate, ShoppingAnswer } from "./assistant/index.js";
+import { buildShoppingAnswer, normalizeAssistantSearchQuery, alignAssistantMessage, extractDirectRouteDestination, extractDeterministicShoppingIntent, mapProductRowsToCandidates } from "./assistant/index.js";
+import type { ShoppingAnswer } from "./assistant/index.js";
 
 // ── Route intent detection ────────────────────────────────────────────────────
 // Deterministic check on the raw user message — does NOT call Gemini.
@@ -285,22 +285,8 @@ function buildShoppingAnswerForResult(
   routeBuilt: boolean
 ): ShoppingAnswer | null {
   if (!products.length) return null;
-  const candidates: ShopperCandidate[] = products.map((p) => ({
-    productId: p.product_id,
-    productName: p.name,
-    shopId: p.shop_id,
-    shopName: p.shop_name,
-    floor: p.floor ?? null,
-    unitNumber: p.unit_number ?? null,
-    price: p.price ?? null,
-    isOnSpecial: p.is_on_special ?? null,
-    discountPct: p.discount_pct ?? null,
-    trustState: p.trust_state ?? null,
-    dataQualityStatus: p.data_quality_status ?? null,
-    isOpenNow: p.is_open_now ?? null,
-    routeAvailable: routeBuilt,
-    relevanceScore: typeof p.score === "number" ? Math.min(p.score / 5, 20) : null,
-  }));
+  // Shared mapper (20A.6C) — identical mapping, deduped from the old inline map.
+  const candidates = mapProductRowsToCandidates(products, routeBuilt);
   return buildShoppingAnswer({ query: userQuery, candidates, budget: budget ?? null });
 }
 
@@ -636,6 +622,48 @@ export async function runAssistant(
         }
       } catch (err) {
         console.error("[assistant] deterministic store-name route failed:", err);
+      }
+    }
+  }
+
+  // ── Deterministic shopping bypass (no Gemini) ───────────────────────────────
+  // Clear product/budget/cheapest queries ("I need a TV under R4000", "cheapest
+  // TV under R4000", "verified TVs only", "where can I buy a TV") are answered
+  // from MallMind's own product data BEFORE Gemini — quota-independent. Runs
+  // AFTER the route bypass (navigation stays first). Vague/mission/navigation
+  // requests yield no deterministic intent, and a clear intent with no matching
+  // candidates yields a null shopping_answer; both fall through to the AI flow.
+  if (ctx.mall_id && lastMessage.role === "user") {
+    const shoppingIntent = extractDeterministicShoppingIntent(lastMessage.content);
+    if (shoppingIntent) {
+      try {
+        const deterministic = await buildDeterministicShoppingAnswer({
+          mallId: ctx.mall_id,
+          ...shoppingIntent,
+        });
+
+        if (deterministic.shopping_answer) {
+          // Answered confidently from MallMind data — skip Gemini entirely.
+          console.log(
+            `[assistant] deterministic shopping bypass: intent=${shoppingIntent.intent} ` +
+            `target="${shoppingIntent.productTarget}" candidates=${deterministic.products.length}`,
+          );
+          return {
+            message: deterministic.message ?? deterministic.shopping_answer.shopperMessage,
+            products: deterministic.products,
+            route_steps: [],
+            route_id: null,
+            build_route: false,
+            route_shop_ids: [],
+            route_summary: "",
+            shopping_answer: deterministic.shopping_answer,
+          };
+        }
+        // shopping_answer null (no candidates) → fall through to Gemini.
+      } catch (err) {
+        // Any failure (e.g. DB hiccup) must not break the assistant — fall
+        // through to the normal AI flow rather than surfacing an error.
+        console.error("[assistant] deterministic shopping bypass failed:", err);
       }
     }
   }

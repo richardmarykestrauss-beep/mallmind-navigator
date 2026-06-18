@@ -632,6 +632,92 @@ console.log("\nSA25 — deterministic shopping answer builder integration (20A.6
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+console.log("\nSA26 — deterministic shopping bypass wiring contract (20A.6D, pure)");
+{
+  const sp = (over: Record<string, unknown> = {}): any => ({
+    product_id: "p", shop_id: "s1", name: 'Generic 40" TV', brand: null,
+    shop_name: "Game", floor: "1", unit_number: "L1-10",
+    price: 3499, original_price: null, is_on_special: false, discount_pct: null,
+    is_open_now: true, is_cheapest: false, score: 10, reason: "",
+    price_verified_at: null, data_quality_status: "demo",
+    price_verification_method: null, data_source: null, verified_by: null,
+    trust_state: null, ...over,
+  });
+  const hisense = sp({ product_id: "hisense", name: 'Hisense 43" FHD LED TV', price: 3499, trust_state: "verified", data_quality_status: "manually_verified" });
+  const samsung = sp({ product_id: "samsung", name: 'Samsung 32" HD Smart TV', shop_name: "Incredible", price: 2999, trust_state: "sample", data_quality_status: "demo" });
+
+  // Mirrors the geminiService preflight EXACTLY: extract deterministic intent →
+  // (if present) assemble from candidates → bypass Gemini ONLY when a non-null
+  // shopping_answer results. Live buildDeterministicShoppingAnswer = DB fetch +
+  // this assemble; here the fetch is stubbed by mock candidates (the real fetch
+  // is covered by 20A.6F live smoke).
+  const simulateBypass = (text: string, candidates: any[]): any => {
+    const intent = extractDeterministicShoppingIntent(text);
+    if (!intent) return { bypass: false, reason: "no-intent", result: null };
+    const a = assembleDeterministicShoppingAnswer(candidates, intent);
+    if (!a.shopping_answer) return { bypass: false, reason: "no-candidates", result: a };
+    return {
+      bypass: true,
+      reason: "answered",
+      result: {
+        message: a.message ?? a.shopping_answer.shopperMessage,
+        products: a.products,
+        build_route: false,
+        route_steps: [],
+        route_id: null,
+        route_shop_ids: [],
+        route_summary: "",
+        shopping_answer: a.shopping_answer,
+      },
+    };
+  };
+
+  // Clear product query with candidates → bypass Gemini, return shopping_answer.
+  {
+    const b = simulateBypass("I need a TV under R4000", [hisense, samsung]);
+    assertEqual(b.bypass, true, "'I need a TV under R4000' + candidates → bypass Gemini");
+    assert(b.result?.shopping_answer != null, "bypass returns a non-null shopping_answer");
+    assertEqual(b.result?.build_route, false, "deterministic shopping response keeps build_route false");
+    assertEqual(b.result?.message, b.result?.shopping_answer?.shopperMessage, "message equals shopperMessage");
+    assertEqual(b.result?.shopping_answer?.bestOption?.productId, "hisense", "budget_search stays trust-first (verified Hisense)");
+    assert(!containsInternalStatus(b.result?.shopping_answer?.shopperMessage ?? ""), "no internal status tokens leak in bypass message");
+  }
+
+  // Cheapest intent → price-first best + verified backup/warning, still bypass.
+  {
+    const b = simulateBypass("What is the cheapest TV under R4000?", [hisense, samsung]);
+    assertEqual(b.bypass, true, "'cheapest TV under R4000' + candidates → bypass");
+    assertEqual(b.result?.shopping_answer?.bestOption?.productId, "samsung", "cheapest stays price-first (Samsung)");
+    const verifiedSurfaced =
+      b.result?.shopping_answer?.backupOption?.productId === "hisense" ||
+      (b.result?.shopping_answer?.warnings ?? []).length > 0;
+    assert(verifiedSurfaced, "cheapest surfaces verified Hisense as backup or a warning");
+  }
+
+  // Clear intent but NO candidates → null answer → fall through to Gemini.
+  {
+    const b = simulateBypass("I need a TV under R4000", []);
+    assertEqual(b.bypass, false, "clear intent + no candidates → no bypass (fall through)");
+    assertEqual(b.reason, "no-candidates", "fall-through reason is no-candidates");
+    assertEqual(b.result?.shopping_answer ?? null, null, "no fabricated answer when no candidates");
+  }
+
+  // Route phrases are NOT shopping intents → fall through (route bypass / Gemini).
+  for (const phrase of ["Take me to Game", "Where is Game?", "Directions to Game", "Navigate to Game", "Take me to the cheapest TV", "nearest TV"]) {
+    const b = simulateBypass(phrase, [hisense, samsung]);
+    assertEqual(b.bypass, false, `'${phrase}' → not a deterministic shopping bypass`);
+    assertEqual(b.reason, "no-intent", `'${phrase}' → excluded from deterministic shopping intent`);
+  }
+
+  // Mission / vague queries → fall through to Gemini.
+  for (const phrase of ["Find me a gift for my dad", "I need something nice for my apartment", "What should I buy?", "Something for my girlfriend"]) {
+    const b = simulateBypass(phrase, [hisense, samsung]);
+    assertEqual(b.bypass, false, `'${phrase}' → not a deterministic shopping bypass (→ Gemini)`);
+    assertEqual(b.reason, "no-intent", `'${phrase}' → vague/mission excluded`);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 console.log("\nSA15 — engine purity: no Supabase/env/network/fs in core modules");
 {
   const coreDir = path.resolve(__dirname, "..");
