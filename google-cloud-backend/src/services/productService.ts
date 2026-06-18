@@ -1,6 +1,8 @@
 import { getSupabaseClient } from "../lib/supabase.js";
 import type { Shop, Product, ScoredProduct } from "../lib/types.js";
 import { calculatePriceTrust } from "./priceTrust.js";
+import { filterDeterministicCandidates } from "./assistant/index.js";
+import type { DeterministicShoppingIntent } from "./assistant/index.js";
 
 // SA timezone UTC+2 — works with "HH:MM:SS" time columns
 function isOpenNow(openingTime: string | null, closingTime: string | null): boolean | null {
@@ -242,4 +244,48 @@ export async function recommendProducts(opts: RecommendOptions): Promise<ScoredP
     ...p,
     ...calculatePriceTrust(p, pendingSet.has(p.product_id), needsVerifySet.has(p.product_id)),
   }));
+}
+
+// ── Sprint 20A.6B: deterministic, Gemini-free candidate retrieval ───────────
+
+/** Input for {@link fetchDeterministicShoppingCandidates}: a deterministic
+ *  shopping intent (20A.6A) scoped to a single mall. */
+export interface DeterministicCandidateInput extends DeterministicShoppingIntent {
+  /** Restrict retrieval to one mall (Supabase/Postgres is the source of truth). */
+  mallId: string;
+}
+
+/**
+ * Deterministic, Gemini-free product retrieval (Sprint 20A.6B).
+ *
+ * Reuses the existing mall-scoped product search + trust attachment
+ * (recommendProducts) to fetch candidates from MallMind's own data, then applies
+ * pure deterministic filtering (product target, budget, verified-only) via
+ * {@link filterDeterministicCandidates}. Returns ScoredProduct candidates ready
+ * to be ranked / turned into a shopper-safe answer later (20A.6C).
+ *
+ * This is infrastructure only — it is NOT wired into /assistant or geminiService
+ * yet, builds no shopping_answer, and calls no route engine or Gemini.
+ *
+ * Conservative: unknown mall, empty/unclear product target, or no matches → [].
+ */
+export async function fetchDeterministicShoppingCandidates(
+  input: DeterministicCandidateInput
+): Promise<ScoredProduct[]> {
+  const productTarget = String(input?.productTarget ?? "").trim();
+  if (!input?.mallId || !productTarget) return [];
+
+  // Reuse the existing mall-scoped search (name match + budget + trust fields).
+  const candidates = await recommendProducts({
+    mall_id: input.mallId,
+    query: productTarget,
+    budget: input.budget ?? null,
+  });
+
+  // Deterministically narrow: target match, budget, and verified-only.
+  return filterDeterministicCandidates(candidates, {
+    productTarget: input.productTarget,
+    budget: input.budget,
+    trustPreference: input.trustPreference,
+  });
 }

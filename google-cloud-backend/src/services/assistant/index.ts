@@ -7,6 +7,7 @@
 
 export * from "./assistantTypes";
 export * from "./deterministicShoppingIntent";
+export * from "./deterministicProductFilter";
 export * from "./productTargetExtractor";
 export * from "./routeIntentExtractor";
 export * from "./shoppingIntentClassifier";

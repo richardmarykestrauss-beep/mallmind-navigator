@@ -48,6 +48,10 @@ const { extractDirectRouteDestination } =
 const { extractDeterministicShoppingIntent } =
   require("../deterministicShoppingIntent") as typeof import("../deterministicShoppingIntent");
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { filterDeterministicCandidates } =
+  require("../deterministicProductFilter") as typeof import("../deterministicProductFilter");
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 let passed = 0;
@@ -452,6 +456,99 @@ console.log("\nSA23 — deterministic shopping intent extraction for clear produ
   assertEqual(di("nearest TV"), null, "'nearest TV' → null (spatial → Gemini)");
   assertEqual(di("Get me a thing"), null, "'Get me a thing' → null (generic non-product)");
   assertEqual(di("Find me stuff"), null, "'Find me stuff' → null (generic non-product)");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+console.log("\nSA24 — deterministic product candidate filtering (20A.6B, pure)");
+{
+  // Mock fetched rows (ScoredProduct-shaped subset). No DB: the pure filter is
+  // what proves the retrieval contract; the Supabase wrapper just feeds it.
+  const rows = [
+    { name: 'Hisense 43" FHD LED TV',  price: 3499, trust_state: "verified", data_quality_status: "manually_verified" },
+    { name: 'LG 40" FHD Smart TV',     price: 3799, trust_state: "sample",   data_quality_status: "demo" },
+    { name: 'Samsung 32" HD Smart TV', price: 2999, trust_state: "sample",   data_quality_status: "demo" },
+    { name: 'Sony 65" 4K OLED TV',     price: 8000, trust_state: "sample",   data_quality_status: "demo" },
+    { name: "Jacobs Krönung Coffee 200g", price: 129, trust_state: "sample", data_quality_status: "demo" },
+    { name: "PEP Canvas Shoes",        price: 159,  trust_state: "sample",   data_quality_status: "demo" },
+    { name: 'Defy 50" TV (price TBC)', price: null, trust_state: "sample",   data_quality_status: "demo" },
+  ];
+  const names = (rs: Array<{ name: string }>) => rs.map((r) => r.name);
+
+  // budget_search: TVs at/under R4000 — excludes over-budget Sony, the unpriced
+  // Defy (never assumed affordable), and the non-TV coffee/shoes.
+  assertEqual(
+    JSON.stringify(names(filterDeterministicCandidates(rows, {
+      productTarget: "tv", budget: 4000, trustPreference: null,
+    }))),
+    JSON.stringify(['Hisense 43" FHD LED TV', 'LG 40" FHD Smart TV', 'Samsung 32" HD Smart TV']),
+    "tv/4000/budget_search → 3 affordable TVs (over-budget + unpriced + non-TV excluded)",
+  );
+
+  // cheapest_option: same eligible candidate set (incl. the cheapest); the
+  // ranker — not retrieval — picks the cheapest later.
+  assertEqual(
+    filterDeterministicCandidates(rows, { productTarget: "tv", budget: 4000, trustPreference: null }).length,
+    3,
+    "tv/4000/cheapest_option → cheapest eligible option (Samsung 2999) is among the 3 candidates",
+  );
+
+  // verified_only: only the high-confidence Hisense survives.
+  assertEqual(
+    JSON.stringify(names(filterDeterministicCandidates(rows, {
+      productTarget: "tv", budget: null, trustPreference: "verified_only",
+    }))),
+    JSON.stringify(['Hisense 43" FHD LED TV']),
+    "tv/verified_only → only the verified Hisense (demo/sample dropped)",
+  );
+
+  // Non-TV product target retrieves its own matches safely.
+  assertEqual(
+    JSON.stringify(names(filterDeterministicCandidates(rows, {
+      productTarget: "shoe", budget: 500, trustPreference: null,
+    }))),
+    JSON.stringify(["PEP Canvas Shoes"]),
+    "shoe/500 → matching shoe candidate ('shoes' name contains 'shoe')",
+  );
+
+  // No matches → [] (never fabricate a candidate).
+  assertEqual(
+    filterDeterministicCandidates(rows, { productTarget: "laptop", budget: null, trustPreference: null }).length,
+    0,
+    "laptop (none present) → [] (empty, not fabricated)",
+  );
+
+  // Unpriced row is excluded under a budget but allowed when no budget is set.
+  assertEqual(
+    filterDeterministicCandidates(rows, { productTarget: "defy", budget: 4000, trustPreference: null }).length,
+    0,
+    "unpriced row under a budget → excluded (no fabricated price)",
+  );
+  assertEqual(
+    filterDeterministicCandidates(rows, { productTarget: "defy", budget: null, trustPreference: null }).length,
+    1,
+    "unpriced row with no budget → retained (price shown via safe trust label later)",
+  );
+
+  // Multi-word target needs every token in the name.
+  assertEqual(
+    JSON.stringify(names(filterDeterministicCandidates(rows, {
+      productTarget: "samsung tv", budget: null, trustPreference: null,
+    }))),
+    JSON.stringify(['Samsung 32" HD Smart TV']),
+    "'samsung tv' → only the Samsung TV (all target tokens must match)",
+  );
+
+  // Empty / unclear target → [] (conservative).
+  assertEqual(
+    filterDeterministicCandidates(rows, { productTarget: "", budget: null, trustPreference: null }).length,
+    0,
+    "empty product target → [] (unclear → retrieve nothing)",
+  );
+  assertEqual(
+    filterDeterministicCandidates(null, { productTarget: "tv", budget: null, trustPreference: null }).length,
+    0,
+    "null rows → [] (no candidates)",
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
