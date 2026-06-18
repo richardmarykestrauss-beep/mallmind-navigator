@@ -1,8 +1,8 @@
 import { getSupabaseClient } from "../lib/supabase.js";
 import type { Shop, Product, ScoredProduct } from "../lib/types.js";
 import { calculatePriceTrust } from "./priceTrust.js";
-import { filterDeterministicCandidates } from "./assistant/index.js";
-import type { DeterministicShoppingIntent } from "./assistant/index.js";
+import { filterDeterministicCandidates, assembleDeterministicShoppingAnswer } from "./assistant/index.js";
+import type { DeterministicShoppingIntent, DeterministicShoppingResult } from "./assistant/index.js";
 
 // SA timezone UTC+2 — works with "HH:MM:SS" time columns
 function isOpenNow(openingTime: string | null, closingTime: string | null): boolean | null {
@@ -288,4 +288,23 @@ export async function fetchDeterministicShoppingCandidates(
     budget: input.budget,
     trustPreference: input.trustPreference,
   });
+}
+
+/**
+ * Deterministic, Gemini-free shopping answer (Sprint 20A.6C).
+ *
+ * Fetches deterministic candidates (20A.6B) then assembles a complete
+ * shopper-safe answer via the existing ranker + answer builder
+ * (assembleDeterministicShoppingAnswer). Returns { products, shopping_answer,
+ * message } ready for 20A.6D to turn into the normal /assistant response.
+ *
+ * Infrastructure only — NOT wired into /assistant or geminiService yet, builds
+ * no route, and calls no Gemini. No candidates → shopping_answer null, message
+ * null (no fabricated "couldn't find" message; 20A.6D decides the fallback).
+ */
+export async function buildDeterministicShoppingAnswer(
+  input: DeterministicCandidateInput
+): Promise<DeterministicShoppingResult<ScoredProduct>> {
+  const candidates = await fetchDeterministicShoppingCandidates(input);
+  return assembleDeterministicShoppingAnswer(candidates, input);
 }

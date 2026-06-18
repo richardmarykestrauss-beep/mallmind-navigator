@@ -52,6 +52,10 @@ const { extractDeterministicShoppingIntent } =
 const { filterDeterministicCandidates } =
   require("../deterministicProductFilter") as typeof import("../deterministicProductFilter");
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { assembleDeterministicShoppingAnswer } =
+  require("../deterministicShoppingAnswer") as typeof import("../deterministicShoppingAnswer");
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 let passed = 0;
@@ -549,6 +553,82 @@ console.log("\nSA24 — deterministic product candidate filtering (20A.6B, pure)
     0,
     "null rows → [] (no candidates)",
   );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+console.log("\nSA25 — deterministic shopping answer builder integration (20A.6C, pure)");
+{
+  // Minimal ScoredProduct-shaped mock rows (only mapper-read fields matter).
+  const sp = (over: Record<string, unknown> = {}): any => ({
+    product_id: "p", shop_id: "s1", name: 'Generic 40" TV', brand: null,
+    shop_name: "Game", floor: "1", unit_number: "L1-10",
+    price: 3499, original_price: null, is_on_special: false, discount_pct: null,
+    is_open_now: true, is_cheapest: false, score: 10, reason: "",
+    price_verified_at: null, data_quality_status: "demo",
+    price_verification_method: null, data_source: null, verified_by: null,
+    trust_state: null, ...over,
+  });
+  // Deterministic intent factory (`any` so the harness needn't import the type).
+  const di = (intent: string, over: Record<string, unknown> = {}): any =>
+    ({ productTarget: "tv", budget: 4000, intent, trustPreference: null, ...over });
+
+  const hisense = sp({ product_id: "hisense", name: 'Hisense 43" FHD LED TV', price: 3499, trust_state: "verified", data_quality_status: "manually_verified" });
+  const samsung = sp({ product_id: "samsung", name: 'Samsung 32" HD Smart TV', shop_name: "Incredible", price: 2999, trust_state: "sample", data_quality_status: "demo" });
+
+  // budget_search → verified Hisense best (trust-first), cheaper demo backup.
+  {
+    const r = assembleDeterministicShoppingAnswer([hisense, samsung], di("budget_search"));
+    assertEqual(r.shopping_answer?.bestOption?.productId, "hisense", "budget_search → verified Hisense is best (trust-first)");
+    assertEqual(r.shopping_answer?.backupOption?.productId, "samsung", "budget_search → cheaper Samsung is the backup");
+    assertEqual(r.message, r.shopping_answer?.shopperMessage ?? null, "message reuses shopperMessage");
+    assert(!containsInternalStatus(r.shopping_answer?.shopperMessage ?? ""), "budget_search message has no internal status tokens");
+  }
+
+  // cheapest_option → cheapest Samsung best (price-first), verified surfaced as backup/warning.
+  {
+    const r = assembleDeterministicShoppingAnswer([hisense, samsung], di("cheapest_option"));
+    assertEqual(r.shopping_answer?.bestOption?.productId, "samsung", "cheapest_option → cheapest Samsung is best (price-first)");
+    const verifiedSurfaced =
+      r.shopping_answer?.backupOption?.productId === "hisense" ||
+      (r.shopping_answer?.warnings ?? []).length > 0;
+    assert(verifiedSurfaced, "cheapest_option → verified Hisense surfaced as backup or a warning is shown");
+    assert(!containsInternalStatus(r.shopping_answer?.shopperMessage ?? ""), "cheapest_option message has no internal status tokens");
+  }
+
+  // verified_only → only the verified row is considered (retrieval pre-filters upstream; SA24).
+  {
+    const r = assembleDeterministicShoppingAnswer([hisense], di("product_search", { trustPreference: "verified_only", budget: null }));
+    assertEqual(r.products.length, 1, "verified_only → single verified candidate considered");
+    assertEqual(r.shopping_answer?.bestOption?.productId, "hisense", "verified_only → verified Hisense is best");
+    assertEqual(r.shopping_answer?.bestOption?.confidenceBand, "high", "verified_only → best option is high-confidence");
+  }
+
+  // No candidates → null answer + null message (NOT the "I couldn't find…" path).
+  {
+    const r = assembleDeterministicShoppingAnswer([], di("budget_search"));
+    assertEqual(r.shopping_answer, null, "no candidates → shopping_answer null");
+    assertEqual(r.message, null, "no candidates → message null (no fabricated 'couldn't find')");
+    assertEqual(r.products.length, 0, "no candidates → empty products");
+  }
+
+  // Missing price → never fabricate a rand amount.
+  {
+    const r = assembleDeterministicShoppingAnswer(
+      [sp({ product_id: "noprice", name: 'Defy 50" TV', price: null, trust_state: "sample", data_quality_status: "demo" })],
+      di("product_search", { budget: null }),
+    );
+    assertEqual(r.shopping_answer?.bestOption?.price ?? null, null, "missing price → option price stays null");
+    assert(!/R\s?\d/.test(r.shopping_answer?.shopperMessage ?? ""), "missing price → no rand amount fabricated in message");
+  }
+
+  // Internal statuses never leak into the shopper-facing message.
+  {
+    const r = assembleDeterministicShoppingAnswer(
+      [sp({ product_id: "nr", name: 'LG 40" TV', price: 2999, trust_state: "needs_review", data_quality_status: "needs_review" })],
+      di("product_search", { budget: null }),
+    );
+    assert(!containsInternalStatus(r.shopping_answer?.shopperMessage ?? ""), "needs_review candidate → no internal status leak in shopperMessage");
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
