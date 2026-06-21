@@ -1,5 +1,7 @@
 import { Router, Request, Response } from "express";
 import { getSupabaseClient } from "../lib/supabase.js";
+import { publishApprovedObservation } from "../services/retailObservationPublisher.js";
+import { buildUserCorrectionObservationDraft, assessSourceEligibility } from "../services/retail/index.js";
 
 const router = Router();
 
@@ -254,14 +256,14 @@ router.post("/admin/:id/review", async (req: Request, res: Response) => {
       action,
       approved_price,
       admin_note,
-      verification_method,
-      data_source,
+      observation_id,
+      source_id,
     } = req.body as {
       action?: string;
       approved_price?: number;
       admin_note?: string;
-      verification_method?: string;
-      data_source?: string;
+      observation_id?: string;
+      source_id?: string;
     };
 
     // Validate action
@@ -283,40 +285,136 @@ router.post("/admin/:id/review", async (req: Request, res: Response) => {
     }
 
     // ── APPROVE ───────────────────────────────────────────────────────────────
+    // A bare approval must NEVER manufacture an evidence-free verified price.
+    // Two safe outcomes only:
+    //   A) observation_id supplied → publish that approved, evidence-backed
+    //      observation through the shared verification policy + atomic RPC.
+    //   B) otherwise → STAGE a pending, user-submitted observation (requires a
+    //      source_id) for evidence review. The product is left untouched.
     if (action === "approve") {
-      const price = Number(approved_price);
-      if (isNaN(price) || price <= 0) {
-        return res.status(400).json({ error: "approved_price must be a positive number" });
+      const metadata = (report.metadata && typeof report.metadata === "object")
+        ? report.metadata as Record<string, unknown>
+        : {};
+
+      // ── Path A: publish an approved evidence-backed observation ────────────
+      if (observation_id) {
+        const result = await publishApprovedObservation(
+          supabase, observation_id, adminId, adminEmail, now
+        );
+
+        if (!result.ok) {
+          return res.status(result.httpStatus).json({
+            ok: false, action: "approve",
+            error: result.error, blockers: result.blockers, warnings: result.warnings,
+          });
+        }
+
+        await supabase
+          .from("price_correction_reports")
+          .update({
+            status:      "approved",
+            reviewed_by: adminId,
+            reviewed_at: now,
+            admin_note:  admin_note?.trim() ?? null,
+            updated_at:  now,
+            metadata: { ...metadata,
+              published_observation_id: observation_id,
+              published_product_id: result.published_product_id },
+          })
+          .eq("id", reportId);
+
+        await supabase.from("admin_audit_log").insert({
+          admin_id:   adminId,
+          action:     "price_correction_published_observation",
+          table_name: "products",
+          row_id:     result.published_product_id,
+          old_values: { report_id: reportId },
+          new_values: { observation_id, published_product_id: result.published_product_id, action: result.action },
+        });
+
+        return res.json({
+          ok: true, action: "approved",
+          published_product_id: result.published_product_id,
+          warnings: result.warnings ?? [],
+        });
       }
 
-      // Load current product for audit log
-      const { data: currentProduct } = await supabase
-        .from("products")
-        .select("price, data_quality_status, price_verified_at, price_verification_method, data_source, verified_by")
-        .eq("id", report.product_id)
+      // ── Path B: stage a pending user-submitted observation ─────────────────
+      if (!source_id) {
+        return res.status(400).json({
+          error: "Approval can no longer publish a verified price directly.",
+          guidance:
+            "Supply observation_id (an approved, evidence-backed observation) to " +
+            "publish a verified price, or source_id to stage this correction as a " +
+            "pending observation for evidence review. A user report alone never " +
+            "creates a verified price.",
+        });
+      }
+
+      const stagedPrice = Number(approved_price ?? report.reported_price);
+      if (isNaN(stagedPrice) || stagedPrice <= 0) {
+        return res.status(400).json({ error: "A positive price is required to stage an observation" });
+      }
+
+      // Pre-validate the supplied source BEFORE inserting, so an invalid or
+      // ineligible source returns a precise 404/400 — never a generic FK 500.
+      const { data: srcRow, error: srcErr } = await supabase
+        .from("retail_data_sources")
+        .select("id, is_active, legal_status")
+        .eq("id", source_id)
         .maybeSingle();
 
-      const oldValues = currentProduct ?? {};
-      const newValues = {
-        price:                     price,
-        data_quality_status:       "manually_verified",
-        price_verified_at:         now,
-        price_verification_method: verification_method?.trim() || "admin_price_correction",
-        data_source:               data_source?.trim() || "admin_price_correction",
-        verified_by:               adminEmail,
-      };
-
-      // Update product price — the only path that touches products
-      const { error: productUpdateError } = await supabase
-        .from("products")
-        .update(newValues)
-        .eq("id", report.product_id);
-
-      if (productUpdateError) {
-        return res.status(500).json({ error: `Product update failed: ${productUpdateError.message}` });
+      if (srcErr) {
+        console.error("[price-corrections approve/stage] source lookup failed:", srcErr.message);
+        return res.status(500).json({ error: "Could not validate the data source" });
       }
 
-      // Update report status
+      const sourceCheck = assessSourceEligibility(srcRow);
+      if (!sourceCheck.found) {
+        return res.status(404).json({ error: "source_id not found" });
+      }
+      if (sourceCheck.blockers.length > 0) {
+        // Inactive / legally ineligible source → clear 400, no DB internals.
+        return res.status(400).json({
+          error: "Source is not eligible to stage observations.",
+          reasons: sourceCheck.blockers,
+        });
+      }
+
+      // Confidence/method/trust come from policy — never a hard-coded score.
+      const draft = buildUserCorrectionObservationDraft(report.source_type);
+
+      const { data: prod } = await supabase
+        .from("products")
+        .select("name")
+        .eq("id", report.product_id)
+        .maybeSingle();
+      const productName = prod?.name ?? "User-reported product";
+
+      const { data: staged, error: stageErr } = await supabase
+        .from("retail_price_observations")
+        .insert({
+          source_id,
+          mall_id:             report.mall_id ?? null,
+          shop_id:             report.shop_id ?? null,
+          product_id:          report.product_id ?? null,
+          product_name:        productName,
+          price:               stagedPrice,
+          observed_at:         now,
+          trust_state:         draft.trust_state,
+          verification_method: draft.verification_method,
+          confidence:          draft.confidence,
+          review_status:       "pending",
+          review_note:         `Staged from price_correction_report ${reportId}`,
+        })
+        .select("id")
+        .single();
+
+      if (stageErr || !staged) {
+        console.error("[price-corrections approve/stage]", stageErr?.message);
+        return res.status(500).json({ error: "Failed to stage observation for review" });
+      }
+
       await supabase
         .from("price_correction_reports")
         .update({
@@ -324,32 +422,36 @@ router.post("/admin/:id/review", async (req: Request, res: Response) => {
           reviewed_by:      adminId,
           reviewed_at:      now,
           admin_note:       admin_note?.trim() ?? null,
-          confidence_score: 85,
+          confidence_score: Math.round(draft.confidence * 100), // from source policy, not 85
           updated_at:       now,
+          metadata: { ...metadata, staged_observation_id: staged.id },
         })
         .eq("id", reportId);
 
-      // Audit log
       await supabase.from("admin_audit_log").insert({
         admin_id:   adminId,
-        action:     "price_correction_approved",
-        table_name: "products",
-        row_id:     report.product_id,
-        old_values: oldValues,
-        new_values: { ...newValues, report_id: reportId },
+        action:     "price_correction_staged_observation",
+        table_name: "retail_price_observations",
+        row_id:     staged.id,
+        old_values: { report_id: reportId, status: report.status },
+        new_values: { staged_observation_id: staged.id, trust_state: draft.trust_state, confidence: draft.confidence },
       });
 
-      // Analytics event (fire-and-forget)
       void supabase.from("analytics_events").insert({
-        user_id:     adminId,
-        product_id:  report.product_id,
-        shop_id:     report.shop_id ?? null,
-        event_type:  "price_correction_approved",
+        user_id:      adminId,
+        product_id:   report.product_id,
+        shop_id:      report.shop_id ?? null,
+        event_type:   "price_correction_staged_observation",
         event_source: "admin",
-        metadata:    { report_id: reportId, approved_price: price },
+        metadata:     { report_id: reportId, staged_observation_id: staged.id },
       });
 
-      return res.json({ ok: true, action: "approved" });
+      return res.json({
+        ok: true, action: "staged_for_review",
+        staged_observation_id: staged.id,
+        note: "Correction staged as a pending user-submitted observation. It will not " +
+          "affect the shopper-facing price until reviewed and verified with evidence.",
+      });
     }
 
     // ── REJECT ────────────────────────────────────────────────────────────────

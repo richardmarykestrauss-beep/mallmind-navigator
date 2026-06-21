@@ -7,7 +7,11 @@
  * ─────
  * 1. data_quality_status is the single source of truth for base trust.
  *    data_source="manual_seed" does NOT downgrade a manually_verified product.
- * 2. A verification older than EXPIRY_DAYS is "expired" — price may have changed.
+ * 2. Freshness (20A.8D): a manually_verified product expires when its
+ *    source-aware `price_valid_until` (projected from the approved observation's
+ *    valid_to / method validity policy) has passed. When `price_valid_until` is
+ *    absent the calculator falls back to the legacy fixed EXPIRY_DAYS window
+ *    measured from price_verified_at (backwards compatible).
  * 3. Pending price_correction_reports (status=pending) elevate to "disputed".
  * 4. needs_verification reports gently flag as "needs_review" when base is high.
  * 5. Admin approve → manually_verified + fresh price_verified_at → clears expired/disputed.
@@ -55,21 +59,42 @@ export function calculatePriceTrust(
   product: {
     data_quality_status?: string | null;
     price_verified_at?: string | null;
+    /**
+     * Source-aware freshness horizon projected from the approved observation
+     * (20A.8D). When present it overrides the fixed EXPIRY_DAYS window. Absent
+     * (undefined/null) ⇒ legacy fallback, so existing callers are unaffected.
+     */
+    price_valid_until?: string | null;
   },
   hasPendingDispute  = false,
-  hasNeedsVerify     = false
+  hasNeedsVerify     = false,
+  /** Injectable evaluation time for deterministic tests; defaults to now. */
+  options: { nowMs?: number } = {}
 ): PriceTrust {
   const status     = product.data_quality_status ?? "demo";
   const verifiedAt = product.price_verified_at ?? null;
+  const validUntil = product.price_valid_until ?? null;
+  const nowMs      = options.nowMs ?? Date.now();
 
   // ── Age calculation ───────────────────────────────────────────────────────
   let price_age_days: number | null = null;
   let is_price_expired               = false;
 
   if (verifiedAt) {
-    const ageMs   = Date.now() - new Date(verifiedAt).getTime();
+    const ageMs    = nowMs - new Date(verifiedAt).getTime();
     price_age_days = Math.floor(ageMs / 86_400_000); // ms → days
-    if (status === "manually_verified") {
+  }
+
+  // ── Freshness (source-aware, with legacy fallback) ────────────────────────
+  if (status === "manually_verified") {
+    const validUntilMs = validUntil ? new Date(validUntil).getTime() : NaN;
+    if (validUntil && !Number.isNaN(validUntilMs)) {
+      // Prefer the observation-derived validity horizon (20A.8D). Expired once
+      // we are strictly past it (the horizon instant itself is still valid).
+      is_price_expired = nowMs > validUntilMs;
+    } else if (price_age_days != null) {
+      // No valid_until — or a MALFORMED one — falls back to the legacy fixed
+      // window from price_verified_at (never silently treats it as fresh).
       is_price_expired = price_age_days > EXPIRY_DAYS;
     }
   }
