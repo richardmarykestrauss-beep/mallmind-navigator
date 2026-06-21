@@ -106,3 +106,13 @@ export function buildVerifiedOnlyNoResultMessage(productTarget: string): string 
     `I can show less-confirmed ${target} matches if you want, but I won't label them as verified.`
   );
 }
+
+/**
+ * Safe, shopper-facing degraded message for when live recommendations (Gemini)
+ * are unavailable and no deterministic recovery applies (20A.6E). Honest that
+ * something is wrong, points to a workable next step, and NEVER leaks the raw
+ * provider/API error (no quota / 429 / RESOURCE_EXHAUSTED / stack text).
+ */
+export const ASSISTANT_DEGRADED_MESSAGE =
+  "I'm having trouble checking live recommendations right now. " +
+  "Try a more specific product or ask for a shop route.";

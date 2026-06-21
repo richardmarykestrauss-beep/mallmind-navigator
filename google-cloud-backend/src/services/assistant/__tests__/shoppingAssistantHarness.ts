@@ -53,7 +53,7 @@ const { filterDeterministicCandidates } =
   require("../deterministicProductFilter") as typeof import("../deterministicProductFilter");
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { assembleDeterministicShoppingAnswer, buildVerifiedOnlyNoResultMessage } =
+const { assembleDeterministicShoppingAnswer, buildVerifiedOnlyNoResultMessage, ASSISTANT_DEGRADED_MESSAGE } =
   require("../deterministicShoppingAnswer") as typeof import("../deterministicShoppingAnswer");
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -803,6 +803,83 @@ console.log("\nSA27 — verified-only no-candidate guard prevents fallback widen
   // Helper wording is natural for other targets and never fabricates verification.
   assert(/verified shoe option/i.test(buildVerifiedOnlyNoResultMessage("shoe")), "message adapts to productTarget 'shoe'");
   assert(!containsInternalStatus(buildVerifiedOnlyNoResultMessage("tv")), "no-result message is internal-status clean");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+console.log("\nSA28 — Gemini failure recovery guard (20A.6E, pure)");
+{
+  const sp = (over: Record<string, unknown> = {}): any => ({
+    product_id: "p", shop_id: "s1", name: 'Generic 40" TV', brand: null,
+    shop_name: "Game", floor: "1", unit_number: "L1-10",
+    price: 3499, original_price: null, is_on_special: false, discount_pct: null,
+    is_open_now: true, is_cheapest: false, score: 10, reason: "",
+    price_verified_at: null, data_quality_status: "demo",
+    price_verification_method: null, data_source: null, verified_by: null,
+    trust_state: null, ...over,
+  });
+  const hisense = sp({ product_id: "hisense", name: 'Hisense 43" FHD LED TV', price: 3499, trust_state: "verified", data_quality_status: "manually_verified" });
+  const samsung = sp({ product_id: "samsung", name: 'Samsung 32" HD Smart TV', shop_name: "Incredible", price: 2999, trust_state: "sample", data_quality_status: "demo" });
+
+  // Mirrors recoverFromGeminiFailure → resolveDeterministicShopping EXACTLY:
+  // after Gemini throws, try a deterministic answer (incl. verified-only guard);
+  // otherwise return the safe degraded message. Never includes the raw error.
+  const recover = (text: string, rawCandidates: any[]): any => {
+    const intent = extractDeterministicShoppingIntent(text);
+    if (intent) {
+      const candidates = filterDeterministicCandidates(rawCandidates, intent); // 6B retrieval filter
+      const a = assembleDeterministicShoppingAnswer(candidates, intent);
+      if (a.shopping_answer) {
+        return { source: "deterministic", message: a.message ?? a.shopping_answer.shopperMessage, products: a.products, build_route: false, shopping_answer: a.shopping_answer };
+      }
+      if (intent.trustPreference === "verified_only") {
+        return { source: "verified-guard", message: buildVerifiedOnlyNoResultMessage(intent.productTarget), products: [], build_route: false, shopping_answer: null };
+      }
+    }
+    return { source: "degraded", message: ASSISTANT_DEGRADED_MESSAGE, products: [], build_route: false, shopping_answer: null };
+  };
+
+  // 1. Gemini failure + clear shopping intent + candidates → deterministic answer.
+  {
+    const r = recover("I need a TV under R4000", [hisense, samsung]);
+    assertEqual(r.source, "deterministic", "Gemini-fail + product query + candidates → deterministic answer");
+    assert(r.shopping_answer != null, "recovery returns a non-null shopping_answer");
+    assert(r.products.length > 0, "recovery returns products");
+    assertEqual(r.build_route, false, "recovery keeps build_route false");
+    assertEqual(r.message, r.shopping_answer?.shopperMessage, "recovery message equals shopperMessage");
+    assert(!containsInternalStatus(r.message), "recovery answer message has no internal status tokens");
+  }
+
+  // 2. Gemini failure + verified_only + no verified candidate → verified-only no-result.
+  {
+    const r = recover("Show me verified TVs only", [samsung]);
+    assertEqual(r.source, "verified-guard", "Gemini-fail + verified_only + no verified → verified-only no-result");
+    assertEqual(r.products.length, 0, "verified-only recovery returns no products");
+    assertEqual(r.shopping_answer, null, "verified-only recovery shopping_answer null");
+    assertEqual(r.build_route, false, "verified-only recovery build_route false");
+    assert(/verified/i.test(r.message), "verified-only recovery message mentions verified");
+    assert(!containsInternalStatus(r.message), "verified-only recovery message has no internal tokens");
+  }
+
+  // 3. Gemini failure + vague/mission → safe degraded message (no raw error leak).
+  for (const phrase of ["Find me a gift for my dad", "What should I buy?", "Something for my girlfriend"]) {
+    const r = recover(phrase, [hisense, samsung]);
+    assertEqual(r.source, "degraded", `Gemini-fail + '${phrase}' → safe degraded message`);
+    assertEqual(r.products.length, 0, `'${phrase}' degraded → no products`);
+    assertEqual(r.shopping_answer, null, `'${phrase}' degraded → shopping_answer null`);
+    assertEqual(r.build_route, false, `'${phrase}' degraded → build_route false`);
+    assertEqual(r.message, ASSISTANT_DEGRADED_MESSAGE, `'${phrase}' → exact degraded message`);
+    assert(!/RESOURCE_EXHAUSTED|429|quota|stack|gemini|vertex/i.test(r.message), `'${phrase}' degraded → no raw API/provider error text`);
+    assert(!containsInternalStatus(r.message), `'${phrase}' degraded → no internal status tokens`);
+  }
+
+  // 4. Route queries are unaffected: the route bypass detects them BEFORE Gemini,
+  //    so recovery never runs for a route phrase.
+  for (const phrase of ["Take me to Game", "Where is Game?", "Directions to Game", "Navigate to Game"]) {
+    assert(extractDirectRouteDestination(phrase) != null, `'${phrase}' → handled by route bypass first (not Gemini recovery)`);
+  }
+
+  // The shared degraded constant itself never leaks provider/error detail.
+  assert(!/RESOURCE_EXHAUSTED|429|quota|stack|gemini|vertex/i.test(ASSISTANT_DEGRADED_MESSAGE), "degraded constant hides all raw API/provider error text");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

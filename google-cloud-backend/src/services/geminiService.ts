@@ -3,7 +3,7 @@ import { recommendProducts, buildDeterministicShoppingAnswer } from "./productSe
 import { buildRoute, buildRouteNoSession } from "./routingService.js";
 import { getSupabaseClient } from "../lib/supabase.js";
 import type { ScoredProduct, RouteStep } from "../lib/types.js";
-import { buildShoppingAnswer, normalizeAssistantSearchQuery, alignAssistantMessage, extractDirectRouteDestination, extractDeterministicShoppingIntent, mapProductRowsToCandidates, buildVerifiedOnlyNoResultMessage } from "./assistant/index.js";
+import { buildShoppingAnswer, normalizeAssistantSearchQuery, alignAssistantMessage, extractDirectRouteDestination, extractDeterministicShoppingIntent, mapProductRowsToCandidates, buildVerifiedOnlyNoResultMessage, ASSISTANT_DEGRADED_MESSAGE } from "./assistant/index.js";
 import type { ShoppingAnswer } from "./assistant/index.js";
 
 // ── Route intent detection ────────────────────────────────────────────────────
@@ -288,6 +288,96 @@ function buildShoppingAnswerForResult(
   // Shared mapper (20A.6C) — identical mapping, deduped from the old inline map.
   const candidates = mapProductRowsToCandidates(products, routeBuilt);
   return buildShoppingAnswer({ query: userQuery, candidates, budget: budget ?? null });
+}
+
+// ── Deterministic shopping resolution (shared by preflight + Gemini recovery) ─
+// Resolves a clear product/budget/cheapest query from MallMind's own data, with
+// the strict verified-only guard (20A.6D.1). Returns an AssistantResult when it
+// can answer (or must hold the verified-only line), or null when the request
+// should fall through (no clear intent, or a normal no-candidate result that may
+// use Gemini). DB-touching; never calls Gemini. Throws only on an unexpected
+// error — callers decide how to handle that per context.
+async function resolveDeterministicShopping(
+  ctx: AssistantContext,
+  lastMessage: Message
+): Promise<AssistantResult | null> {
+  if (!ctx.mall_id || lastMessage.role !== "user") return null;
+
+  const shoppingIntent = extractDeterministicShoppingIntent(lastMessage.content);
+  if (!shoppingIntent) return null;
+
+  const deterministic = await buildDeterministicShoppingAnswer({
+    mallId: ctx.mall_id,
+    ...shoppingIntent,
+  });
+
+  if (deterministic.shopping_answer) {
+    return {
+      message: deterministic.message ?? deterministic.shopping_answer.shopperMessage,
+      products: deterministic.products,
+      route_steps: [],
+      route_id: null,
+      build_route: false,
+      route_shop_ids: [],
+      route_summary: "",
+      shopping_answer: deterministic.shopping_answer,
+    };
+  }
+
+  // Strict "verified only" with no verified candidate: hold the line — do not
+  // widen here or via Gemini. Honest no-result, nothing labelled verified.
+  if (shoppingIntent.trustPreference === "verified_only") {
+    return {
+      message: buildVerifiedOnlyNoResultMessage(shoppingIntent.productTarget),
+      products: [],
+      route_steps: [],
+      route_id: null,
+      build_route: false,
+      route_shop_ids: [],
+      route_summary: "",
+      shopping_answer: null,
+    };
+  }
+
+  // Normal no-candidate → caller may fall through to Gemini.
+  return null;
+}
+
+// ── Recovery after a Gemini failure (no Gemini, no retry) ────────────────────
+// Gemini threw (e.g. 429 RESOURCE_EXHAUSTED / quota, or a malformed response).
+// Try a deterministic answer; otherwise return a safe degraded message. The raw
+// error is logged server-side but NEVER surfaced to the shopper.
+async function recoverFromGeminiFailure(
+  ctx: AssistantContext,
+  lastMessage: Message,
+  error: unknown
+): Promise<AssistantResult> {
+  console.error("[assistant] Gemini call failed; attempting deterministic recovery:", error);
+
+  try {
+    const recovered = await resolveDeterministicShopping(ctx, lastMessage);
+    if (recovered) {
+      console.log(
+        `[assistant] recovered after Gemini failure: answer=${recovered.shopping_answer != null} ` +
+        `products=${recovered.products.length}`,
+      );
+      return recovered;
+    }
+  } catch (recoveryErr) {
+    console.error("[assistant] deterministic recovery also failed:", recoveryErr);
+  }
+
+  console.warn("[assistant] no deterministic recovery available — returning degraded message");
+  return {
+    message: ASSISTANT_DEGRADED_MESSAGE,
+    products: [],
+    route_steps: [],
+    route_id: null,
+    build_route: false,
+    route_shop_ids: [],
+    route_summary: "",
+    shopping_answer: null,
+  };
 }
 
 
@@ -633,60 +723,25 @@ export async function runAssistant(
   // AFTER the route bypass (navigation stays first). Vague/mission/navigation
   // requests yield no deterministic intent, and a clear intent with no matching
   // candidates yields a null shopping_answer; both fall through to the AI flow.
+  // Clear product/budget/cheapest queries ("I need a TV under R4000", "cheapest
+  // TV under R4000", "verified TVs only") are answered from MallMind's own data
+  // BEFORE Gemini — quota-independent — including the strict verified-only guard
+  // (20A.6D.1). A null result means no clear intent / a normal no-candidate
+  // case, which falls through to the AI flow.
   if (ctx.mall_id && lastMessage.role === "user") {
-    const shoppingIntent = extractDeterministicShoppingIntent(lastMessage.content);
-    if (shoppingIntent) {
-      try {
-        const deterministic = await buildDeterministicShoppingAnswer({
-          mallId: ctx.mall_id,
-          ...shoppingIntent,
-        });
-
-        if (deterministic.shopping_answer) {
-          // Answered confidently from MallMind data — skip Gemini entirely.
-          console.log(
-            `[assistant] deterministic shopping bypass: intent=${shoppingIntent.intent} ` +
-            `target="${shoppingIntent.productTarget}" candidates=${deterministic.products.length}`,
-          );
-          return {
-            message: deterministic.message ?? deterministic.shopping_answer.shopperMessage,
-            products: deterministic.products,
-            route_steps: [],
-            route_id: null,
-            build_route: false,
-            route_shop_ids: [],
-            route_summary: "",
-            shopping_answer: deterministic.shopping_answer,
-          };
-        }
-
-        // Strict "verified only" with no verified candidate: do NOT fall through
-        // to Gemini (that widens to medium/low-trust matches and breaks "only").
-        // Return an honest deterministic no-result instead — no fabricated
-        // answer, no medium/low products, nothing labelled verified.
-        if (shoppingIntent.trustPreference === "verified_only") {
-          console.log(
-            `[assistant] verified-only no-result guard: target="${shoppingIntent.productTarget}" ` +
-            `(no verified candidate; Gemini skipped to avoid widening)`,
-          );
-          return {
-            message: buildVerifiedOnlyNoResultMessage(shoppingIntent.productTarget),
-            products: [],
-            route_steps: [],
-            route_id: null,
-            build_route: false,
-            route_shop_ids: [],
-            route_summary: "",
-            shopping_answer: null,
-          };
-        }
-
-        // Otherwise shopping_answer null (no candidates) → fall through to Gemini.
-      } catch (err) {
-        // Any failure (e.g. DB hiccup) must not break the assistant — fall
-        // through to the normal AI flow rather than surfacing an error.
-        console.error("[assistant] deterministic shopping bypass failed:", err);
+    try {
+      const deterministic = await resolveDeterministicShopping(ctx, lastMessage);
+      if (deterministic) {
+        console.log(
+          `[assistant] deterministic shopping bypass (pre-Gemini): ` +
+          `answer=${deterministic.shopping_answer != null} products=${deterministic.products.length}`,
+        );
+        return deterministic;
       }
+    } catch (err) {
+      // Any failure (e.g. DB hiccup) must not break the assistant — fall through
+      // to the normal AI flow rather than surfacing an error.
+      console.error("[assistant] deterministic shopping bypass failed:", err);
     }
   }
 
@@ -713,18 +768,26 @@ export async function runAssistant(
   //
   // SUBSEQUENT TURNS: no config override → falls back to chat-level baseConfig
   // (mode=AUTO) so Gemini can freely give a final text answer after tools return.
-  let response = await chat.sendMessage({
-    message: lastMessage.content,
-    config: {
-      ...baseConfig,
-      toolConfig: {
-        functionCallingConfig: {
-          mode: FunctionCallingConfigMode.ANY,
-          allowedFunctionNames: ["recommend_products"],
+  // Gemini network calls (here + the loop below) can throw — most importantly
+  // 429 RESOURCE_EXHAUSTED / quota. On failure, degrade gracefully via
+  // deterministic recovery instead of hard-failing the request.
+  let response: Awaited<ReturnType<typeof chat.sendMessage>>;
+  try {
+    response = await chat.sendMessage({
+      message: lastMessage.content,
+      config: {
+        ...baseConfig,
+        toolConfig: {
+          functionCallingConfig: {
+            mode: FunctionCallingConfigMode.ANY,
+            allowedFunctionNames: ["recommend_products"],
+          },
         },
       },
-    },
-  });
+    });
+  } catch (geminiErr) {
+    return recoverFromGeminiFailure(ctx, lastMessage, geminiErr);
+  }
 
   for (let turn = 0; turn < 8; turn++) {
     const fnCalls = response.functionCalls ?? [];
@@ -928,9 +991,13 @@ export async function runAssistant(
     }
 
     // Send tool results back and continue the loop
-    response = await chat.sendMessage({ message: functionResponses.map(fr => ({
-      functionResponse: { name: fr.name, response: fr.response },
-    })) });
+    try {
+      response = await chat.sendMessage({ message: functionResponses.map(fr => ({
+        functionResponse: { name: fr.name, response: fr.response },
+      })) });
+    } catch (geminiErr) {
+      return recoverFromGeminiFailure(ctx, lastMessage, geminiErr);
+    }
   }
 
   // Loop exhausted without a final text response — use deterministic best-pick
