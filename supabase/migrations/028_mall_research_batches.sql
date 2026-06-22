@@ -1,5 +1,5 @@
 -- ================================================================
--- Migration 007 — Mall Research Batch Workflow
+-- Migration 028 — Mall Research Batch Workflow
 -- Sprint 9E · MallMind Navigator
 -- Run in Supabase SQL Editor after 006
 -- ================================================================

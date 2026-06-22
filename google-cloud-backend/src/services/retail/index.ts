@@ -11,3 +11,4 @@ export * from "./retailNameMatcher";
 export * from "./retailTrustMapper";
 export * from "./retailWarnings";
 export * from "./retailPublishPlanner";
+export * from "./retailVerificationPolicy";

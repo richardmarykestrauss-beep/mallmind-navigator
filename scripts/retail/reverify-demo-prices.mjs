@@ -1,4 +1,24 @@
 #!/usr/bin/env node
+// ⚠️  LEGACY / DEMO-ONLY (deprecated by Sprint 20A.8) ⚠️
+// ---------------------------------------------------------------------------
+// This script directly refreshes products.price_verified_at to keep the
+// founder-demo "Verified option" from expiring. That is NOT the long-term
+// freshness mechanism and must not be treated as one.
+//
+// LONG-TERM PATH (Sprint 20A.8 — evidence-backed verification):
+//   1. Capture real evidence (phone note / store photo / receipt) as a
+//      retail_source_snapshot under a retail_data_source.
+//   2. Create + approve a retail_price_observation (review_status='approved')
+//      with the verification_method and observed_at/valid_to.
+//   3. Publish it via POST /admin/verify-product-price { observation_id }, which
+//      validates through the shared verification policy and the atomic
+//      publish_verified_observation RPC. Freshness then derives from the
+//      observation's validity (products.price_valid_until), not a manual touch.
+//
+// See docs/retail/evidence-backed-verification-unification.md.
+// This helper remains ONLY as a demo stopgap; prefer the observation flow.
+// ---------------------------------------------------------------------------
+//
 // Founder-demo price re-verification helper (Sprint 22B).
 //
 // WHY: priceTrust expires manual verification after 7 days. The Mall@Reds

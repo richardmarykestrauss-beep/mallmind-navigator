@@ -12,6 +12,7 @@
     "start": "node dist/server.js",
     "lint": "tsc --noEmit",
     "test:retail-core": "ts-node --transpile-only src/services/retail/__tests__/retailCoreHarness.ts",
+    "test:retail-publisher": "ts-node --transpile-only src/services/__tests__/retailPublisherHarness.ts",
     "test:shopping-assistant": "ts-node --transpile-only src/services/assistant/__tests__/shoppingAssistantHarness.ts",
     "test:health": "curl -s http://localhost:8080/health | jq ."
   },
