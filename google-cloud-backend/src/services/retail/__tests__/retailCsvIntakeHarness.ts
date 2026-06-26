@@ -321,5 +321,66 @@ console.log("\nCI-CONTRACT — migration 029 stage_retail_csv_import hardening")
   hasRe(/grant execute on function public\.stage_retail_csv_import\([^)]*\) to service_role/, "granted only to service_role");
 }
 
+// ── Migration contract — corrective migration 030 (column ambiguity fix) ─────
+// 030 re-creates stage_retail_csv_import with every column reference qualified,
+// fixing ERROR 42702 ("column reference \"source_id\" is ambiguous") caused by
+// RETURNS TABLE output names shadowing unqualified columns. This is a static scan
+// that the dangerous unqualified pattern is gone and the aliased forms are used.
+console.log("\nCI-CONTRACT — migration 030 stage_retail_csv_import column qualification");
+{
+  const sqlPath = path.resolve(
+    __dirname, "..", "..", "..", "..", "..", "supabase", "migrations", "030_fix_retail_csv_rpc_ambiguity.sql"
+  );
+  const sql = fs.readFileSync(sqlPath, "utf8");
+  // Executable SQL only — strip "--" comment lines so the dangerous-pattern
+  // scan never trips on the header's documentation of the original defect.
+  const code = sql.split("\n").filter((l) => !/^\s*--/.test(l)).join("\n");
+  const has = (needle: string, label: string) => assert(sql.includes(needle), label);
+  const hasRe = (re: RegExp, label: string) => assert(re.test(sql), label);
+  const lacks = (needle: string, label: string) => assert(!sql.includes(needle), label);
+  const lacksReCode = (re: RegExp, label: string) => assert(!re.test(code), label);
+
+  // Corrective shape: CREATE OR REPLACE, no DROP (return type unchanged).
+  has("create or replace function public.stage_retail_csv_import", "030 uses CREATE OR REPLACE FUNCTION");
+  lacks("drop function", "030 does not drop the function");
+
+  // The exact dangerous unqualified pattern from the live defect must be gone
+  // from the executable body (comments may still quote it for documentation).
+  lacksReCode(/where\s+source_id\s*=\s*v_source_id/, "no unqualified 'where source_id = v_source_id'");
+  lacksReCode(/where\s+content_sha256\s*=\s*v_sha/, "no unqualified 'where content_sha256 = v_sha'");
+  lacksReCode(/where\s+id\s*=\s*v_batch_id/, "no unqualified 'where id = v_batch_id'");
+
+  // Qualified aliases in source / snapshot / observation / batch queries.
+  has("from public.retail_data_sources as rds", "source reuse query is aliased (rds)");
+  has("returning rds.id into v_source_id", "source insert returns the aliased id");
+  hasRe(/rds\.shop_id is not distinct from v_source_shop_id/, "source reuse keys on aliased shop_id");
+  has("from public.retail_source_snapshots as rss", "snapshot reuse query is aliased (rss)");
+  hasRe(/rss\.source_id\s*=\s*v_source_id/, "snapshot reuse compares rss.source_id (the original ambiguous column)");
+  has("returning rss.id into v_snapshot_id", "snapshot insert returns the aliased id");
+  has("from public.retail_price_observations as rpo", "observation dedup anti-join is aliased (rpo)");
+  hasRe(/rpo\.observation_hash\s*=/, "dedup compares rpo.observation_hash");
+  has("update public.retail_import_batches as rib", "batch finalisation update is aliased (rib)");
+  hasRe(/where\s+rib\.id\s*=\s*v_batch_id/, "batch finalisation filters on rib.id");
+  has("returning rib.id into v_batch_id", "batch insert returns the aliased id");
+  hasRe(/from public\.profiles as pr[\s\S]*?pr\.id\s*=\s*p_admin_id/, "admin check is aliased (pr)");
+  hasRe(/from public\.malls as m\b[\s\S]*?m\.id\s*=\s*v_mall_id/, "mall existence check is aliased (m)");
+
+  // Unchanged contract: same return columns, security + behaviour preserved.
+  has("source_id            uuid,", "030 keeps the exact return columns");
+  has("returns table (", "030 keeps the RETURNS TABLE signature");
+  has("security definer", "030 retains SECURITY DEFINER");
+  has("set search_path = pg_catalog, public", "030 retains locked search_path");
+  has("-- FORCED: CSV intake never publishes/verifies", "030 still forces review_status pending");
+  has("pg_advisory_xact_lock", "030 retains the advisory lock");
+  has("is not legally eligible for CSV staging", "030 retains legal eligibility rejection");
+  has("lower(coalesce(v_source_shop_id::text, 'mall_wide'))", "030 retains shop-aware source identity");
+  lacks("insert into public.products", "030 still never inserts into products");
+  lacks("publish_verified_observation(", "030 still never calls the publish RPC");
+  hasRe(/revoke all on function public\.stage_retail_csv_import\([^)]*\) from public/, "030 revokes from PUBLIC");
+  hasRe(/revoke all on function public\.stage_retail_csv_import\([^)]*\) from anon/, "030 revokes from anon");
+  hasRe(/revoke all on function public\.stage_retail_csv_import\([^)]*\) from authenticated/, "030 revokes from authenticated");
+  hasRe(/grant execute on function public\.stage_retail_csv_import\([^)]*\) to service_role/, "030 grants only to service_role");
+}
+
 console.log(`\n===== RETAIL CSV INTAKE HARNESS RESULT: ${passed} passed, ${failed} failed =====`);
 if (failed > 0) process.exit(1);
