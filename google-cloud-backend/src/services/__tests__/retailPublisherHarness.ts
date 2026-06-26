@@ -19,6 +19,10 @@ export {};
 const { publishApprovedObservation } =
   require("../retailObservationPublisher") as typeof import("../retailObservationPublisher");
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { runCsvImport } =
+  require("../retailCsvImportService") as typeof import("../retailCsvImportService");
+
 let passed = 0;
 let failed = 0;
 function assert(cond: boolean, label: string): void {
@@ -101,6 +105,100 @@ function makeSupabase(cfg: any) {
     const loadErr = await publishApprovedObservation(makeSupabase({ observation: { data: null, error: { message: "connection reset" } } }) as never, "x", "admin-1", null, NOW);
     assert(loadErr.ok === false && loadErr.httpStatus === 500, "load error → 500");
     assert(!/connection reset/i.test(loadErr.error ?? ""), "load-error message hides internals");
+  }
+
+  // ── CSV import service (runCsvImport) — 20A.9 ─────────────────────────────
+  const MALL = "f4a2c1b3-8d7e-4f6a-9b0c-1d2e3f4a5b6c";
+  const SHOP = "a1b2c3d4-0001-4000-8000-100000000001";
+  const HEADER = "mall_id,shop_id,product_name,brand,model,category,price,original_price,is_on_special,special_description,in_stock,trust_state,verification_method,valid_to,source_note";
+  const CSV = HEADER + "\n" + `${MALL},${SHOP},Hisense 43in TV,Hisense,43A4,televisions,3499,3999,true,Winter,true,needs_review,csv_manual,2026-07-31,seed`;
+  const SOURCE = { source_type: "retailer_submission", name: "Woolies June", retailer_name: "Woolworths", legal_status: "retailer_supplied", base_trust: 0.95 };
+  const body = (over: Record<string, unknown> = {}) => ({ mode: "apply", file_name: "w.csv", csv_text: CSV, source: SOURCE, ...over });
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function makeImportSupabase(cfg: any) {
+    cfg.calls = [];
+    return {
+      from(table: string) {
+        cfg.calls.push(table);
+        if (table === "malls") return { select: () => ({ eq: () => ({ maybeSingle: async () => cfg.mall ?? { data: { id: MALL }, error: null } }) }) };
+        if (table === "shops") return { select: () => ({ in: async () => cfg.shops ?? { data: [{ id: SHOP, mall_id: MALL }], error: null } }) };
+        return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }) };
+      },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      rpc: async (name: string, args: any) => { cfg.rpcCall = { name, args }; return cfg.rpc ?? { data: [{ source_id: "s1", snapshot_id: "sn1", batch_id: "b1", staged_rows: 1, skipped_existing: 0, reused_source: false, reused_snapshot: false }], error: null }; },
+    };
+  }
+
+  console.log("\nRI1 — invalid request → 400 (no DB)");
+  {
+    const cfg: any = {};
+    const r = await runCsvImport(makeImportSupabase(cfg) as never, "admin-1", "a@x.co", body({ mode: "nope" }));
+    assert(r.httpStatus === 400 && r.payload.ok === false, "bad mode → 400");
+    assert(cfg.calls.length === 0 && !cfg.rpcCall, "invalid request makes no DB calls");
+  }
+
+  console.log("\nRI2 — dry_run performs NO writes");
+  {
+    const cfg: any = {};
+    const r = await runCsvImport(makeImportSupabase(cfg) as never, "admin-1", "a@x.co", body({ mode: "dry_run" }));
+    assert(r.httpStatus === 200 && r.payload.mode === "dry_run" && r.payload.valid_rows === 1, "dry_run → 200 summary");
+    assert(cfg.calls.length === 0 && !cfg.rpcCall, "dry_run makes no DB calls");
+    assert(typeof r.payload.file_sha256 === "string" && !("csv_text" in r.payload), "no raw CSV echoed; sha returned");
+  }
+
+  console.log("\nRI3 — apply validates mall/shop references");
+  {
+    const unknownMall: any = { mall: { data: null, error: null } };
+    let r = await runCsvImport(makeImportSupabase(unknownMall) as never, "admin-1", "a@x.co", body());
+    assert(r.httpStatus === 400 && /Unknown mall_id/.test(r.payload.error), "unknown mall → 400");
+    assert(!unknownMall.rpcCall, "no RPC when mall unknown");
+
+    const unknownShop: any = { shops: { data: [], error: null } };
+    r = await runCsvImport(makeImportSupabase(unknownShop) as never, "admin-1", "a@x.co", body());
+    assert(r.httpStatus === 400 && Array.isArray(r.payload.unknown_shop_ids), "unknown shop → 400");
+
+    const wrongMall: any = { shops: { data: [{ id: SHOP, mall_id: "other-mall" }], error: null } };
+    r = await runCsvImport(makeImportSupabase(wrongMall) as never, "admin-1", "a@x.co", body());
+    assert(r.httpStatus === 400 && /do not belong to the mall/.test(r.payload.error), "shop in wrong mall → 400");
+  }
+
+  console.log("\nRI4 — successful apply");
+  {
+    const cfg: any = {};
+    const r = await runCsvImport(makeImportSupabase(cfg) as never, "admin-1", "a@x.co", body());
+    assert(r.httpStatus === 200 && r.payload.ok === true, "valid apply → 200");
+    assert(r.payload.staged_rows === 1 && r.payload.review_status === "pending", "returns staged count + pending status");
+    assert(cfg.rpcCall?.name === "stage_retail_csv_import" && cfg.rpcCall.args.p_observations.length === 1, "RPC called with 1 observation");
+    assert(cfg.rpcCall.args.p_admin_id === "admin-1", "RPC carries the admin id for audit");
+  }
+
+  console.log("\nRI5 — repeated apply is idempotent (counts honest)");
+  {
+    const cfg: any = { rpc: { data: [{ source_id: "s1", snapshot_id: "sn1", batch_id: "b2", staged_rows: 0, skipped_existing: 1, reused_source: true, reused_snapshot: true }], error: null } };
+    const r = await runCsvImport(makeImportSupabase(cfg) as never, "admin-1", "a@x.co", body());
+    assert(r.httpStatus === 200 && r.payload.staged_rows === 0 && r.payload.skipped_existing_hashes === 1, "re-import → 0 staged, 1 skipped");
+    assert(r.payload.reused_source === true && r.payload.reused_snapshot === true, "reuse flags surfaced");
+  }
+
+  console.log("\nRI6 — RPC failures: missing migration vs unexpected error");
+  {
+    const missing: any = { rpc: { data: null, error: { code: "PGRST202", message: "Could not find the function public.stage_retail_csv_import in the schema cache" } } };
+    let r = await runCsvImport(makeImportSupabase(missing) as never, "admin-1", "a@x.co", body());
+    assert(r.httpStatus === 503 && !/PGRST|schema cache|stage_retail/i.test(r.payload.error), "missing RPC → 503, internals hidden");
+
+    const dbErr: any = { rpc: { data: null, error: { code: "23503", message: "insert or update violates foreign key" } } };
+    r = await runCsvImport(makeImportSupabase(dbErr) as never, "admin-1", "a@x.co", body());
+    assert(r.httpStatus === 500 && !/foreign key|violat/i.test(r.payload.error), "unexpected DB error → 500, internals hidden");
+  }
+
+  console.log("\nRI7 — all-blocked CSV → 400, no staging");
+  {
+    const badCsv = HEADER + "\n" + `${MALL},${SHOP},,,,,,-5,true,,true,needs_review,csv_manual,,x`;
+    const cfg: any = {};
+    const r = await runCsvImport(makeImportSupabase(cfg) as never, "admin-1", "a@x.co", body({ csv_text: badCsv }));
+    assert(r.httpStatus === 400 && /No stageable rows/.test(r.payload.error), "all-blocked apply → 400");
+    assert(!cfg.rpcCall, "no RPC when nothing stageable");
   }
 
   console.log(`\n===== RETAIL PUBLISHER HARNESS RESULT: ${passed} passed, ${failed} failed =====`);
