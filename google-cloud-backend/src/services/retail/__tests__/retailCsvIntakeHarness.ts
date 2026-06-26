@@ -228,5 +228,83 @@ console.log("\nCI-PURITY — intake module has no Supabase/env/fs/network/Expres
   }
 }
 
+// ── Migration contract — hardened RPC 029_retail_csv_intake.sql ──────────────
+// No DB is available in this pure harness, so this is a static SQL contract scan:
+// it asserts the SECURITY DEFINER RPC validates its own inputs and preserves its
+// security properties (independent security review, Sprint 20A.9 hardening).
+console.log("\nCI-CONTRACT — migration 029 stage_retail_csv_import hardening");
+{
+  const sqlPath = path.resolve(
+    __dirname, "..", "..", "..", "..", "..", "supabase", "migrations", "029_retail_csv_intake.sql"
+  );
+  const sql = fs.readFileSync(sqlPath, "utf8");
+  const has = (needle: string, label: string) => assert(sql.includes(needle), label);
+  const hasRe = (re: RegExp, label: string) => assert(re.test(sql), label);
+  const lacks = (needle: string, label: string) => assert(!sql.includes(needle), label);
+
+  // 1. JSON container types validated; array type checked BEFORE length.
+  has("jsonb_typeof(p_source) is distinct from 'object'", "validates p_source is a JSON object");
+  has("jsonb_typeof(p_snapshot) is distinct from 'object'", "validates p_snapshot is a JSON object");
+  has("jsonb_typeof(p_batch) is distinct from 'object'", "validates p_batch is a JSON object");
+  has("jsonb_typeof(p_observations) is distinct from 'array'", "validates p_observations is a JSON array");
+  assert(
+    sql.indexOf("jsonb_typeof(p_observations) is distinct from 'array'") <
+      sql.indexOf("jsonb_array_length(p_observations)"),
+    "array type is checked before jsonb_array_length",
+  );
+  has("at least one observation is required", "requires at least one observation");
+
+  // 2. Required source fields + enum membership.
+  has("source.source_type is required", "rejects missing source_type");
+  has("source.name is required", "rejects missing source name");
+  has("source.legal_status is required", "rejects missing legal_status");
+  hasRe(/source\.source_type % is not a supported enum value/, "source_type checked against enum");
+  hasRe(/source\.legal_status % is not a supported enum value/, "legal_status checked against enum");
+  has("source.base_trust must be between 0 and 1", "base_trust range enforced");
+  has("source.mall_id references an unknown mall", "source mall existence enforced");
+  has("source.attribution_required must be a boolean", "attribution_required boolean enforced");
+
+  // 3. Snapshot identity.
+  has("snapshot.content_sha256 is required", "rejects blank sha256");
+  has("must be exactly 64 lowercase hex chars", "sha256 must be 64 hex");
+  has("snapshot requires a ref_label", "requires a deliberate evidence label");
+  hasRe(/c_sha_re\s+constant text\s*:=\s*'\^\[0-9a-f\]\{64\}\$'/, "sha256 regex is 64 hex");
+
+  // 4. Per-observation defensive validation.
+  has("observation % has a missing or malformed observation_hash", "blank/short observation_hash rejected");
+  has("observation % mall_id does not match the source mall", "observation mall mismatch rejected");
+  has("observation % shop_id is unknown or not in the source mall", "shop in another mall rejected");
+  has("s.mall_id = v_mall_id", "shop coherence joins on the source mall");
+  has("observation % has a non-numeric or negative price", "bad numeric price rejected");
+  has("observation % has an invalid is_on_special", "malformed boolean rejected");
+  has("observation % has an invalid timestamp", "malformed timestamp rejected");
+  has("observation % confidence must be between 0 and 1", "confidence bounds enforced");
+  has("observation % has an unsupported trust_state", "unsupported trust state rejected");
+  has("observation % has an unsupported verification_method", "unsupported method rejected");
+  has("observation % product_id is unknown or incoherent", "incoherent product_id rejected");
+  has("review_status must be pending (CSV intake stages only)", "non-pending review_status rejected");
+
+  // 5. In-payload dedup + concurrency strategy.
+  has("distinct on (h)", "deduplicates incoming payload by hash");
+  has("on conflict do nothing", "pending-hash collisions cannot abort the import");
+  has("pg_advisory_xact_lock", "source reuse concurrency strategy represented in SQL");
+  has("v_skipped := v_unique - v_staged", "skipped_existing is computed from unique-minus-staged");
+
+  // 6. Forced pending + no publication / verification.
+  has("-- FORCED: CSV intake never publishes/verifies", "staging forces review_status pending");
+  lacks("insert into public.products", "no insert into products");
+  lacks("update public.products", "no update of products");
+  lacks("publish_verified_observation(", "never calls the publish RPC");
+
+  // 7. Security properties preserved.
+  has("security definer", "retains SECURITY DEFINER");
+  has("set search_path = pg_catalog, public", "retains locked search_path");
+  has("public.retail_price_observations", "uses schema-qualified table refs");
+  hasRe(/revoke all on function public\.stage_retail_csv_import\([^)]*\) from public/, "revoked from PUBLIC");
+  hasRe(/revoke all on function public\.stage_retail_csv_import\([^)]*\) from anon/, "revoked from anon");
+  hasRe(/revoke all on function public\.stage_retail_csv_import\([^)]*\) from authenticated/, "revoked from authenticated");
+  hasRe(/grant execute on function public\.stage_retail_csv_import\([^)]*\) to service_role/, "granted only to service_role");
+}
+
 console.log(`\n===== RETAIL CSV INTAKE HARNESS RESULT: ${passed} passed, ${failed} failed =====`);
 if (failed > 0) process.exit(1);
