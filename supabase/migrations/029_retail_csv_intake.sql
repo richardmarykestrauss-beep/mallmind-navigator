@@ -70,6 +70,7 @@ declare
   v_base_trust    numeric;
   v_attr_required boolean;
   v_mall_id       uuid;
+  v_source_shop_id uuid;
 
   v_sha           text := btrim(coalesce(p_snapshot->>'content_sha256', ''));
   v_ref_label     text := nullif(btrim(coalesce(p_snapshot->>'ref_label', '')), '');
@@ -130,6 +131,12 @@ begin
   if v_legal not in ('manual_fact_entry','licensed_feed','retailer_supplied','user_supplied','partner_licensed','reference_only','needs_legal_review') then
     raise exception 'source.legal_status % is not a supported enum value', v_legal using errcode = 'check_violation';
   end if;
+  -- Legally-blocked statuses are recognised enum values but MUST NOT fuel CSV
+  -- staging: reject them up front so no source/snapshot/batch/observation is
+  -- ever created (and before the advisory lock is taken).
+  if v_legal in ('reference_only', 'needs_legal_review') then
+    raise exception 'source.legal_status % is not legally eligible for CSV staging', v_legal using errcode = 'check_violation';
+  end if;
   if coalesce(p_source->>'mall_id', '') !~ c_uuid_re then
     raise exception 'source.mall_id is required and must be a UUID' using errcode = 'check_violation';
   end if;
@@ -144,12 +151,17 @@ begin
   if v_base_trust < 0 or v_base_trust > 1 then
     raise exception 'source.base_trust must be between 0 and 1' using errcode = 'check_violation';
   end if;
-  -- optional source.shop_id (when present, must be a UUID in this mall)
-  if nullif(btrim(coalesce(p_source->>'shop_id', '')), '') is not null then
+  -- optional source.shop_id: blank/omitted → null (mall-wide source); otherwise
+  -- validate the UUID once into v_source_shop_id and confirm it is a shop in this
+  -- mall. The validated variable (never the raw JSON) is reused downstream.
+  if nullif(btrim(coalesce(p_source->>'shop_id', '')), '') is null then
+    v_source_shop_id := null;
+  else
     if (p_source->>'shop_id') !~ c_uuid_re then
       raise exception 'source.shop_id must be a UUID' using errcode = 'check_violation';
     end if;
-    if not exists (select 1 from public.shops s where s.id = (p_source->>'shop_id')::uuid and s.mall_id = v_mall_id) then
+    v_source_shop_id := (p_source->>'shop_id')::uuid;
+    if not exists (select 1 from public.shops s where s.id = v_source_shop_id and s.mall_id = v_mall_id) then
       raise exception 'source.shop_id is unknown or not in the source mall' using errcode = 'check_violation';
     end if;
   end if;
@@ -294,6 +306,7 @@ begin
     lower(v_name),
     lower(coalesce(v_retailer, '')),
     lower(v_mall_id::text),
+    lower(coalesce(v_source_shop_id::text, 'mall_wide')),
     lower(v_legal)
   );
   perform pg_advisory_xact_lock(hashtextextended(v_lock_key, 0));
@@ -304,6 +317,7 @@ begin
      and name = v_name
      and coalesce(retailer_name, '') = coalesce(v_retailer, '')
      and mall_id is not distinct from v_mall_id
+     and shop_id is not distinct from v_source_shop_id
      and legal_status = v_legal
      and is_active = true
      and legal_status not in ('needs_legal_review', 'reference_only')
@@ -320,7 +334,7 @@ begin
       v_name,
       v_retailer,
       v_mall_id,
-      nullif(p_source->>'shop_id', '')::uuid,
+      v_source_shop_id,
       v_base_trust,
       v_legal,
       nullif(p_source->>'license_note', ''),
