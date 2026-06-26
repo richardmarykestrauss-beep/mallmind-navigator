@@ -133,6 +133,26 @@ console.log("\nCI — retail CSV intake (20A.9)");
   assert(intakeRetailCsv(csv(row({ valid_to: "not-a-date" }))).rows[0].blockers.some((b) => /valid_to/.test(b)), "invalid valid_to blocked");
 }
 
+// 15b. observed_at — optional; migration 032 defaults a missing one in-DB, but
+// the pure intake must keep treating it as an optional nullable field.
+{
+  // Missing observed_at (not in the base header) stays a valid row → null.
+  const missing = intakeRetailCsv(csv(row()));
+  assert(missing.valid_rows === 1 && missing.candidates[0].observed_at === null,
+    "missing observed_at remains a valid CSV row (null)");
+
+  // An explicit valid observed_at is preserved verbatim.
+  const explicitTs = "2026-05-01T10:00:00Z";
+  const kept = intakeRetailCsv((HEADER + ",observed_at") + "\n" + row() + "," + explicitTs);
+  assert(kept.valid_rows === 1 && kept.candidates[0].observed_at === explicitTs,
+    "explicit valid observed_at is preserved");
+
+  // A malformed nonblank observed_at is still blocked (before any DB insert).
+  const bad = intakeRetailCsv((HEADER + ",observed_at") + "\n" + row() + ",not-a-date");
+  assert(bad.blocked_rows === 1 && bad.rows[0].blockers.some((b) => /observed_at/.test(b)),
+    "malformed observed_at remains blocked");
+}
+
 // 16/17. Trust state + method validation.
 {
   assert(intakeRetailCsv(csv(row({ trust_state: "supertrust" }))).rows[0].blockers.some((b) => /trust_state/.test(b)), "invalid trust_state blocked");
@@ -439,6 +459,77 @@ console.log("\nCI-CONTRACT — migration 031 stage_retail_csv_import named snaps
   // Prior applied migrations must remain present and unedited in the tree.
   assert(fs.existsSync(path.join(dir, "029_retail_csv_intake.sql")), "029 migration still present");
   assert(fs.existsSync(path.join(dir, "030_fix_retail_csv_rpc_ambiguity.sql")), "030 migration still present");
+}
+
+// ── Migration contract — corrective migration 032 (observed_at default) ──────
+// 032 re-creates stage_retail_csv_import coalescing a missing observed_at to
+// statement_timestamp(), fixing a live ERROR 23502 (the NOT NULL observed_at
+// column was handed an explicit NULL, bypassing its table default). Static scan.
+console.log("\nCI-CONTRACT — migration 032 stage_retail_csv_import observed_at default");
+{
+  const dir = path.resolve(__dirname, "..", "..", "..", "..", "..", "supabase", "migrations");
+  const sql = fs.readFileSync(path.join(dir, "032_fix_retail_csv_observed_at_default.sql"), "utf8");
+  const has = (needle: string, label: string) => assert(sql.includes(needle), label);
+  const hasRe = (re: RegExp, label: string) => assert(re.test(sql), label);
+  const lacks = (needle: string, label: string) => assert(!sql.includes(needle), label);
+  // Executable SQL only (strip "--" comment lines) for absence checks so the
+  // header's documentation of the old expression cannot trip the scan.
+  const code = sql.split("\n").filter((l) => !/^\s*--/.test(l)).join("\n");
+
+  // 032 exists, is a CREATE OR REPLACE, and does not drop or edit prior migrations.
+  assert(sql.length > 0, "032 migration exists");
+  has("create or replace function public.stage_retail_csv_import", "032 uses CREATE OR REPLACE FUNCTION");
+  lacks("drop function", "032 does not drop the function");
+  assert(!/029_retail_csv_intake|030_fix_retail_csv_rpc_ambiguity|031_fix_retail_csv_snapshot_conflict/.test(code),
+    "032 does not edit/rerun prior migrations");
+
+  // The exact functional correction: missing observed_at → statement_timestamp().
+  hasRe(/coalesce\(\s*nullif\(btrim\(fresh\.o->>'observed_at'\),\s*''\)::timestamptz,\s*statement_timestamp\(\)\s*\)/,
+    "032 coalesces missing observed_at to statement_timestamp()");
+  has("statement_timestamp()", "032 uses statement_timestamp() (one deterministic fallback per import)");
+  assert(!code.includes("clock_timestamp("), "032 does not use clock_timestamp() (executable SQL)");
+  // The old direct nullable insert expression must be gone from EXECUTABLE SQL.
+  assert(!code.includes("nullif(btrim(fresh.o->>'observed_at'), '')::timestamptz, nullif(btrim(fresh.o->>'valid_from')"),
+    "032 removed the old direct nullable observed_at insert expression");
+  // Explicit timestamps still cast as timestamptz (valid_from/valid_to unchanged).
+  has("nullif(btrim(fresh.o->>'valid_from'), '')::timestamptz", "032 keeps valid_from as timestamptz");
+  has("nullif(btrim(fresh.o->>'valid_to'), '')::timestamptz", "032 keeps valid_to as timestamptz");
+  // The per-observation validation that rejects malformed observed_at is retained.
+  hasRe(/perform nullif\(btrim\(coalesce\(v_o->>'observed_at', ''\)\), ''\)::timestamptz;/,
+    "032 retains observed_at validation that blocks malformed values");
+
+  // 031's named snapshot constraint remains.
+  has("on conflict on constraint retail_source_snapshots_source_id_content_sha256_key", "032 keeps the named snapshot conflict constraint");
+  assert(!code.includes("on conflict (source_id, content_sha256)"), "032 has no column-list snapshot conflict target");
+
+  // All aliasing remains intact.
+  has("from public.retail_data_sources as rds", "032 source reuse stays aliased (rds)");
+  hasRe(/rss\.source_id\s*=\s*v_source_id/, "032 snapshot reuse stays aliased (rss.source_id)");
+  has("from public.retail_price_observations as rpo", "032 observation dedup stays aliased (rpo)");
+  has("update public.retail_import_batches as rib", "032 batch finalisation stays aliased (rib)");
+  has("on conflict do nothing", "032 retains the safe targetless observation conflict");
+
+  // Security + behaviour guarantees remain intact.
+  has("returns table (", "032 keeps the RETURNS TABLE signature");
+  has("source_id            uuid,", "032 keeps the exact return columns");
+  has("security definer", "032 retains SECURITY DEFINER");
+  has("set search_path = pg_catalog, public", "032 retains locked search_path");
+  has("-- FORCED: CSV intake never publishes/verifies", "032 still forces review_status pending");
+  has("pg_advisory_xact_lock", "032 retains the advisory lock");
+  has("is not legally eligible for CSV staging", "032 retains legal eligibility rejection");
+  has("lower(coalesce(v_source_shop_id::text, 'mall_wide'))", "032 retains shop-aware source identity");
+  lacks("insert into public.products", "032 still never inserts into products");
+  lacks("update public.products", "032 still never updates products");
+  lacks("publish_verified_observation(", "032 still never calls the publish RPC");
+  hasRe(/revoke all on function public\.stage_retail_csv_import\([^)]*\) from public/, "032 revokes from PUBLIC");
+  hasRe(/revoke all on function public\.stage_retail_csv_import\([^)]*\) from anon/, "032 revokes from anon");
+  hasRe(/revoke all on function public\.stage_retail_csv_import\([^)]*\) from authenticated/, "032 revokes from authenticated");
+  hasRe(/grant execute on function public\.stage_retail_csv_import\([^)]*\) to service_role/, "032 grants only to service_role");
+
+  // Prior applied migrations remain present and unedited.
+  assert(fs.existsSync(path.join(dir, "029_retail_csv_intake.sql")), "029 migration still present (032 turn)");
+  assert(fs.existsSync(path.join(dir, "030_fix_retail_csv_rpc_ambiguity.sql")), "030 migration still present (032 turn)");
+  assert(fs.existsSync(path.join(dir, "031_fix_retail_csv_snapshot_conflict.sql")), "031 migration still present (032 turn)");
 }
 
 console.log(`\n===== RETAIL CSV INTAKE HARNESS RESULT: ${passed} passed, ${failed} failed =====`);
