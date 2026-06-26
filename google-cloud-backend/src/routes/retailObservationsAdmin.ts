@@ -1,6 +1,7 @@
 import { Router, Request, Response } from "express";
 import { getSupabaseClient } from "../lib/supabase.js";
 import { buildPublishPlan } from "../services/retail/index.js";
+import { runCsvImport } from "../services/retailCsvImportService.js";
 
 const router = Router();
 
@@ -349,6 +350,35 @@ router.post("/:id/review", async (req: Request, res: Response) => {
   } catch (error) {
     console.error("[admin/retail-observations/:id/review]", error);
     return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+/**
+ * POST /admin/retail-observations/import-csv  (Sprint 20A.9)
+ *
+ * Admin-only retail CSV intake. `mode: "dry_run"` validates + previews with NO
+ * writes; `mode: "apply"` stages valid, non-duplicate rows as pending
+ * observations via the atomic stage_retail_csv_import RPC. CSV is intake
+ * evidence only — it never publishes or verifies. Auth is required for BOTH
+ * modes (uploaded catalogue data may be confidential). Raw CSV is never echoed
+ * or logged; DB internals are never leaked. The validate→stage logic lives in
+ * services/retailCsvImportService.runCsvImport (unit-tested).
+ */
+router.post("/import-csv", async (req: Request, res: Response) => {
+  const admin = await requireAdmin(req, res);
+  if (!admin) return;
+
+  try {
+    const result = await runCsvImport(
+      getSupabaseClient(),
+      admin.user.id,
+      admin.user.email ?? null,
+      req.body
+    );
+    return res.status(result.httpStatus).json(result.payload);
+  } catch (error) {
+    console.error("[admin/retail-observations/import-csv]", error);
+    return res.status(500).json({ ok: false, error: "Internal server error" });
   }
 });
 
