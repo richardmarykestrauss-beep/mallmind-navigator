@@ -296,6 +296,21 @@ console.log("\nCI-CONTRACT — migration 029 stage_retail_csv_import hardening")
   lacks("update public.products", "no update of products");
   lacks("publish_verified_observation(", "never calls the publish RPC");
 
+  // 6b. Source identity (shop-aware) + legal eligibility — final-review fixes.
+  has("v_source_shop_id uuid;", "declares a validated v_source_shop_id");
+  has("lower(coalesce(v_source_shop_id::text, 'mall_wide'))", "source shop identity (mall_wide sentinel) is in the advisory-lock key");
+  has("shop_id is not distinct from v_source_shop_id", "source reuse keys on the validated source shop_id");
+  hasRe(/v_mall_id,\s*\n\s*v_source_shop_id,\s*\n\s*v_base_trust,/, "source insert uses the validated v_source_shop_id variable");
+  lacks("nullif(p_source->>'shop_id', '')::uuid", "source insert no longer re-casts the raw JSON shop_id");
+  assert(
+    /not legally eligible for CSV staging/.test(sql) && /v_legal in \([^)]*'reference_only'[^)]*\)/.test(sql),
+    "reference_only is explicitly rejected for staging",
+  );
+  assert(
+    /not legally eligible for CSV staging/.test(sql) && /v_legal in \([^)]*'needs_legal_review'[^)]*\)/.test(sql),
+    "needs_legal_review is explicitly rejected for staging",
+  );
+
   // 7. Security properties preserved.
   has("security definer", "retains SECURITY DEFINER");
   has("set search_path = pg_catalog, public", "retains locked search_path");
