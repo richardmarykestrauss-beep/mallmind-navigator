@@ -382,5 +382,64 @@ console.log("\nCI-CONTRACT — migration 030 stage_retail_csv_import column qual
   hasRe(/grant execute on function public\.stage_retail_csv_import\([^)]*\) to service_role/, "030 grants only to service_role");
 }
 
+// ── Migration contract — corrective migration 031 (named snapshot conflict) ──
+// 031 re-creates stage_retail_csv_import using the NAMED unique constraint for
+// the snapshot ON CONFLICT target, fixing a second live ERROR 42702 where the
+// column-list target "(source_id, content_sha256)" was shadowed by the
+// RETURNS TABLE output variable source_id. Static scan only.
+console.log("\nCI-CONTRACT — migration 031 stage_retail_csv_import named snapshot conflict");
+{
+  const dir = path.resolve(__dirname, "..", "..", "..", "..", "..", "supabase", "migrations");
+  const sql = fs.readFileSync(path.join(dir, "031_fix_retail_csv_snapshot_conflict.sql"), "utf8");
+  const has = (needle: string, label: string) => assert(sql.includes(needle), label);
+  const hasRe = (re: RegExp, label: string) => assert(re.test(sql), label);
+  const lacks = (needle: string, label: string) => assert(!sql.includes(needle), label);
+  const code = sql.split("\n").filter((l) => !/^\s*--/.test(l)).join("\n");
+
+  // 031 exists, is a CREATE OR REPLACE, and does not drop or edit prior migrations.
+  assert(sql.length > 0, "031 migration exists");
+  has("create or replace function public.stage_retail_csv_import", "031 uses CREATE OR REPLACE FUNCTION");
+  lacks("drop function", "031 does not drop the function");
+  // 031 must not contain a CREATE/REPLACE of any function other than the RPC,
+  // and must reference no prior migration file.
+  assert(!/029_retail_csv_intake|030_fix_retail_csv_rpc_ambiguity/.test(code), "031 does not edit/rerun prior migrations");
+
+  // The exact functional correction.
+  has("on conflict on constraint retail_source_snapshots_source_id_content_sha256_key", "031 uses the named snapshot conflict constraint");
+  assert(!code.includes("on conflict (source_id, content_sha256)"), "031 no longer uses the column-list snapshot conflict target");
+  has("do update set ref_label = rss.ref_label", "031 keeps conflict-safe snapshot reuse");
+  has("returning rss.id into v_snapshot_id", "031 keeps RETURNING rss.id");
+
+  // All 030 qualification guarantees remain intact.
+  has("from public.retail_data_sources as rds", "031 source reuse stays aliased (rds)");
+  hasRe(/rss\.source_id\s*=\s*v_source_id/, "031 snapshot reuse stays aliased (rss.source_id)");
+  has("from public.retail_price_observations as rpo", "031 observation dedup stays aliased (rpo)");
+  has("update public.retail_import_batches as rib", "031 batch finalisation stays aliased (rib)");
+  hasRe(/where\s+rib\.id\s*=\s*v_batch_id/, "031 batch finalisation filters on rib.id");
+  // The targetless observation conflict is intentionally retained (safe).
+  has("on conflict do nothing", "031 retains the safe targetless observation conflict");
+
+  // Security + behaviour guarantees remain intact.
+  has("returns table (", "031 keeps the RETURNS TABLE signature");
+  has("source_id            uuid,", "031 keeps the exact return columns");
+  has("security definer", "031 retains SECURITY DEFINER");
+  has("set search_path = pg_catalog, public", "031 retains locked search_path");
+  has("-- FORCED: CSV intake never publishes/verifies", "031 still forces review_status pending");
+  has("pg_advisory_xact_lock", "031 retains the advisory lock");
+  has("is not legally eligible for CSV staging", "031 retains legal eligibility rejection");
+  has("lower(coalesce(v_source_shop_id::text, 'mall_wide'))", "031 retains shop-aware source identity");
+  lacks("insert into public.products", "031 still never inserts into products");
+  lacks("update public.products", "031 still never updates products");
+  lacks("publish_verified_observation(", "031 still never calls the publish RPC");
+  hasRe(/revoke all on function public\.stage_retail_csv_import\([^)]*\) from public/, "031 revokes from PUBLIC");
+  hasRe(/revoke all on function public\.stage_retail_csv_import\([^)]*\) from anon/, "031 revokes from anon");
+  hasRe(/revoke all on function public\.stage_retail_csv_import\([^)]*\) from authenticated/, "031 revokes from authenticated");
+  hasRe(/grant execute on function public\.stage_retail_csv_import\([^)]*\) to service_role/, "031 grants only to service_role");
+
+  // Prior applied migrations must remain present and unedited in the tree.
+  assert(fs.existsSync(path.join(dir, "029_retail_csv_intake.sql")), "029 migration still present");
+  assert(fs.existsSync(path.join(dir, "030_fix_retail_csv_rpc_ambiguity.sql")), "030 migration still present");
+}
+
 console.log(`\n===== RETAIL CSV INTAKE HARNESS RESULT: ${passed} passed, ${failed} failed =====`);
 if (failed > 0) process.exit(1);
