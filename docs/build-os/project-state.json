@@ -13,13 +13,16 @@
   "runtime": {
     "node": "22.x",
     "package_manager": "npm",
-    "package_manager_version": "11.17.0"
+    "package_manager_version": "10.9.8"
   },
   "verification": {
-    "command": "npm run verify:all",
+    "application_command": "npm run verify:all",
+    "database_command": "npm run verify:db",
     "ci_workflow": ".github/workflows/verify.yml",
-    "last_local_result": "passed",
+    "last_local_application_result": "passed",
+    "last_local_database_result": "passed",
     "last_ci_result": "passed",
+    "last_ci_run_id": 28298600698,
     "assertions_total": 834
   },
   "database": {
@@ -27,7 +30,15 @@
     "project_ref": "qspsouemjtcdcfnivpnt",
     "highest_verified_migration": "032",
     "migration_strategy": "append-only",
-    "disposable_database_verification": "not-yet-implemented"
+    "disposable_database_verification": "implemented-and-passing",
+    "baseline_migration": "000_baseline_schema.sql",
+    "verified_migration_count": 33,
+    "verified_contract": {
+      "public_tables": 44,
+      "public_functions": 35,
+      "public_and_storage_policies": 24
+    },
+    "production_safety_note": "Migration 000 reconstructs pre-existing foundational schema for disposable local/CI databases and must not be blindly pushed to the existing linked production project."
   },
   "backend": {
     "platform": "Google Cloud Run",
@@ -40,13 +51,14 @@
     "health_status": "passed"
   },
   "automation": {
-    "application_ci": "active",
+    "application_ci": "active-and-passing",
     "legacy_scrapers": "quarantined-manual-only",
-    "automated_deployment": "not-yet-implemented"
+    "automated_deployment": "not-yet-implemented",
+    "database_ci": "active-and-passing"
   },
   "known_gaps": [
-    "disposable database migration verification",
-    "real RPC integration tests",
+    "behavioural RPC integration tests with representative database records",
+    "production-safe linked migration workflow for local-only baseline migration 000",
     "deployment and rollback evidence automation",
     "branch protection confirmation",
     "dependency vulnerability remediation",

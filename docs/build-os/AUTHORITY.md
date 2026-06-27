@@ -39,9 +39,12 @@ Production infrastructure remains the final truth for what is actually deployed.
 
 ## Verification
 
-The authoritative verification command is npm run verify:all.
+MallMind has two authoritative verification gates:
 
-A change is not eligible for merge or release unless it passes locally and in GitHub Actions.
+- `npm run verify:all` — frontend build/tests, backend build and deterministic application harnesses.
+- `npm run verify:db` — disposable Supabase/PostgreSQL rebuild from migrations `000–032` and database-contract assertions.
+
+A change is not eligible for merge or release unless every applicable gate passes locally and in GitHub Actions.
 
 Static SQL checks do not replace real PostgreSQL migration and RPC tests.
 
@@ -60,7 +63,7 @@ Every meaningful change requires an objective, isolated branch, verification evi
 - Migrations are append-only.
 - Applied migrations are never rewritten.
 - RLS, grants and SECURITY DEFINER boundaries must be reviewed.
-- Migrations must eventually run from zero in a disposable database.
+- All migrations must run from zero in a disposable database through `npm run verify:db`.
 - Important RPCs must be tested against real PostgreSQL.
 - Production migration execution requires explicit approval.
 
@@ -84,8 +87,8 @@ Legacy mall and price scraper workflows remain manual-only and must not regain s
 
 ## Current gaps
 
-- Disposable migration verification
-- Real RPC integration tests
+- Behavioural integration tests that execute important RPCs with representative data
+- Production-safe handling of the local-only baseline migration before any linked database push
 - Deployment and rollback automation
 - Branch protection confirmation
 - Dependency remediation
