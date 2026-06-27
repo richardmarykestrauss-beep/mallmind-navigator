@@ -44,3 +44,25 @@ jobs:
 
       - name: Run authoritative verification
         run: npm run verify:all
+
+  verify-database:
+    name: Rebuild and verify database
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install database tooling
+        run: npm ci
+
+      - name: Run authoritative database verification
+        run: npm run verify:db
