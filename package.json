@@ -12,7 +12,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "demo:smoke": "node scripts/assistant/demo-smoke-check.mjs",
-    "verify:backend": "cd google-dev-agent && npm install && npm run build && node dist/index.js --task VERIFY_BACKEND_DEV"
+    "verify:backend": "cd google-dev-agent && npm install && npm run build && node dist/index.js --task VERIFY_BACKEND_DEV",
+    "verify:all": "node scripts/build-os/verify-all.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
