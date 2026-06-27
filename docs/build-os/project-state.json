@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "project": {
+    "name": "MallMind",
+    "repository": "richardmarykestrauss-beep/mallmind-navigator",
+    "status": "active-development"
+  },
+  "authority": {
+    "document": "docs/build-os/AUTHORITY.md",
+    "architecture": "docs/build-os/ARCHITECTURE.md",
+    "decisions": "docs/build-os/DECISIONS.md"
+  },
+  "runtime": {
+    "node": "22.x",
+    "package_manager": "npm",
+    "package_manager_version": "11.17.0"
+  },
+  "verification": {
+    "command": "npm run verify:all",
+    "ci_workflow": ".github/workflows/verify.yml",
+    "last_local_result": "passed",
+    "last_ci_result": "passed",
+    "assertions_total": 834
+  },
+  "database": {
+    "provider": "Supabase PostgreSQL",
+    "project_ref": "qspsouemjtcdcfnivpnt",
+    "highest_verified_migration": "032",
+    "migration_strategy": "append-only",
+    "disposable_database_verification": "not-yet-implemented"
+  },
+  "backend": {
+    "platform": "Google Cloud Run",
+    "gcp_project": "mallmind",
+    "gcp_project_number": "1017902775578",
+    "region": "africa-south1",
+    "service": "mallmind-backend-dev",
+    "last_verified_revision": "mallmind-backend-dev-00118-9r4",
+    "last_verified_image_digest": "sha256:12d4dc1dad2fde1b1137fdecc8d282ee0e157220b9b3e7647eee4189b1121d7c",
+    "health_status": "passed"
+  },
+  "automation": {
+    "application_ci": "active",
+    "legacy_scrapers": "quarantined-manual-only",
+    "automated_deployment": "not-yet-implemented"
+  },
+  "known_gaps": [
+    "disposable database migration verification",
+    "real RPC integration tests",
+    "deployment and rollback evidence automation",
+    "branch protection confirmation",
+    "dependency vulnerability remediation",
+    "repository secrets inventory",
+    "formal observability standard"
+  ]
+}
