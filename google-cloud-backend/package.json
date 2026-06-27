@@ -1,10 +1,11 @@
 {
   "name": "mallmind-google-cloud-backend",
   "version": "0.1.0",
-  "description": "MallMind Cloud Run backend — connects to existing Supabase DB, wraps Gemini AI",
+  "description": "MallMind Cloud Run backend \u2014 connects to existing Supabase DB, wraps Gemini AI",
   "private": true,
   "engines": {
-    "node": ">=20"
+    "node": "22.x",
+    "npm": ">=10 <12"
   },
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
@@ -34,5 +35,6 @@
     "@types/node": "^22.15.3",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.8.3"
-  }
+  },
+  "packageManager": "npm@11.17.0"
 }
