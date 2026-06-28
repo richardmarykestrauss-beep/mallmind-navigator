@@ -37,25 +37,61 @@ on conflict (id) do nothing;
 -- ─────────────────────────────────────────────────────────────────────────────
 
 -- Allow anyone to read objects in this bucket (images rendered in the UI)
-create policy if not exists "mall_map_assets_public_read"
-  on storage.objects
-  for select
-  using (bucket_id = 'mall-map-assets');
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_policies
+    where schemaname = 'storage'
+      and tablename = 'objects'
+      and policyname = 'mall_map_assets_public_read'
+  ) then
+    create policy "mall_map_assets_public_read"
+      on storage.objects
+      for select
+      using (bucket_id = 'mall-map-assets');
+  end if;
+end
+$$;
 
 -- Allow authenticated users (admins) to upload files
-create policy if not exists "mall_map_assets_auth_insert"
-  on storage.objects
-  for insert
-  with check (
-    bucket_id = 'mall-map-assets'
-    and auth.role() = 'authenticated'
-  );
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_policies
+    where schemaname = 'storage'
+      and tablename = 'objects'
+      and policyname = 'mall_map_assets_auth_insert'
+  ) then
+    create policy "mall_map_assets_auth_insert"
+      on storage.objects
+      for insert
+      with check (
+        bucket_id = 'mall-map-assets'
+        and auth.role() = 'authenticated'
+      );
+  end if;
+end
+$$;
 
--- Allow authenticated users to delete their own uploads
-create policy if not exists "mall_map_assets_auth_delete"
-  on storage.objects
-  for delete
-  using (
-    bucket_id = 'mall-map-assets'
-    and auth.role() = 'authenticated'
-  );
+-- Allow authenticated users to delete files in this bucket
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_policies
+    where schemaname = 'storage'
+      and tablename = 'objects'
+      and policyname = 'mall_map_assets_auth_delete'
+  ) then
+    create policy "mall_map_assets_auth_delete"
+      on storage.objects
+      for delete
+      using (
+        bucket_id = 'mall-map-assets'
+        and auth.role() = 'authenticated'
+      );
+  end if;
+end
+$$;

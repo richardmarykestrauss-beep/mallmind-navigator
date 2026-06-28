@@ -1,7 +1,7 @@
 {
   "name": "mallmind-scraper",
   "version": "2.0.0",
-  "description": "SA retail price scraper for MallMind — 10 retailers, anti-blocking, Supabase upsert",
+  "description": "SA retail price scraper for MallMind \u2014 10 retailers, anti-blocking, Supabase upsert",
   "type": "module",
   "scripts": {
     "all": "npx tsx index.ts",
@@ -28,5 +28,10 @@
     "@types/node": "^20.14.0",
     "tsx": "^4.19.0",
     "typescript": "^5.5.0"
-  }
+  },
+  "engines": {
+    "node": "22.x",
+    "npm": ">=10 <12"
+  },
+  "packageManager": "npm@11.17.0"
 }
