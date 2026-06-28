@@ -14,7 +14,9 @@
     "demo:smoke": "node scripts/assistant/demo-smoke-check.mjs",
     "verify:backend": "cd google-dev-agent && npm install && npm run build && node dist/index.js --task VERIFY_BACKEND_DEV",
     "verify:all": "node scripts/build-os/verify-all.mjs",
-    "verify:db": "node scripts/build-os/verify-db.mjs"
+    "verify:db": "node scripts/build-os/verify-db.mjs",
+    "scope-guard": "node scripts/build-os/scope-guard.mjs",
+    "test:scope-guard": "node scripts/build-os/scope-guard.test.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
