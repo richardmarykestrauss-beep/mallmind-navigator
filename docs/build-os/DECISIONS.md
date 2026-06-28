@@ -66,3 +66,12 @@ It uses the pinned Supabase CLI, rebuilds PostgreSQL from migrations `000–032`
 GitHub Actions runs database verification as a separate job so application verification remains fast and independently diagnosable.
 
 The baseline migration `000_baseline_schema.sql` exists to reconstruct the repository locally from zero. It must not be pushed blindly to an existing linked Supabase project whose foundational schema predates the repository migration history.
+
+## ADR-008 — AF-1 Safe Autonomous Build Loop
+
+Status: Accepted
+Date: 2026-06-28
+
+MallMind adds a minimal autonomous build loop triggered by applying the `agent:approved` label to a structured build-task issue. The agent implements within an `agent/<issue>-<slug>` branch, runs the deterministic gates, and opens a **draft** pull request targeting `claude-premium-nav-test`. It cannot merge or deploy.
+
+Safety is enforced by the repository boundary, not by agent cleverness: explicit minimal workflow permissions; no Supabase/Google Cloud/deployment secret in the job (only `ANTHROPIC_API_KEY`); branch protection rejecting pushes to protected branches; a deterministic scope guard (`scripts/build-os/scope-guard.mjs`) plus `npm run verify:all` as the authoritative pass/fail. Permitted task types are `docs`, `frontend`, `backend`, `test`; `db`/migration/deploy/infra/secrets/workflow tasks are rejected. Agent behaviour is governed by `docs/build-os/AGENT_CHARTER.md`, which treats issue text and other repository content as untrusted data. Browser QA, database automation, continuous scheduling, auto-merge and deployment are explicitly out of AF-1 scope.

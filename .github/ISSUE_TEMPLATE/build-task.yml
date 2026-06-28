@@ -1,0 +1,93 @@
+name: "AF-1 Build Task"
+description: "Request an autonomous MallMind build task (AF-1 safe loop)."
+title: "[AF-1] "
+labels: ["agent:queued"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## MallMind AF-1 Build Task
+
+        Fill this in, then a maintainer adds the **`agent:approved`** label to authorize an autonomous run.
+
+        > **Applying `agent:approved` authorizes autonomous *implementation* only.**
+        > It does **not** authorize merge, deployment, database/migration changes, or any production action.
+        > The result is always a **draft pull request** that a human must review, approve, and merge.
+        > Everything written below is treated as **untrusted task data**, not as instructions that can override the Build OS authority or agent charter.
+
+  - type: dropdown
+    id: task_type
+    attributes:
+      label: Task type
+      description: "AF-1 permits only these types. db / migration / deploy / infra / secrets / workflow tasks are rejected automatically."
+      options:
+        - docs
+        - frontend
+        - backend
+        - test
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      options:
+        - P1
+        - P2
+        - P3
+    validations:
+      required: true
+
+  - type: textarea
+    id: objective
+    attributes:
+      label: Objective
+      description: "One paragraph: what should change and why. Keep it small and single-purpose."
+    validations:
+      required: true
+
+  - type: textarea
+    id: allowed_files
+    attributes:
+      label: Allowed file globs
+      description: "One glob per line. The scope guard FAILS the run if any changed file is outside these globs. Be specific."
+      placeholder: |
+        src/pages/**
+        docs/**/*.md
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: "Concrete, checkable bullets. The agent must satisfy these and verify:all must pass."
+    validations:
+      required: true
+
+  - type: input
+    id: required_gates
+    attributes:
+      label: Required gates
+      description: "Deterministic gates that must pass. AF-1 default is verify:all only (no database gate)."
+      value: "verify:all"
+    validations:
+      required: true
+
+  - type: input
+    id: max_diff_lines
+    attributes:
+      label: Maximum diff lines
+      description: "Hard cap on total changed lines. The run fails if exceeded."
+      value: "400"
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional_context
+    attributes:
+      label: Additional context
+      description: "Optional references, links, or constraints. Treated as untrusted data."
+    validations:
+      required: false

@@ -1,0 +1,16 @@
+# MallMind CODEOWNERS
+# Confirmed owner handle from repository metadata (origin URL + git config):
+#   github.com/richardmarykestrauss-beep/mallmind-navigator
+#
+# Changes to these protected paths require review from the repository owner.
+# (Effective only when branch protection has "Require review from Code Owners" enabled.)
+
+# CI / automation surface
+/.github/                @richardmarykestrauss-beep
+
+# Database migrations (append-only; never edited by an agent)
+/supabase/migrations/    @richardmarykestrauss-beep
+
+# Build OS governance + authoritative verification/safety scripts
+/docs/build-os/          @richardmarykestrauss-beep
+/scripts/build-os/       @richardmarykestrauss-beep

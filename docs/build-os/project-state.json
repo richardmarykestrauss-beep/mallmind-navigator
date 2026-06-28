@@ -54,7 +54,21 @@
     "application_ci": "active-and-passing",
     "legacy_scrapers": "quarantined-manual-only",
     "automated_deployment": "not-yet-implemented",
-    "database_ci": "active-and-passing"
+    "database_ci": "active-and-passing",
+    "autonomous_build_loop": {
+      "name": "AF-1 Safe Autonomous Build Loop",
+      "status": "implemented-pending-review-and-first-run",
+      "workflow": ".github/workflows/agent-build.yml",
+      "charter": "docs/build-os/AGENT_CHARTER.md",
+      "trigger": "workflow_dispatch (pilot); issue label agent:approved gated by repo variable AF1_LABEL_TRIGGER_ENABLED",
+      "permitted_task_types": ["docs", "frontend", "backend", "test"],
+      "writes_identity": "Claude GitHub App via the official action performs branch push and draft-PR creation; workflow GITHUB_TOKEN is read-only for code and cannot create or approve PRs",
+      "scope_guard": "scripts/build-os/scope-guard.mjs",
+      "evidence": "scripts/build-os/evidence.mjs",
+      "secrets_used": ["ANTHROPIC_API_KEY"],
+      "repair_attempts_counted": false,
+      "merge_or_deploy_authority": "none-human-approval-required"
+    }
   },
   "known_gaps": [
     "behavioural RPC integration tests with representative database records",
