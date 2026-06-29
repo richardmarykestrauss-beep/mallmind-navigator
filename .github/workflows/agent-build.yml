@@ -136,6 +136,11 @@ jobs:
       contents: read         # workflow token: read code only. App (via the action) does all writes.
       issues: write          # move agent:* labels, post evidence comment (incl. on the PR via the issues API)
       pull-requests: read    # detect the App-created draft PR (cannot create, approve, or merge)
+      id-token: write        # REQUIRED: the Claude action exchanges the workflow's GitHub OIDC token
+                             # for a repo-scoped Claude GitHub App installation token (git push + draft
+                             # PR). This only permits REQUESTING an OIDC identity token; it grants no
+                             # cloud/production access by itself (no Supabase/GCP/AWS) — access would
+                             # require a separately configured trusting provider, which AF-1 has none of.
     env:
       BASE_BRANCH: claude-premium-nav-test
       AF1_ISSUE: ${{ needs.preflight.outputs.issue_number }}
@@ -271,8 +276,11 @@ jobs:
         continue-on-error: true
         env:
           AF1_BRANCH: ${{ env.AGENT_BRANCH }}
-          AF1_SCOPE_OK: ${{ steps.scope.outcome == 'success' }}
-          AF1_VERIFY_OK: ${{ steps.verify.outcome == 'success' }}
+          AF1_CLAUDE_STATE: ${{ steps.claude.outcome }}
+          AF1_COMMITTED: ${{ steps.fetch_branch.outputs.committed }}
+          AF1_SCOPE_STATE: ${{ steps.scope.outcome }}
+          AF1_VERIFY_STATE: ${{ steps.verify.outcome }}
+          AF1_PR_EXISTS: ${{ steps.detectpr.outputs.pr_exists }}
           AF1_PR_URL: ${{ steps.detectpr.outputs.pr_url }}
           AF1_OUT: af1-evidence.md
         run: node scripts/build-os/evidence.mjs || true
@@ -294,35 +302,29 @@ jobs:
             const n = Number(process.env.AF1_ISSUE);
             const { owner, repo } = context.repo;
 
-            const scopeOk = "${{ steps.scope.outcome }}" === "success";
-            const verifyOk = "${{ steps.verify.outcome }}" === "success";
-            const committed = "${{ steps.fetch_branch.outputs.committed }}" === "true";
+            // Single source of truth: the deterministic verdict from evidence.mjs,
+            // which distinguishes failed / skipped / not-applicable and names the
+            // EARLIEST real cause (e.g. the Claude action / OIDC failure) as the
+            // primary blocker — so a skipped scope/verify is never reported as an
+            // independent defect.
+            let v = { pass: false, label: "agent:needs-human", primary_blocker: "evidence pack was not produced" };
+            try { v = JSON.parse(fs.readFileSync("af1-evidence.json", "utf8")); } catch (e) { core.warning(`evidence json missing: ${e.message}`); }
             const prExists = "${{ steps.detectpr.outputs.pr_exists }}" === "true";
             const prUrl = "${{ steps.detectpr.outputs.pr_url }}";
-            const pass = scopeOk && verifyOk && committed && prExists;
-
-            const reasons = [];
-            if (!committed) reasons.push("the agent produced no commit");
-            if (!prExists) reasons.push("no draft pull request was created");
-            if (!scopeOk) reasons.push("scope guard failed");
-            if (!verifyOk) reasons.push("npm run verify:all failed");
 
             let body = "🤖 AF-1 run complete.";
             try { body = fs.readFileSync("af1-evidence.md", "utf8"); } catch {}
-            if (!pass) body += `\n\n---\n**BLOCKING — human investigation required:** ${reasons.join("; ")}.`;
+            if (!v.pass) body += `\n\n---\n**BLOCKING — human investigation required.** Primary blocker: ${v.primary_blocker}.`;
 
-            // Truthful job summary.
             try { await core.summary.addRaw(body).write(); } catch (e) { core.warning(e.message); }
-            // Issue comment.
             try { await github.rest.issues.createComment({ owner, repo, issue_number: n, body }); } catch (e) { core.warning(e.message); }
-            // Mirror onto the draft PR when one exists.
             if (prExists) {
               const prNumber = Number("${{ steps.detectpr.outputs.pr_number }}");
               try { await github.rest.issues.createComment({ owner, repo, issue_number: prNumber, body }); } catch (e) { core.warning(e.message); }
             }
             // Non-contradictory labels: always clear running; never agent:done unless pass.
             try { await github.rest.issues.removeLabel({ owner, repo, issue_number: n, name: "agent:running" }); } catch {}
-            try { await github.rest.issues.addLabels({ owner, repo, issue_number: n, labels: [pass ? "agent:done" : "agent:needs-human"] }); } catch (e) { core.warning(e.message); }
+            try { await github.rest.issues.addLabels({ owner, repo, issue_number: n, labels: [v.label] }); } catch (e) { core.warning(e.message); }
 
-            if (pass) core.notice(`AF-1: ready for approval — draft PR ${prUrl}`);
-            else core.setFailed(`AF-1 not successful: ${reasons.join("; ")}`);
+            if (v.pass) core.notice(`AF-1: ready for approval — draft PR ${prUrl}`);
+            else core.setFailed(`AF-1 not successful — primary blocker: ${v.primary_blocker}`);
