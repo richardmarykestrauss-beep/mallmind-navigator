@@ -16,7 +16,8 @@
     "verify:all": "node scripts/build-os/verify-all.mjs",
     "verify:db": "node scripts/build-os/verify-db.mjs",
     "scope-guard": "node scripts/build-os/scope-guard.mjs",
-    "test:scope-guard": "node scripts/build-os/scope-guard.test.mjs"
+    "test:scope-guard": "node scripts/build-os/scope-guard.test.mjs",
+    "test:issue-form": "node scripts/build-os/issue-form.test.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
