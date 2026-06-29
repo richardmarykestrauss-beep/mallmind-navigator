@@ -90,6 +90,17 @@ scope. A deterministic per-attempt counter is **deferred** to a later wave.
 draft PR was created; requirements conflict; the task needs a forbidden operation;
 production impact is uncertain; the diff exceeds limits; or the job times out.
 
+### Label state model (non-contradictory)
+
+- Eligible run: `agent:queued`/`agent:approved` → `agent:running` → `agent:done` (only when
+  scope guard + `verify:all` pass, a commit exists, and a draft PR exists).
+- **Preflight failure** (ineligible / unparsable / not open / no permission): best-effort
+  comment, then strip `agent:running`, `agent:done`, `agent:approved`, `agent:queued` and
+  apply `agent:needs-human`; the workflow exits non-zero so the overall conclusion is
+  **failure**, never success. A failure to comment or label (e.g. a permissions error) is
+  logged but never hides the eligibility failure.
+- **Build failure**: strip `agent:running`, apply `agent:needs-human`; never `agent:done`.
+
 ## 8. Evidence requirements
 
 Every run produces a deterministic evidence pack (`scripts/build-os/evidence.mjs`):

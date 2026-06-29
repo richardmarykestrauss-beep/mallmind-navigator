@@ -52,7 +52,7 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
-      issues: read
+      issues: write   # preflight legitimately manages AF-1 state + posts failure evidence
     outputs:
       eligible: ${{ steps.gate.outputs.eligible }}
       issue_number: ${{ steps.gate.outputs.issue_number }}
@@ -64,14 +64,21 @@ jobs:
       objective: ${{ steps.gate.outputs.objective }}
       acceptance: ${{ steps.gate.outputs.acceptance }}
     steps:
+      - name: Checkout (for the issue-form parser)
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          ref: claude-premium-nav-test
+          fetch-depth: 1
+
       - name: Validate trigger, actor, issue and task type
         id: gate
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         with:
           script: |
-            const PERMITTED = ["docs", "frontend", "backend", "test"];
-            const FORBIDDEN = ["db", "migration", "deployment", "infrastructure",
-              "secrets", "workflow", "branch-protection", "billing", "production"];
+            // Use the tested, robust Issue Form parser (handles first-line
+            // heading, CRLF/LF, blank lines, whitespace, capitalization, multiline).
+            const { extractTask, validateTask, slugFromTitle } =
+              await import(`${process.env.GITHUB_WORKSPACE}/scripts/build-os/issue-form.mjs`);
 
             const issueNumber = context.eventName === "workflow_dispatch"
               ? Number(context.payload.inputs.issue_number)
@@ -79,14 +86,23 @@ jobs:
             const actor = context.actor;
             const { owner, repo } = context.repo;
 
+            // Best-effort failure reporting, THEN a deterministic non-zero exit.
+            // A failure to comment/label (e.g. permissions) must NOT hide the real
+            // eligibility failure or let the workflow conclude success.
             const fail = async (reason) => {
               core.setOutput("eligible", "false");
-              core.warning(`AF-1 not eligible: ${reason}`);
               try {
                 await github.rest.issues.createComment({ owner, repo, issue_number: issueNumber,
-                  body: `🤖 AF-1 did not start: **${reason}**. No changes were made.` });
-                await github.rest.issues.addLabels({ owner, repo, issue_number: issueNumber, labels: ["agent:needs-human"] });
-              } catch (e) { core.warning(`comment/label failed: ${e.message}`); }
+                  body: `🤖 AF-1 did not start: **${reason}**. No changes were made; this issue needs human attention.` });
+              } catch (e) { core.warning(`comment failed (non-fatal): ${e.message}`); }
+              // Non-contradictory label state: strip queued/approved/running/done, set needs-human.
+              for (const l of ["agent:running", "agent:done", "agent:approved", "agent:queued"]) {
+                try { await github.rest.issues.removeLabel({ owner, repo, issue_number: issueNumber, name: l }); } catch {}
+              }
+              try { await github.rest.issues.addLabels({ owner, repo, issue_number: issueNumber, labels: ["agent:needs-human"] }); }
+              catch (e) { core.warning(`label failed (non-fatal): ${e.message}`); }
+              try { await core.summary.addRaw(`### AF-1 preflight FAILED\n\n${reason}\n\nNo build was attempted.`).write(); } catch {}
+              core.setFailed(`AF-1 not eligible: ${reason}`); // overall conclusion = failure
             };
 
             const perm = await github.rest.repos.getCollaboratorPermissionLevel({ owner, repo, username: actor });
@@ -96,34 +112,19 @@ jobs:
             const { data: issue } = await github.rest.issues.get({ owner, repo, issue_number: issueNumber });
             if (issue.state !== "open") return fail("issue is not open");
 
-            const sections = {};
-            for (const part of (issue.body || "").split(/\n###\s+/)) {
-              const nl = part.indexOf("\n");
-              if (nl === -1) continue;
-              sections[part.slice(0, nl).trim().toLowerCase()] = part.slice(nl + 1).trim();
-            }
-            const get = (k) => (sections[k] || "").replace(/^_no response_$/i, "").trim();
-
-            const taskType = get("task type").toLowerCase();
-            const allowedFiles = get("allowed file globs");
-            const objective = get("objective");
-            if (FORBIDDEN.includes(taskType)) return fail(`task type \`${taskType}\` is forbidden in AF-1`);
-            if (!PERMITTED.includes(taskType)) return fail(`task type \`${taskType}\` is not one of: ${PERMITTED.join(", ")}`);
-            if (!allowedFiles) return fail("no allowed_files were specified");
-            if (!objective) return fail("no objective was specified");
-
-            const slug = (issue.title || "task").replace(/^\[AF-1\]\s*/i, "")
-              .toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "task";
+            const task = extractTask(issue.body || "");
+            const verdict = validateTask(task);
+            if (!verdict.ok) return fail(verdict.reason);
 
             core.setOutput("eligible", "true");
             core.setOutput("issue_number", String(issueNumber));
-            core.setOutput("task_type", taskType);
-            core.setOutput("slug", slug);
+            core.setOutput("task_type", task.task_type);
+            core.setOutput("slug", slugFromTitle(issue.title));
             core.setOutput("title", issue.title || "");
-            core.setOutput("allowed_files", allowedFiles);
-            core.setOutput("max_diff_lines", String(parseInt(get("maximum diff lines") || "400", 10) || 400));
-            core.setOutput("objective", objective);
-            core.setOutput("acceptance", get("acceptance criteria"));
+            core.setOutput("allowed_files", task.allowed_files);
+            core.setOutput("max_diff_lines", String(task.max_diff_lines));
+            core.setOutput("objective", task.objective);
+            core.setOutput("acceptance", task.acceptance);
 
   build:
     name: AF-1 build
@@ -133,8 +134,8 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read         # workflow token: read code only. App (via the action) does all writes.
-      issues: write          # move agent:* labels, post evidence comment
-      pull-requests: write   # comment on / update the App-created draft PR (cannot create or approve)
+      issues: write          # move agent:* labels, post evidence comment (incl. on the PR via the issues API)
+      pull-requests: read    # detect the App-created draft PR (cannot create, approve, or merge)
     env:
       BASE_BRANCH: claude-premium-nav-test
       AF1_ISSUE: ${{ needs.preflight.outputs.issue_number }}
@@ -145,7 +146,7 @@ jobs:
       AGENT_BRANCH: agent/${{ needs.preflight.outputs.issue_number }}-${{ needs.preflight.outputs.slug }}
     steps:
       - name: Mark issue running
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         with:
           script: |
             const n = Number(process.env.AF1_ISSUE);
@@ -252,7 +253,7 @@ jobs:
       - name: Detect draft PR
         id: detectpr
         continue-on-error: true
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         with:
           script: |
             const { owner, repo } = context.repo;
@@ -278,7 +279,7 @@ jobs:
 
       - name: Upload evidence artifact
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: af1-evidence-${{ env.AF1_ISSUE }}
           path: af1-evidence.md
@@ -286,7 +287,7 @@ jobs:
 
       - name: Finalize state (labels, comments, verdict)
         if: always()
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         with:
           script: |
             const fs = require("fs");
