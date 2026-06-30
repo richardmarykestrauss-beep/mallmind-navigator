@@ -230,10 +230,12 @@ function git(args) {
   return execFileSync("git", args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
 }
 
-function collectChangesFromGit(base, head) {
-  const range = `${base}...${head}`;
-  const numstat = git(["diff", "--numstat", range]).trim();
-  const nameStatus = git(["diff", "--name-status", range]).trim();
+function collectChangesFromGit(base, head, staged = false) {
+  // staged=true evaluates the index (Claude's edits BEFORE commit) vs base:
+  //   git diff --cached <base> ...   (else: git diff <base>...<head>)
+  const dargs = (extra) => (staged ? ["diff", "--cached", ...extra, base] : ["diff", ...extra, `${base}...${head}`]);
+  const numstat = git(dargs(["--numstat"])).trim();
+  const nameStatus = git(dargs(["--name-status"])).trim();
 
   const statusByPath = new Map();
   for (const line of nameStatus ? nameStatus.split("\n") : []) {
@@ -256,7 +258,7 @@ function collectChangesFromGit(base, head) {
     let assertionsRemoved = 0;
     let secretHit = false;
     try {
-      const fileDiff = git(["diff", `${base}...${head}`, "--", path]);
+      const fileDiff = git([...dargs([]), "--", path]);
       for (const dl of fileDiff.split("\n")) {
         if (dl.startsWith("+") && !dl.startsWith("+++")) {
           if (ASSERTION_RE.test(dl)) assertionsAdded++;
@@ -288,7 +290,7 @@ function parseArgs(argv) {
   const out = { flags: new Set(), opts: {} };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === "--allow-lockfiles" || a === "--allow-buildos") out.flags.add(a);
+    if (a === "--allow-lockfiles" || a === "--allow-buildos" || a === "--staged") out.flags.add(a);
     else if (a.startsWith("--")) out.opts[a.slice(2)] = argv[++i];
   }
   return out;
@@ -316,12 +318,13 @@ if (isMain()) {
     const maxLines = Number.parseInt(opts["max-lines"] || process.env.AF1_MAX_DIFF_LINES || "400", 10);
     const allowLockfiles = flags.has("--allow-lockfiles");
     const allowBuildOs = flags.has("--allow-buildos");
+    const staged = flags.has("--staged");
 
-    const changes = collectChangesFromGit(base, head);
+    const changes = collectChangesFromGit(base, head, staged);
     const result = evaluateScope(changes, { allowedGlobs, maxLines, allowLockfiles, allowBuildOs });
 
     console.log(`MallMind AF-1 Scope Guard`);
-    console.log(`base=${base} head=${head} files=${result.summary.files} lines=${result.summary.total}/${maxLines}`);
+    console.log(`base=${base} head=${staged ? "(staged index)" : head} files=${result.summary.files} lines=${result.summary.total}/${maxLines}`);
     if (result.ok) {
       console.log("RESULT: PASS — change set is within AF-1 scope.");
       if (process.env.GITHUB_OUTPUT) {

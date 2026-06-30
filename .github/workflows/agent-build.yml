@@ -175,13 +175,27 @@ jobs:
             package-lock.json
             google-cloud-backend/package-lock.json
 
-      # ── Claude implementation (official action, App identity for writes) ─────
-      # Verified inputs: anthropic_api_key, prompt, claude_args (--max-turns).
-      # The action authenticates to GitHub as the installed Claude App and is asked
-      # to commit on agent/<n>-<slug>, push it, and open a DRAFT PR into the base.
-      # If the action cannot do this in the current event mode, the gates + PR
-      # detection below FAIL SAFE (agent:needs-human); we never fake success.
-      - name: Claude implement
+      # ── MODEL B: the WORKFLOW owns branch/commit/push/PR; Claude edits only ──
+      - name: Prepare agent branch (workflow owns branch + identity)
+        id: prepare
+        run: |
+          git config user.name "mallmind-af1[bot]"
+          git config user.email "af1-bot@users.noreply.github.com"
+          git fetch origin "$BASE_BRANCH"
+          git checkout -B "$AGENT_BRANCH" "origin/$BASE_BRANCH"
+          echo "AF1_BASE=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "::error::working tree not clean before Claude"; exit 1
+          fi
+          echo "Prepared $AGENT_BRANCH from origin/$BASE_BRANCH (clean working tree)."
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          npm ci --prefix google-cloud-backend
+
+      # Claude OWNS FILE EDITS ONLY. It must not run any git/gh/PR operation.
+      - name: Claude implement (edits only)
         id: claude
         continue-on-error: true
         uses: anthropics/claude-code-action@a92e7c70a4da9793dc164451d829089dc057a464 # v1
@@ -202,73 +216,88 @@ jobs:
             - Type: ${{ needs.preflight.outputs.task_type }}
             - Objective: ${{ needs.preflight.outputs.objective }}
             - Acceptance criteria: ${{ needs.preflight.outputs.acceptance }}
-            - allowed_files (ONLY change files matching these globs):
+            - allowed_files (ONLY edit files matching these globs):
             ${{ needs.preflight.outputs.allowed_files }}
             - max_diff_lines: ${{ needs.preflight.outputs.max_diff_lines }}
 
-            RULES:
-            - Change ONLY files within allowed_files. Never touch .github/**, docs/build-os/**,
+            YOU OWN FILE EDITS ONLY. The workflow owns ALL Git and GitHub operations.
+            - Edit ONLY files within allowed_files. Never touch .github/**, docs/build-os/**,
               scripts/build-os/**, supabase/migrations/**, supabase/config.toml, lockfiles,
               .env*, secrets, or deployment/production config.
-            - Do NOT merge, deploy, or perform any database/migration action. Do NOT modify workflows.
-            - Do NOT weaken or delete tests to make a gate pass.
-            - Verify with: npm run verify:all
-            - Keep repair cycles minimal; if verify:all still fails after a few attempts, STOP and
-              explain rather than expanding scope. Do not browse external URLs.
-            - Commit your work to a branch named exactly: ${{ env.AGENT_BRANCH }} (based on
-              origin/${{ env.BASE_BRANCH }}), push it, and open a DRAFT pull request targeting
-              ${{ env.BASE_BRANCH }}. Do not mark the PR ready for review.
+            - You MAY run read-only inspection commands needed to implement the task.
+            - Do NOT run `git checkout`. Do NOT create branches. Do NOT run `git add`.
+              Do NOT commit. Do NOT push. Do NOT open a pull request. Do NOT merge or deploy.
+              Do NOT modify workflow files.
+            - You may run `npm run verify:all` to check your work, but never weaken or delete
+              tests to make a gate pass.
+            - STOP after making the required file edits. The workflow will detect your changes,
+              run the scope guard and verify:all, then commit, push, and open a draft PR.
+            - Do not browse external URLs.
 
-      # ── Bring the agent's pushed branch into the runner for the gates ────────
-      - name: Fetch agent branch
-        id: fetch_branch
-        continue-on-error: true
+      - name: Capture App token + detect edits
+        id: post_claude
+        if: always()
+        env:
+          APP_TOKEN: ${{ steps.claude.outputs.github_token }}
         run: |
-          git fetch origin "+refs/heads/${AGENT_BRANCH}:refs/remotes/origin/${AGENT_BRANCH}" || exit 1
-          git checkout -B "$AGENT_BRANCH" "origin/$AGENT_BRANCH"
-          BASE_SHA="$(git rev-parse "origin/$BASE_BRANCH")"
-          HEAD_SHA="$(git rev-parse HEAD)"
-          echo "AF1_BASE=$BASE_SHA" >> "$GITHUB_ENV"
-          echo "AF1_HEAD=$HEAD_SHA" >> "$GITHUB_ENV"
-          if [ "$BASE_SHA" = "$HEAD_SHA" ]; then echo "committed=false" >> "$GITHUB_OUTPUT"; else echo "committed=true" >> "$GITHUB_OUTPUT"; fi
+          # App-token presence only — the value is masked and never printed.
+          if [ -n "$APP_TOKEN" ]; then echo "::add-mask::$APP_TOKEN"; echo "app_token=present" >> "$GITHUB_OUTPUT";
+          else echo "app_token=absent" >> "$GITHUB_OUTPUT"; fi
+          echo "on_branch=$(git rev-parse --abbrev-ref HEAD)"
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "edited=true" >> "$GITHUB_OUTPUT"; echo "edits detected:"; git status --porcelain;
+          else echo "edited=false" >> "$GITHUB_OUTPUT"; echo "Claude made no file changes."; fi
 
-      - name: Install dependencies
-        if: steps.fetch_branch.outcome == 'success'
-        continue-on-error: true
-        run: |
-          npm ci
-          npm ci --prefix google-cloud-backend
-
-      - name: Scope guard
+      # Gate order: scope (pre-commit, staged) -> verify (pre-push). Never push failing code.
+      - name: Stage edits + scope guard (pre-commit)
         id: scope
-        if: steps.fetch_branch.outcome == 'success'
+        if: steps.post_claude.outputs.edited == 'true'
         continue-on-error: true
         run: |
-          node scripts/build-os/scope-guard.mjs \
-            --base "origin/$BASE_BRANCH" --head HEAD \
+          git add -A
+          node scripts/build-os/scope-guard.mjs --staged \
+            --base "origin/$BASE_BRANCH" \
             --allowed "$AF1_ALLOWED_FILES" --max-lines "$AF1_MAX_DIFF_LINES"
 
-      - name: Verify (npm run verify:all)
+      - name: Verify (npm run verify:all, pre-push)
         id: verify
-        if: steps.fetch_branch.outcome == 'success'
+        if: steps.scope.outcome == 'success'
         continue-on-error: true
         run: npm run verify:all
 
-      # ── Detect the App-created draft PR (read-only with GITHUB_TOKEN) ────────
-      - name: Detect draft PR
-        id: detectpr
+      - name: Commit (workflow owns commit)
+        id: commit
+        if: steps.verify.outcome == 'success'
         continue-on-error: true
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
-        with:
-          script: |
-            const { owner, repo } = context.repo;
-            const head = `${owner}:${process.env.AGENT_BRANCH}`;
-            const prs = await github.rest.pulls.list({ owner, repo, head, base: process.env.BASE_BRANCH, state: "open" });
-            const pr = prs.data[0];
-            core.setOutput("pr_exists", pr ? "true" : "false");
-            core.setOutput("pr_number", pr ? String(pr.number) : "");
-            core.setOutput("pr_url", pr ? pr.html_url : "");
-            core.setOutput("pr_draft", pr && pr.draft ? "true" : "false");
+        run: |
+          TITLE="$(printf '%s' "$AF1_TASK_TITLE" | tr -d '\r\n"' | cut -c1-100)"
+          git commit -m "agent(issue-${AF1_ISSUE}): ${TITLE}"
+          echo "AF1_HEAD=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          echo "committed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Push agent branch (Claude App token ONLY)
+        id: push
+        if: steps.commit.outcome == 'success' && steps.post_claude.outputs.app_token == 'present'
+        continue-on-error: true
+        env:
+          APP_TOKEN: ${{ steps.claude.outputs.github_token }}
+        run: |
+          git push "https://x-access-token:${APP_TOKEN}@github.com/${{ github.repository }}.git" "HEAD:refs/heads/${AGENT_BRANCH}"
+          echo "pushed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Open draft PR (Claude App token ONLY)
+        id: pr
+        if: steps.push.outcome == 'success'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ steps.claude.outputs.github_token }}
+        run: |
+          URL="$(gh pr create --draft --base "$BASE_BRANCH" --head "$AGENT_BRANCH" \
+            --title "[AF-1] #${AF1_ISSUE} ${AF1_TASK_TITLE}" \
+            --body "Automated AF-1 draft pull request. Closes #${AF1_ISSUE}. Requires human review and the required status checks before merge; it does not merge automatically.")"
+          echo "pr_url=$URL" >> "$GITHUB_OUTPUT"
+          echo "pr_created=true" >> "$GITHUB_OUTPUT"
+          echo "Opened draft PR: $URL"
 
       - name: Build evidence pack
         id: evidence
@@ -277,11 +306,14 @@ jobs:
         env:
           AF1_BRANCH: ${{ env.AGENT_BRANCH }}
           AF1_CLAUDE_STATE: ${{ steps.claude.outcome }}
-          AF1_COMMITTED: ${{ steps.fetch_branch.outputs.committed }}
+          AF1_EDITED: ${{ steps.post_claude.outputs.edited }}
           AF1_SCOPE_STATE: ${{ steps.scope.outcome }}
           AF1_VERIFY_STATE: ${{ steps.verify.outcome }}
-          AF1_PR_EXISTS: ${{ steps.detectpr.outputs.pr_exists }}
-          AF1_PR_URL: ${{ steps.detectpr.outputs.pr_url }}
+          AF1_COMMITTED: ${{ steps.commit.outputs.committed }}
+          AF1_APP_TOKEN: ${{ steps.post_claude.outputs.app_token }}
+          AF1_PUSHED: ${{ steps.push.outputs.pushed }}
+          AF1_PR_CREATED: ${{ steps.pr.outputs.pr_created }}
+          AF1_PR_URL: ${{ steps.pr.outputs.pr_url }}
           AF1_OUT: af1-evidence.md
         run: node scripts/build-os/evidence.mjs || true
 
@@ -309,8 +341,8 @@ jobs:
             // independent defect.
             let v = { pass: false, label: "agent:needs-human", primary_blocker: "evidence pack was not produced" };
             try { v = JSON.parse(fs.readFileSync("af1-evidence.json", "utf8")); } catch (e) { core.warning(`evidence json missing: ${e.message}`); }
-            const prExists = "${{ steps.detectpr.outputs.pr_exists }}" === "true";
-            const prUrl = "${{ steps.detectpr.outputs.pr_url }}";
+            const prCreated = "${{ steps.pr.outputs.pr_created }}" === "true";
+            const prUrl = "${{ steps.pr.outputs.pr_url }}";
 
             let body = "🤖 AF-1 run complete.";
             try { body = fs.readFileSync("af1-evidence.md", "utf8"); } catch {}
@@ -318,9 +350,11 @@ jobs:
 
             try { await core.summary.addRaw(body).write(); } catch (e) { core.warning(e.message); }
             try { await github.rest.issues.createComment({ owner, repo, issue_number: n, body }); } catch (e) { core.warning(e.message); }
-            if (prExists) {
-              const prNumber = Number("${{ steps.detectpr.outputs.pr_number }}");
-              try { await github.rest.issues.createComment({ owner, repo, issue_number: prNumber, body }); } catch (e) { core.warning(e.message); }
+            if (prCreated && prUrl) {
+              const prNumber = Number(prUrl.split("/").pop());
+              if (Number.isInteger(prNumber)) {
+                try { await github.rest.issues.createComment({ owner, repo, issue_number: prNumber, body }); } catch (e) { core.warning(e.message); }
+              }
             }
             // Non-contradictory labels: always clear running; never agent:done unless pass.
             try { await github.rest.issues.removeLabel({ owner, repo, issue_number: n, name: "agent:running" }); } catch {}
