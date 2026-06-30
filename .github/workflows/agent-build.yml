@@ -248,6 +248,28 @@ jobs:
             echo "edited=true" >> "$GITHUB_OUTPUT"; echo "edits detected:"; git status --porcelain;
           else echo "edited=false" >> "$GITHUB_OUTPUT"; echo "Claude made no file changes."; fi
 
+      # DIAGNOSTIC ONLY (does not change any gate, verdict, or git lifecycle):
+      # parse the action's execution_file and emit sanitized tool/edit/git metadata.
+      - name: Claude execution trace (sanitized diagnostic)
+        id: trace
+        if: always()
+        continue-on-error: true
+        env:
+          AF1_EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
+          AF1_BRANCH_NAME: ${{ steps.claude.outputs.branch_name }}
+          AF1_WORKSPACE_EDITED: ${{ steps.post_claude.outputs.edited }}
+          AF1_TARGET_HINT: ${{ needs.preflight.outputs.allowed_files }}
+          AF1_OUT: af1-claude-trace.md
+        run: node scripts/build-os/diagnose-claude.mjs
+
+      - name: Upload Claude execution trace
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: af1-claude-trace-${{ env.AF1_ISSUE }}
+          path: af1-claude-trace.md
+          if-no-files-found: warn
+
       # Gate order: scope (pre-commit, staged) -> verify (pre-push). Never push failing code.
       - name: Stage edits + scope guard (pre-commit)
         id: scope
