@@ -70,6 +70,12 @@ export interface IndoorMapCanvasProps {
   activeRouteSteps: RouteStep[];
   completedStepIndices: Set<number>;
   currentStepIndex: number;
+  /**
+   * Simulated walk position in route coordinate space (percent-style x/y), when a
+   * route-walk simulation is active. Overrides the step-based current marker so the
+   * cyan dot can move smoothly between nodes. Not live GPS — a deterministic sim.
+   */
+  simulatedPosition?: { x: number; y: number } | null;
 }
 
 // ── Viewport constants ─────────────────────────────────────────────────────────
@@ -189,6 +195,7 @@ export default function IndoorMapCanvas({
   activeRouteSteps,
   completedStepIndices,
   currentStepIndex,
+  simulatedPosition,
 }: IndoorMapCanvasProps) {
 
   // ── Safe source arrays (guard null/undefined) ─────────────────────────────
@@ -267,9 +274,15 @@ export default function IndoorMapCanvas({
 
   // ── Current position & destination ───────────────────────────────────────
   const currentStep = activeRouteSteps[currentStepIndex] ?? null;
-  const currentPos  = currentStep
+  const stepPos  = currentStep
     ? (nodePositions.get(currentStep.node_id) ?? null)
     : null;
+  // When a route-walk simulation is active, the interpolated position takes over
+  // so the cyan marker glides between nodes instead of teleporting on "Done".
+  const simPos = simulatedPosition
+    ? { x: svgX(simulatedPosition.x), y: svgY(simulatedPosition.y) }
+    : null;
+  const currentPos = simPos ?? stepPos;
   const lastStep = activeRouteSteps.length > 0
     ? activeRouteSteps[activeRouteSteps.length - 1]
     : null;
