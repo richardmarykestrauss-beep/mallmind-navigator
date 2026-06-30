@@ -107,8 +107,11 @@ console.log("\nAF-1 direct-CLI workflow contract");
 
   // Push + PR use ONLY the dedicated GitHub App token (create-github-app-token).
   has("actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1", "mints the App token via the official action (pinned SHA)");
-  has("app-id: ${{ secrets.AF1_APP_ID }}", "App id from a dedicated secret");
-  has("private-key: ${{ secrets.AF1_APP_PRIVATE_KEY }}", "App private key from a dedicated secret");
+  // Client ID migration: deprecated app-id removed; non-sensitive client-id from a repo VARIABLE.
+  assert(!wf.includes("app-id:"), "deprecated app-id input is no longer used");
+  assert(!wf.includes("secrets.AF1_APP_ID"), "no longer references the AF1_APP_ID secret");
+  has("client-id: ${{ vars.AF1_APP_CLIENT_ID }}", "uses the supported client-id input from a repo variable");
+  has("private-key: ${{ secrets.AF1_APP_PRIVATE_KEY }}", "App private key remains secret-backed");
   has("APP_TOKEN: ${{ steps.apptoken.outputs.token }}", "push uses the App-token output");
   has("GH_TOKEN: ${{ steps.apptoken.outputs.token }}", "gh pr create uses the App-token output");
   assert(!wf.includes("steps.claude.outputs.github_token"), "no longer relies on the action github_token output");
@@ -127,6 +130,11 @@ console.log("\nAF-1 direct-CLI workflow contract");
   assert(
     wf.indexOf("--unset-all http.https://github.com/.extraheader") < wf.indexOf('git push "https://x-access-token:${APP_TOKEN}'),
     "the clear happens before the git push");
+
+  // Integration-warning fix: the nonessential PR-comment mirror is removed
+  // (it needed pull-requests: write). Evidence still posts on the issue.
+  assert(!wf.includes("issue_number: prNumber"), "no PR-comment mirror (the integration-warning operation is removed)");
+  has("github.rest.issues.createComment({ owner, repo, issue_number: n, body })", "evidence still posted on the source issue");
 
   // No production/deployment permissions introduced; obsolete ones removed.
   assert(!/id-token:\s*write/.test(wf), "id-token: write removed (no longer needed)");

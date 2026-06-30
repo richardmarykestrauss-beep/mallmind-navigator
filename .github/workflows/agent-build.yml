@@ -199,7 +199,9 @@ jobs:
         continue-on-error: true
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         with:
-          app-id: ${{ secrets.AF1_APP_ID }}
+          # Client ID is a non-sensitive App identifier → repository variable (not a secret).
+          # The private key remains a repository secret.
+          client-id: ${{ vars.AF1_APP_CLIENT_ID }}
           private-key: ${{ secrets.AF1_APP_PRIVATE_KEY }}
 
       - name: Record App-token presence
@@ -381,13 +383,12 @@ jobs:
             if (!v.pass) body += `\n\n---\n**BLOCKING — human investigation required.** Primary blocker: ${v.primary_blocker}.`;
 
             try { await core.summary.addRaw(body).write(); } catch (e) { core.warning(e.message); }
+            // Evidence is posted on the source issue (issues: write), the job summary, and the
+            // uploaded artifact. We do NOT also mirror it onto the PR: commenting on a PR via the
+            // workflow GITHUB_TOKEN requires the pull-request write scope, which AF-1 deliberately
+            // does not grant (it caused the non-fatal "Resource not accessible by integration"
+            // warning). The draft PR already carries its own body + the issue link, so this is moot.
             try { await github.rest.issues.createComment({ owner, repo, issue_number: n, body }); } catch (e) { core.warning(e.message); }
-            if (prCreated && prUrl) {
-              const prNumber = Number(prUrl.split("/").pop());
-              if (Number.isInteger(prNumber)) {
-                try { await github.rest.issues.createComment({ owner, repo, issue_number: prNumber, body }); } catch (e) { core.warning(e.message); }
-              }
-            }
             // Non-contradictory labels: always clear running; never agent:done unless pass.
             try { await github.rest.issues.removeLabel({ owner, repo, issue_number: n, name: "agent:running" }); } catch {}
             try { await github.rest.issues.addLabels({ owner, repo, issue_number: n, labels: [v.label] }); } catch (e) { core.warning(e.message); }
