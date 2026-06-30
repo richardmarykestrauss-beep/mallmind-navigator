@@ -308,6 +308,10 @@ jobs:
         env:
           APP_TOKEN: ${{ steps.apptoken.outputs.token }}
         run: |
+          # actions/checkout persisted the workflow GITHUB_TOKEN (github-actions[bot])
+          # as http.https://github.com/.extraheader, which git prefers over the URL
+          # credential. Clear it so the App token in the push URL is actually used.
+          git config --local --unset-all http.https://github.com/.extraheader 2>/dev/null || true
           git push "https://x-access-token:${APP_TOKEN}@github.com/${{ github.repository }}.git" "HEAD:refs/heads/${AGENT_BRANCH}"
           echo "pushed=true" >> "$GITHUB_OUTPUT"
 
