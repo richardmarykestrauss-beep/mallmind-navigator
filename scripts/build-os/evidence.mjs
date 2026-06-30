@@ -14,19 +14,21 @@
  *   - not-applicable (n/a — could not run because an earlier stage failed)
  * and identifies the earliest real cause as the PRIMARY BLOCKER.
  *
- * Model B ownership: Claude edits files only; the WORKFLOW owns branch/commit/
- * push/PR. The stages below mirror that pipeline.
+ * Direct-CLI ownership: the Claude CLI edits files only; the WORKFLOW owns
+ * branch/commit/push/PR. The eight stages below mirror that pipeline.
  *
  * Inputs (env, all strings):
  *   AF1_ISSUE, AF1_TASK_TITLE, AF1_TASK_TYPE, AF1_BRANCH, AF1_BASE, AF1_HEAD
- *   AF1_CLAUDE_STATE   ("success" | "failure" | "skipped" | "")
- *   AF1_EDITED         ("true" | "false")   did Claude change any tracked file
- *   AF1_SCOPE_STATE    ("success" | "failure" | "skipped" | "")
- *   AF1_VERIFY_STATE   ("success" | "failure" | "skipped" | "")
- *   AF1_COMMITTED      ("true" | "false")
- *   AF1_APP_TOKEN      ("present" | "absent")
- *   AF1_PUSHED         ("true" | "false")
- *   AF1_PR_CREATED     ("true" | "false")
+ *   AF1_CLI_INSTALL_STATE ("success" | "failure" | "skipped" | "")
+ *   AF1_CLI_EXEC_STATE    ("success" | "failure" | "skipped" | "")
+ *   AF1_CLI_AUTH          ("ok" | "failed" | "")  best-effort CLI auth classification
+ *   AF1_EDITED            ("true" | "false")
+ *   AF1_SCOPE_STATE       ("success" | "failure" | "skipped" | "")
+ *   AF1_VERIFY_STATE      ("success" | "failure" | "skipped" | "")
+ *   AF1_COMMITTED         ("true" | "false")
+ *   AF1_APP_TOKEN         ("present" | "absent")
+ *   AF1_PUSHED            ("true" | "false")
+ *   AF1_PR_CREATED        ("true" | "false")
  *   AF1_PR_URL
  *   AF1_OUT  (markdown output path, default "af1-evidence.md"; JSON sibling "<base>.json")
  */
@@ -38,12 +40,14 @@ import process from "node:process";
 const PASSED = "passed", FAILED = "failed", SKIPPED = "skipped", NA = "not-applicable";
 
 /**
- * Pure status derivation for the Model B pipeline. Returns the seven stage states
- * plus the single earliest primary blocker. Downstream stages after the first
- * problem are not-applicable, never misleading failures.
+ * Pure status derivation for the direct-CLI pipeline. Returns the eight stage
+ * states plus the single earliest primary blocker. Downstream stages after the
+ * first problem are not-applicable, never misleading failures.
  */
 export function deriveStatus(s = {}) {
-  const claudeState = String(s.claude || "").toLowerCase();
+  const cliInstall = String(s.cliInstall || "").toLowerCase();
+  const cliExec = String(s.cliExec || "").toLowerCase();
+  const cliAuth = String(s.cliAuth || "").toLowerCase();
   const edited = String(s.edited || "").toLowerCase() === "true";
   const scopeState = String(s.scope || "").toLowerCase();
   const verifyState = String(s.verify || "").toLowerCase();
@@ -52,48 +56,52 @@ export function deriveStatus(s = {}) {
   const pushed = String(s.pushed || "").toLowerCase() === "true";
   const prCreated = String(s.prCreated || "").toLowerCase() === "true";
 
-  const claudeOk = claudeState === "success";
   const mapStep = (st) => (st === "success" ? PASSED : st === "failure" ? FAILED : SKIPPED);
-
-  const gates = { claude: SKIPPED, edits: NA, scope: NA, verify: NA, commit: NA, push: NA, pr: NA };
-  gates.claude = claudeOk ? PASSED : (claudeState === "failure" ? FAILED : SKIPPED);
+  const gates = { cli_install: SKIPPED, cli_exec: NA, edits: NA, scope: NA, verify: NA, commit: NA, push: NA, pr: NA };
 
   let primaryBlocker = null;
 
-  if (!claudeOk) {
-    primaryBlocker = "Claude action failed (authentication/OIDC or execution) before producing any edits";
-  } else if (!edited) {
-    gates.edits = FAILED;
-    primaryBlocker = "Claude made no file changes";
+  gates.cli_install = cliInstall === "success" ? PASSED : (cliInstall === "failure" ? FAILED : SKIPPED);
+
+  if (gates.cli_install !== PASSED) {
+    primaryBlocker = "Claude CLI install failed";
   } else {
-    gates.edits = PASSED;
-    gates.scope = mapStep(scopeState);
-    if (gates.scope !== PASSED) {
-      primaryBlocker = gates.scope === FAILED ? "scope guard failed" : "scope guard did not run";
+    gates.cli_exec = cliExec === "success" ? PASSED : (cliExec === "failure" ? FAILED : SKIPPED);
+    if (gates.cli_exec !== PASSED) {
+      primaryBlocker = cliAuth === "failed" ? "Claude CLI authentication failed" : "Claude CLI execution failed";
+    } else if (!edited) {
+      gates.edits = FAILED;
+      primaryBlocker = "Claude made no file changes";
     } else {
-      gates.verify = mapStep(verifyState);
-      if (gates.verify !== PASSED) {
-        primaryBlocker = gates.verify === FAILED ? "npm run verify:all failed" : "npm run verify:all did not run";
-      } else if (!appToken) {
-        gates.commit = committed ? PASSED : FAILED;
-        primaryBlocker = "Claude App token was unavailable — cannot push or open a PR";
+      gates.edits = PASSED;
+      gates.scope = mapStep(scopeState);
+      if (gates.scope !== PASSED) {
+        primaryBlocker = gates.scope === FAILED ? "scope guard failed" : "scope guard did not run";
       } else {
-        gates.commit = committed ? PASSED : FAILED;
-        if (!committed) primaryBlocker = "commit failed";
-        else {
-          gates.push = pushed ? PASSED : FAILED;
-          if (!pushed) primaryBlocker = "push of the agent branch failed";
+        gates.verify = mapStep(verifyState);
+        if (gates.verify !== PASSED) {
+          primaryBlocker = gates.verify === FAILED ? "npm run verify:all failed" : "npm run verify:all did not run";
+        } else if (!appToken) {
+          gates.commit = committed ? PASSED : FAILED;
+          primaryBlocker = "GitHub App/PAT token was unavailable — cannot push or open a PR";
+        } else {
+          gates.commit = committed ? PASSED : FAILED;
+          if (!committed) primaryBlocker = "commit failed";
           else {
-            gates.pr = prCreated ? PASSED : FAILED;
-            if (!prCreated) primaryBlocker = "draft pull request creation failed";
+            gates.push = pushed ? PASSED : FAILED;
+            if (!pushed) primaryBlocker = "push of the agent branch failed";
+            else {
+              gates.pr = prCreated ? PASSED : FAILED;
+              if (!prCreated) primaryBlocker = "draft pull request creation failed";
+            }
           }
         }
       }
     }
   }
 
-  const pass = claudeOk && edited && gates.scope === PASSED && gates.verify === PASSED
-    && appToken && committed && pushed && prCreated;
+  const pass = gates.cli_install === PASSED && gates.cli_exec === PASSED && edited
+    && gates.scope === PASSED && gates.verify === PASSED && appToken && committed && pushed && prCreated;
   const finalStatus = pass ? "ready for approval" : "human investigation required";
   const label = pass ? "agent:done" : "agent:needs-human";
   return { pass, finalStatus, label, primaryBlocker, gates };
@@ -119,7 +127,9 @@ if (isMain()) {
   const jsonOut = out.replace(/\.md$/, "") + ".json";
 
   const st = deriveStatus({
-    claude: env.AF1_CLAUDE_STATE,
+    cliInstall: env.AF1_CLI_INSTALL_STATE,
+    cliExec: env.AF1_CLI_EXEC_STATE,
+    cliAuth: env.AF1_CLI_AUTH,
     edited: env.AF1_EDITED,
     scope: env.AF1_SCOPE_STATE,
     verify: env.AF1_VERIFY_STATE,
@@ -149,19 +159,20 @@ if (isMain()) {
 | Base | \`${base}\` (\`${baseSha.slice(0, 12)}\`) |
 | Result commit | \`${head}\` |
 | Draft PR | ${prUrl} |
-| Execution bound | Claude --max-turns + job timeout-minutes (repair-attempt count not tracked in AF-1) |
+| Execution bound | job timeout-minutes (Claude CLI 2.1.196 has no --max-turns; bounded by the job) |
 
-## Stage results (Model B pipeline; authoritative; failed != skipped != not-applicable)
+## Stage results (direct-CLI pipeline; authoritative; failed != skipped != not-applicable)
 
 | # | Stage (owner) | Result |
 |---|---|---|
-| 1 | Claude action — edits only (Claude) | ${icon(st.gates.claude)} |
-| 2 | Edits produced (Claude) | ${icon(st.gates.edits)} |
-| 3 | Scope guard, pre-commit (workflow) | ${icon(st.gates.scope)} |
-| 4 | \`npm run verify:all\`, pre-push (workflow) | ${icon(st.gates.verify)} |
-| 5 | Commit created (workflow) | ${icon(st.gates.commit)} |
-| 6 | Branch pushed via App token (workflow) | ${icon(st.gates.push)} |
-| 7 | Draft PR created via App token (workflow) | ${icon(st.gates.pr)} |
+| 1 | Claude CLI installed (workflow) | ${icon(st.gates.cli_install)} |
+| 2 | Claude CLI executed — edits only (Claude) | ${icon(st.gates.cli_exec)} |
+| 3 | Edits produced (Claude) | ${icon(st.gates.edits)} |
+| 4 | Scope guard, pre-commit (workflow) | ${icon(st.gates.scope)} |
+| 5 | \`npm run verify:all\`, pre-push (workflow) | ${icon(st.gates.verify)} |
+| 6 | Commit created (workflow) | ${icon(st.gates.commit)} |
+| 7 | Branch pushed via GitHub App token (workflow) | ${icon(st.gates.push)} |
+| 8 | Draft PR created via GitHub App token (workflow) | ${icon(st.gates.pr)} |
 
 **Final status: ${st.finalStatus.toUpperCase()}**
 ${st.primaryBlocker ? `\n**Primary blocker:** ${st.primaryBlocker}. Downstream stages marked \`not-applicable\`/\`skipped\` are consequences, not independent defects.` : ""}
@@ -181,7 +192,7 @@ ${diffstat}
 - No deployment was performed.
 - No production database / migration action was performed.
 - No production credentials (Supabase service role, Google Cloud, deploy keys) were available to this run.
-- \`id-token: write\` only permits requesting a GitHub OIDC identity token used to mint the repo-scoped Claude App token; it grants no cloud/production access.
+- Claude ran via the CLI with ANTHROPIC_API_KEY only; push/PR used a dedicated least-privilege GitHub App token (Contents/PR/Issues write, Metadata read) — no cloud/production/deployment access.
 - This pull request is a **draft** and cannot merge without human approval and required status checks.
 
 > The agent's narrative does not determine pass/fail. The deterministic stage results above do.
