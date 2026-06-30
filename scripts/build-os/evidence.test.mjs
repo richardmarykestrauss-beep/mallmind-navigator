@@ -115,6 +115,19 @@ console.log("\nAF-1 direct-CLI workflow contract");
   has("gh pr create --draft", "PR is created as a draft");
   assert(!/git push[^\n]*GITHUB_TOKEN/.test(wf), "push never uses GITHUB_TOKEN");
 
+  // Push-auth fix: clear checkout's persisted github-actions[bot] header so the
+  // App-token URL is honored. Must be inside the push step, after the App-token
+  // step, and immediately before the App-token push.
+  has("git config --local --unset-all http.https://github.com/.extraheader", "clears the persisted checkout extraheader");
+  hasRe(/id: push[\s\S]*?--unset-all http\.https:\/\/github\.com\/\.extraheader[\s\S]*?git push "https:\/\/x-access-token:\$\{APP_TOKEN\}/,
+    "extraheader is cleared inside the push step, before the App-token push");
+  assert(
+    wf.indexOf("id: apptoken") < wf.indexOf("--unset-all http.https://github.com/.extraheader"),
+    "the clear happens after App-token creation (apptoken step precedes it)");
+  assert(
+    wf.indexOf("--unset-all http.https://github.com/.extraheader") < wf.indexOf('git push "https://x-access-token:${APP_TOKEN}'),
+    "the clear happens before the git push");
+
   // No production/deployment permissions introduced; obsolete ones removed.
   assert(!/id-token:\s*write/.test(wf), "id-token: write removed (no longer needed)");
   assert(!/contents:\s*write/.test(wf), "no contents: write for GITHUB_TOKEN");
