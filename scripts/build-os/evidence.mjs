@@ -14,13 +14,19 @@
  *   - not-applicable (n/a — could not run because an earlier stage failed)
  * and identifies the earliest real cause as the PRIMARY BLOCKER.
  *
+ * Model B ownership: Claude edits files only; the WORKFLOW owns branch/commit/
+ * push/PR. The stages below mirror that pipeline.
+ *
  * Inputs (env, all strings):
  *   AF1_ISSUE, AF1_TASK_TITLE, AF1_TASK_TYPE, AF1_BRANCH, AF1_BASE, AF1_HEAD
  *   AF1_CLAUDE_STATE   ("success" | "failure" | "skipped" | "")
- *   AF1_COMMITTED      ("true" | "false")
+ *   AF1_EDITED         ("true" | "false")   did Claude change any tracked file
  *   AF1_SCOPE_STATE    ("success" | "failure" | "skipped" | "")
  *   AF1_VERIFY_STATE   ("success" | "failure" | "skipped" | "")
- *   AF1_PR_EXISTS      ("true" | "false")
+ *   AF1_COMMITTED      ("true" | "false")
+ *   AF1_APP_TOKEN      ("present" | "absent")
+ *   AF1_PUSHED         ("true" | "false")
+ *   AF1_PR_CREATED     ("true" | "false")
  *   AF1_PR_URL
  *   AF1_OUT  (markdown output path, default "af1-evidence.md"; JSON sibling "<base>.json")
  */
@@ -32,48 +38,62 @@ import process from "node:process";
 const PASSED = "passed", FAILED = "failed", SKIPPED = "skipped", NA = "not-applicable";
 
 /**
- * Pure status derivation. Returns gate states + the single primary blocker.
- * @param {object} s state strings (claude, committed, scope, verify, prExists)
+ * Pure status derivation for the Model B pipeline. Returns the seven stage states
+ * plus the single earliest primary blocker. Downstream stages after the first
+ * problem are not-applicable, never misleading failures.
  */
 export function deriveStatus(s = {}) {
   const claudeState = String(s.claude || "").toLowerCase();
-  const committed = String(s.committed || "").toLowerCase() === "true";
+  const edited = String(s.edited || "").toLowerCase() === "true";
   const scopeState = String(s.scope || "").toLowerCase();
   const verifyState = String(s.verify || "").toLowerCase();
-  const prExists = String(s.prExists || "").toLowerCase() === "true";
+  const committed = String(s.committed || "").toLowerCase() === "true";
+  const appToken = String(s.appToken || "").toLowerCase() === "present";
+  const pushed = String(s.pushed || "").toLowerCase() === "true";
+  const prCreated = String(s.prCreated || "").toLowerCase() === "true";
 
   const claudeOk = claudeState === "success";
   const mapStep = (st) => (st === "success" ? PASSED : st === "failure" ? FAILED : SKIPPED);
 
-  const gates = {
-    claude: claudeOk ? PASSED : (claudeState === "failure" ? FAILED : SKIPPED),
-    commit: NA,
-    scope: NA,
-    verify: NA,
-    pr: NA,
-  };
+  const gates = { claude: SKIPPED, edits: NA, scope: NA, verify: NA, commit: NA, push: NA, pr: NA };
+  gates.claude = claudeOk ? PASSED : (claudeState === "failure" ? FAILED : SKIPPED);
 
   let primaryBlocker = null;
 
   if (!claudeOk) {
-    // The agent never produced work — everything downstream is not-applicable.
-    primaryBlocker = "Claude action failed (authentication/OIDC or execution) before producing any work";
+    primaryBlocker = "Claude action failed (authentication/OIDC or execution) before producing any edits";
+  } else if (!edited) {
+    gates.edits = FAILED;
+    primaryBlocker = "Claude made no file changes";
   } else {
-    gates.commit = committed ? PASSED : FAILED;
-    if (!committed) {
-      primaryBlocker = "the agent produced no commit";
-      // scope/verify could not meaningfully run → remain not-applicable
+    gates.edits = PASSED;
+    gates.scope = mapStep(scopeState);
+    if (gates.scope !== PASSED) {
+      primaryBlocker = gates.scope === FAILED ? "scope guard failed" : "scope guard did not run";
     } else {
-      gates.scope = mapStep(scopeState);
       gates.verify = mapStep(verifyState);
-      gates.pr = prExists ? PASSED : FAILED;
-      if (gates.scope !== PASSED) primaryBlocker = gates.scope === FAILED ? "scope guard failed" : "scope guard did not run";
-      else if (gates.verify !== PASSED) primaryBlocker = gates.verify === FAILED ? "npm run verify:all failed" : "npm run verify:all did not run";
-      else if (!prExists) primaryBlocker = "no draft pull request was created";
+      if (gates.verify !== PASSED) {
+        primaryBlocker = gates.verify === FAILED ? "npm run verify:all failed" : "npm run verify:all did not run";
+      } else if (!appToken) {
+        gates.commit = committed ? PASSED : FAILED;
+        primaryBlocker = "Claude App token was unavailable — cannot push or open a PR";
+      } else {
+        gates.commit = committed ? PASSED : FAILED;
+        if (!committed) primaryBlocker = "commit failed";
+        else {
+          gates.push = pushed ? PASSED : FAILED;
+          if (!pushed) primaryBlocker = "push of the agent branch failed";
+          else {
+            gates.pr = prCreated ? PASSED : FAILED;
+            if (!prCreated) primaryBlocker = "draft pull request creation failed";
+          }
+        }
+      }
     }
   }
 
-  const pass = claudeOk && committed && gates.scope === PASSED && gates.verify === PASSED && prExists;
+  const pass = claudeOk && edited && gates.scope === PASSED && gates.verify === PASSED
+    && appToken && committed && pushed && prCreated;
   const finalStatus = pass ? "ready for approval" : "human investigation required";
   const label = pass ? "agent:done" : "agent:needs-human";
   return { pass, finalStatus, label, primaryBlocker, gates };
@@ -100,15 +120,19 @@ if (isMain()) {
 
   const st = deriveStatus({
     claude: env.AF1_CLAUDE_STATE,
-    committed: env.AF1_COMMITTED,
+    edited: env.AF1_EDITED,
     scope: env.AF1_SCOPE_STATE,
     verify: env.AF1_VERIFY_STATE,
-    prExists: env.AF1_PR_EXISTS,
+    committed: env.AF1_COMMITTED,
+    appToken: env.AF1_APP_TOKEN,
+    pushed: env.AF1_PUSHED,
+    prCreated: env.AF1_PR_CREATED,
   });
 
-  const range = `${base}...${head}`;
-  const diffstat = git(["diff", "--stat", range], "(diff unavailable)");
-  const nameStatus = git(["diff", "--name-status", range], "");
+  // Diff vs base: use the committed range when a commit exists, else the staged index.
+  const committed = String(env.AF1_COMMITTED || "").toLowerCase() === "true";
+  const diffstat = committed ? git(["diff", "--stat", `${base}...${head}`], "(diff unavailable)") : git(["diff", "--cached", "--stat", base], "(no commit)");
+  const nameStatus = committed ? git(["diff", "--name-status", `${base}...${head}`], "") : git(["diff", "--cached", "--name-status", base], "");
   const changedFiles = nameStatus ? nameStatus.split("\n").filter(Boolean) : [];
   const baseSha = git(["rev-parse", base], base);
 
@@ -127,15 +151,17 @@ if (isMain()) {
 | Draft PR | ${prUrl} |
 | Execution bound | Claude --max-turns + job timeout-minutes (repair-attempt count not tracked in AF-1) |
 
-## Stage results (authoritative; failed != skipped != not-applicable)
+## Stage results (Model B pipeline; authoritative; failed != skipped != not-applicable)
 
-| Stage | Result |
-|---|---|
-| Claude action (App auth + implement) | ${icon(st.gates.claude)} |
-| Agent commit produced | ${icon(st.gates.commit)} |
-| Scope guard | ${icon(st.gates.scope)} |
-| \`npm run verify:all\` | ${icon(st.gates.verify)} |
-| Draft PR created | ${icon(st.gates.pr)} |
+| # | Stage (owner) | Result |
+|---|---|---|
+| 1 | Claude action — edits only (Claude) | ${icon(st.gates.claude)} |
+| 2 | Edits produced (Claude) | ${icon(st.gates.edits)} |
+| 3 | Scope guard, pre-commit (workflow) | ${icon(st.gates.scope)} |
+| 4 | \`npm run verify:all\`, pre-push (workflow) | ${icon(st.gates.verify)} |
+| 5 | Commit created (workflow) | ${icon(st.gates.commit)} |
+| 6 | Branch pushed via App token (workflow) | ${icon(st.gates.push)} |
+| 7 | Draft PR created via App token (workflow) | ${icon(st.gates.pr)} |
 
 **Final status: ${st.finalStatus.toUpperCase()}**
 ${st.primaryBlocker ? `\n**Primary blocker:** ${st.primaryBlocker}. Downstream stages marked \`not-applicable\`/\`skipped\` are consequences, not independent defects.` : ""}
