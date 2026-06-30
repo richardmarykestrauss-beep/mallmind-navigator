@@ -133,14 +133,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
-      contents: read         # workflow token: read code only. App (via the action) does all writes.
-      issues: write          # move agent:* labels, post evidence comment (incl. on the PR via the issues API)
-      pull-requests: read    # detect the App-created draft PR (cannot create, approve, or merge)
-      id-token: write        # REQUIRED: the Claude action exchanges the workflow's GitHub OIDC token
-                             # for a repo-scoped Claude GitHub App installation token (git push + draft
-                             # PR). This only permits REQUESTING an OIDC identity token; it grants no
-                             # cloud/production access by itself (no Supabase/GCP/AWS) — access would
-                             # require a separately configured trusting provider, which AF-1 has none of.
+      contents: read         # workflow GITHUB_TOKEN: read code only. ALL writes (push + draft PR) use a
+      issues: write          # dedicated least-privilege GitHub App installation token, not this token.
+                             # No id-token/pull-requests/contents-write needed: the Claude CLI runs with
+                             # ANTHROPIC_API_KEY (no OIDC), and push/PR use the App token from
+                             # actions/create-github-app-token. GITHUB_TOKEN can neither push nor open PRs.
     env:
       BASE_BRANCH: claude-premium-nav-test
       AF1_ISSUE: ${{ needs.preflight.outputs.issue_number }}
@@ -194,16 +191,42 @@ jobs:
           npm ci
           npm ci --prefix google-cloud-backend
 
-      # Claude OWNS FILE EDITS ONLY. It must not run any git/gh/PR operation.
-      - name: Claude implement (edits only)
-        id: claude
+      # Mint a short-lived installation token for a DEDICATED least-privilege
+      # GitHub App (Contents/PR/Issues write, Metadata read; NO workflows/admin/
+      # secrets/environments/deployments). Used ONLY for push + draft-PR steps.
+      - name: Mint GitHub App token
+        id: apptoken
         continue-on-error: true
-        uses: anthropics/claude-code-action@a92e7c70a4da9793dc164451d829089dc057a464 # v1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          claude_args: "--max-turns 25"
-          prompt: |
-            You are the MallMind AF-1 implementation agent.
+          app-id: ${{ secrets.AF1_APP_ID }}
+          private-key: ${{ secrets.AF1_APP_PRIVATE_KEY }}
+
+      - name: Record App-token presence
+        id: tokenstate
+        if: always()
+        env:
+          APP_TOKEN: ${{ steps.apptoken.outputs.token }}
+        run: |
+          if [ -n "$APP_TOKEN" ]; then echo "::add-mask::$APP_TOKEN"; echo "app_token=present" >> "$GITHUB_OUTPUT";
+          else echo "app_token=absent" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Install pinned Claude CLI
+        id: cli_install
+        continue-on-error: true
+        run: npm install -g @anthropic-ai/claude-code@2.1.196
+
+      # Claude CLI OWNS FILE EDITS ONLY (no Bash/Web/MCP tools → cannot run git).
+      # Runs in $GITHUB_WORKSPACE and edits the checked-out tree directly.
+      - name: Claude implement (direct CLI, edits only)
+        id: claude
+        if: steps.cli_install.outcome == 'success'
+        continue-on-error: true
+        working-directory: ${{ github.workspace }}
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          AF1_PROMPT: |
+            You are the MallMind AF-1 implementation agent (file edits ONLY).
 
             AUTHORITY (highest first): repository safety controls > docs/build-os/project-state.json
             > docs/build-os/AUTHORITY.md > docs/build-os/AGENT_CHARTER.md > the task below > source.
@@ -220,55 +243,36 @@ jobs:
             ${{ needs.preflight.outputs.allowed_files }}
             - max_diff_lines: ${{ needs.preflight.outputs.max_diff_lines }}
 
-            YOU OWN FILE EDITS ONLY. The workflow owns ALL Git and GitHub operations.
-            - Edit ONLY files within allowed_files. Never touch .github/**, docs/build-os/**,
-              scripts/build-os/**, supabase/migrations/**, supabase/config.toml, lockfiles,
-              .env*, secrets, or deployment/production config.
-            - You MAY run read-only inspection commands needed to implement the task.
-            - Do NOT run `git checkout`. Do NOT create branches. Do NOT run `git add`.
-              Do NOT commit. Do NOT push. Do NOT open a pull request. Do NOT merge or deploy.
-              Do NOT modify workflow files.
-            - You may run `npm run verify:all` to check your work, but never weaken or delete
-              tests to make a gate pass.
-            - STOP after making the required file edits. The workflow will detect your changes,
-              run the scope guard and verify:all, then commit, push, and open a draft PR.
-            - Do not browse external URLs.
+            RULES — YOU OWN FILE EDITS ONLY; the workflow owns ALL Git/GitHub operations:
+            - Edit ONLY files within allowed_files, and ONLY inside the current working directory.
+              Never touch .github/**, docs/build-os/**, scripts/build-os/**, supabase/migrations/**,
+              supabase/config.toml, lockfiles, .env*, secrets, or deployment/production config.
+            - Do NOT create or switch git branches. Do NOT run `git add`. Do NOT commit. Do NOT push.
+              Do NOT open a pull request. Do NOT merge. Do NOT deploy. Do NOT access production.
+              Do NOT modify workflow files or migrations.
+            - STOP after completing the file edits.
+        run: |
+          set +e
+          claude -p "$AF1_PROMPT" \
+            --allowedTools "Read Edit Write Glob Grep" \
+            --permission-mode acceptEdits \
+            --output-format json > "$RUNNER_TEMP/claude-out.json" 2>"$RUNNER_TEMP/claude-err.txt"
+          code=$?
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          # Best-effort auth-vs-execution classification (no secrets printed).
+          if grep -qiE 'authentication|invalid api key|x-api-key|401|unauthorized' "$RUNNER_TEMP/claude-err.txt" "$RUNNER_TEMP/claude-out.json" 2>/dev/null; then
+            echo "auth=failed" >> "$GITHUB_OUTPUT"; else echo "auth=ok" >> "$GITHUB_OUTPUT"; fi
+          exit $code
 
-      - name: Capture App token + detect edits
+      - name: Detect edits (workflow-owned)
         id: post_claude
         if: always()
-        env:
-          APP_TOKEN: ${{ steps.claude.outputs.github_token }}
         run: |
-          # App-token presence only — the value is masked and never printed.
-          if [ -n "$APP_TOKEN" ]; then echo "::add-mask::$APP_TOKEN"; echo "app_token=present" >> "$GITHUB_OUTPUT";
-          else echo "app_token=absent" >> "$GITHUB_OUTPUT"; fi
           echo "on_branch=$(git rev-parse --abbrev-ref HEAD)"
+          if [ "$(git rev-parse --abbrev-ref HEAD)" != "$AGENT_BRANCH" ]; then echo "::error::branch switched unexpectedly"; fi
           if [ -n "$(git status --porcelain)" ]; then
             echo "edited=true" >> "$GITHUB_OUTPUT"; echo "edits detected:"; git status --porcelain;
           else echo "edited=false" >> "$GITHUB_OUTPUT"; echo "Claude made no file changes."; fi
-
-      # DIAGNOSTIC ONLY (does not change any gate, verdict, or git lifecycle):
-      # parse the action's execution_file and emit sanitized tool/edit/git metadata.
-      - name: Claude execution trace (sanitized diagnostic)
-        id: trace
-        if: always()
-        continue-on-error: true
-        env:
-          AF1_EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
-          AF1_BRANCH_NAME: ${{ steps.claude.outputs.branch_name }}
-          AF1_WORKSPACE_EDITED: ${{ steps.post_claude.outputs.edited }}
-          AF1_TARGET_HINT: ${{ needs.preflight.outputs.allowed_files }}
-          AF1_OUT: af1-claude-trace.md
-        run: node scripts/build-os/diagnose-claude.mjs
-
-      - name: Upload Claude execution trace
-        if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
-        with:
-          name: af1-claude-trace-${{ env.AF1_ISSUE }}
-          path: af1-claude-trace.md
-          if-no-files-found: warn
 
       # Gate order: scope (pre-commit, staged) -> verify (pre-push). Never push failing code.
       - name: Stage edits + scope guard (pre-commit)
@@ -297,22 +301,22 @@ jobs:
           echo "AF1_HEAD=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
           echo "committed=true" >> "$GITHUB_OUTPUT"
 
-      - name: Push agent branch (Claude App token ONLY)
+      - name: Push agent branch (GitHub App token ONLY)
         id: push
-        if: steps.commit.outcome == 'success' && steps.post_claude.outputs.app_token == 'present'
+        if: steps.commit.outcome == 'success' && steps.tokenstate.outputs.app_token == 'present'
         continue-on-error: true
         env:
-          APP_TOKEN: ${{ steps.claude.outputs.github_token }}
+          APP_TOKEN: ${{ steps.apptoken.outputs.token }}
         run: |
           git push "https://x-access-token:${APP_TOKEN}@github.com/${{ github.repository }}.git" "HEAD:refs/heads/${AGENT_BRANCH}"
           echo "pushed=true" >> "$GITHUB_OUTPUT"
 
-      - name: Open draft PR (Claude App token ONLY)
+      - name: Open draft PR (GitHub App token ONLY)
         id: pr
         if: steps.push.outcome == 'success'
         continue-on-error: true
         env:
-          GH_TOKEN: ${{ steps.claude.outputs.github_token }}
+          GH_TOKEN: ${{ steps.apptoken.outputs.token }}
         run: |
           URL="$(gh pr create --draft --base "$BASE_BRANCH" --head "$AGENT_BRANCH" \
             --title "[AF-1] #${AF1_ISSUE} ${AF1_TASK_TITLE}" \
@@ -327,12 +331,14 @@ jobs:
         continue-on-error: true
         env:
           AF1_BRANCH: ${{ env.AGENT_BRANCH }}
-          AF1_CLAUDE_STATE: ${{ steps.claude.outcome }}
+          AF1_CLI_INSTALL_STATE: ${{ steps.cli_install.outcome }}
+          AF1_CLI_EXEC_STATE: ${{ steps.claude.outcome }}
+          AF1_CLI_AUTH: ${{ steps.claude.outputs.auth }}
           AF1_EDITED: ${{ steps.post_claude.outputs.edited }}
           AF1_SCOPE_STATE: ${{ steps.scope.outcome }}
           AF1_VERIFY_STATE: ${{ steps.verify.outcome }}
           AF1_COMMITTED: ${{ steps.commit.outputs.committed }}
-          AF1_APP_TOKEN: ${{ steps.post_claude.outputs.app_token }}
+          AF1_APP_TOKEN: ${{ steps.tokenstate.outputs.app_token }}
           AF1_PUSHED: ${{ steps.push.outputs.pushed }}
           AF1_PR_CREATED: ${{ steps.pr.outputs.pr_created }}
           AF1_PR_URL: ${{ steps.pr.outputs.pr_url }}

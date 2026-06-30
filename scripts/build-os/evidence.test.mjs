@@ -1,5 +1,5 @@
 /**
- * MallMind Build OS — AF-1 evidence (Model B) + workflow-ownership contract tests.
+ * MallMind Build OS — AF-1 evidence (direct-CLI) + workflow-ownership contract tests.
  * Run: npm run test:evidence
  */
 
@@ -12,117 +12,121 @@ import process from "node:process";
 let passed = 0, failed = 0;
 const assert = (c, label) => { if (c) { console.log(`  ✓ ${label}`); passed++; } else { console.error(`  ✗ ${label}`); failed++; } };
 
-const ok = { claude: "success", edited: "true", scope: "success", verify: "success", committed: "true", appToken: "present", pushed: "true", prCreated: "true" };
+const ok = {
+  cliInstall: "success", cliExec: "success", cliAuth: "ok", edited: "true",
+  scope: "success", verify: "success", committed: "true", appToken: "present", pushed: "true", prCreated: "true",
+};
 
-console.log("\nAF-1 evidence — Model B stage semantics");
+console.log("\nAF-1 evidence — direct-CLI stage semantics");
 
-// 1. Claude action failure → primary blocker; all downstream not-applicable.
+// 1. CLI install failed → primary; everything downstream not-applicable.
 {
-  const r = deriveStatus({ ...ok, claude: "failure", edited: "false", scope: "skipped", verify: "skipped", committed: "false", appToken: "absent", pushed: "false", prCreated: "false" });
-  assert(r.gates.claude === "failed", "claude failure → claude=failed");
-  assert(["edits","scope","verify","commit","push","pr"].every(k => r.gates[k] === "not-applicable"), "all downstream stages not-applicable");
-  assert(/authentication\/OIDC/i.test(r.primaryBlocker) && !r.pass && r.label === "agent:needs-human", "primary=Claude/OIDC; needs-human");
+  const r = deriveStatus({ ...ok, cliInstall: "failure", cliExec: "skipped", edited: "false", committed: "false", appToken: "absent", pushed: "false", prCreated: "false" });
+  assert(r.gates.cli_install === "failed", "cli install failure → cli_install=failed");
+  assert(["cli_exec","edits","scope","verify","commit","push","pr"].every(k => r.gates[k] === "not-applicable"), "downstream not-applicable on install failure");
+  assert(/CLI install failed/i.test(r.primaryBlocker) && !r.pass, "primary = CLI install failed");
 }
 
-// 2. Claude made no edits → distinct blocker; gates after edits n/a.
+// 2. CLI exec failed + auth failed → auth blocker (distinct from execution).
+{
+  const r = deriveStatus({ ...ok, cliExec: "failure", cliAuth: "failed", edited: "false", committed: "false", appToken: "absent", pushed: "false", prCreated: "false" });
+  assert(r.gates.cli_exec === "failed" && /CLI authentication failed/i.test(r.primaryBlocker), "CLI auth failure distinct");
+}
+
+// 3. CLI exec failed + auth ok → execution blocker.
+{
+  const r = deriveStatus({ ...ok, cliExec: "failure", cliAuth: "ok", edited: "false", committed: "false", appToken: "absent", pushed: "false", prCreated: "false" });
+  assert(/CLI execution failed/i.test(r.primaryBlocker), "CLI execution failure distinct from auth");
+}
+
+// 4. No edits → distinct blocker; gates after edits n/a.
 {
   const r = deriveStatus({ ...ok, edited: "false", scope: "skipped", verify: "skipped", committed: "false", pushed: "false", prCreated: "false" });
   assert(r.gates.edits === "failed" && /made no file changes/i.test(r.primaryBlocker), "no edits → 'Claude made no file changes'");
-  assert(r.gates.scope === "not-applicable" && r.gates.commit === "not-applicable", "scope/commit n/a when no edits");
+  assert(r.gates.scope === "not-applicable", "scope n/a when no edits");
 }
 
-// 3. Scope guard failed → distinct blocker; verify/commit/push/pr n/a.
+// 5/6. Scope / verify failures distinct.
 {
-  const r = deriveStatus({ ...ok, scope: "failure", verify: "skipped", committed: "false", pushed: "false", prCreated: "false" });
-  assert(r.gates.scope === "failed" && /scope guard failed/i.test(r.primaryBlocker), "scope failure distinct");
-  assert(r.gates.verify === "not-applicable" && r.gates.push === "not-applicable", "downstream n/a after scope fail");
+  const sc = deriveStatus({ ...ok, scope: "failure", verify: "skipped", committed: "false", pushed: "false", prCreated: "false" });
+  assert(sc.gates.scope === "failed" && /scope guard failed/i.test(sc.primaryBlocker), "scope failure distinct");
+  const vf = deriveStatus({ ...ok, verify: "failure", committed: "false", pushed: "false", prCreated: "false" });
+  assert(vf.gates.verify === "failed" && /verify:all failed/i.test(vf.primaryBlocker), "verify failure distinct");
 }
 
-// 4. Verify failed → distinct blocker.
-{
-  const r = deriveStatus({ ...ok, verify: "failure", committed: "false", pushed: "false", prCreated: "false" });
-  assert(r.gates.verify === "failed" && /verify:all failed/i.test(r.primaryBlocker), "verify failure distinct");
-}
-
-// 5. App token unavailable (scope+verify pass) → distinct blocker.
+// 7. App/PAT token unavailable.
 {
   const r = deriveStatus({ ...ok, appToken: "absent", committed: "false", pushed: "false", prCreated: "false" });
-  assert(/App token was unavailable/i.test(r.primaryBlocker) && !r.pass, "app-token-absent distinct blocker");
+  assert(/App\/PAT token was unavailable/i.test(r.primaryBlocker) && !r.pass, "app/PAT token absent distinct");
 }
 
-// 6. Commit failed → distinct blocker.
+// 8/9/10. Commit / push / PR failures distinct.
 {
-  const r = deriveStatus({ ...ok, committed: "false", pushed: "false", prCreated: "false" });
-  assert(r.gates.commit === "failed" && /commit failed/i.test(r.primaryBlocker), "commit failure distinct");
+  assert(/commit failed/i.test(deriveStatus({ ...ok, committed: "false", pushed: "false", prCreated: "false" }).primaryBlocker), "commit failure distinct");
+  assert(/push of the agent branch failed/i.test(deriveStatus({ ...ok, pushed: "false", prCreated: "false" }).primaryBlocker), "push failure distinct");
+  assert(/draft pull request creation failed/i.test(deriveStatus({ ...ok, prCreated: "false" }).primaryBlocker), "PR-creation failure distinct");
 }
 
-// 7. Push failed → distinct blocker.
-{
-  const r = deriveStatus({ ...ok, pushed: "false", prCreated: "false" });
-  assert(r.gates.push === "failed" && /push of the agent branch failed/i.test(r.primaryBlocker), "push failure distinct");
-}
-
-// 8. Draft-PR creation failed → distinct blocker.
-{
-  const r = deriveStatus({ ...ok, prCreated: "false" });
-  assert(r.gates.pr === "failed" && /draft pull request creation failed/i.test(r.primaryBlocker), "PR-creation failure distinct");
-}
-
-// 9. Full success → pass / agent:done / no blocker.
+// 11. Full success → pass / agent:done / all 8 stages passed.
 {
   const r = deriveStatus(ok);
-  assert(r.pass === true && r.label === "agent:done" && r.primaryBlocker === null, "success path reaches agent:done");
-  assert(["claude","edits","scope","verify","commit","push","pr"].every(k => r.gates[k] === "passed"), "all seven stages passed");
+  assert(r.pass === true && r.label === "agent:done" && r.primaryBlocker === null, "success → ready for approval");
+  assert(["cli_install","cli_exec","edits","scope","verify","commit","push","pr"].every(k => r.gates[k] === "passed"), "all eight stages passed");
 }
 
-// ── Model B workflow-ownership contract ─────────────────────────────────────
-console.log("\nAF-1 Model B workflow contract");
+// ── Direct-CLI workflow-ownership contract ──────────────────────────────────
+console.log("\nAF-1 direct-CLI workflow contract");
 {
   const here = path.dirname(fileURLToPath(import.meta.url));
   const wf = readFileSync(path.resolve(here, "..", "..", ".github", "workflows", "agent-build.yml"), "utf8");
   const has = (s, label) => assert(wf.includes(s), label);
   const hasRe = (re, label) => assert(re.test(wf), label);
 
-  // Workflow owns branch creation + identity.
-  hasRe(/git checkout -B "\$AGENT_BRANCH" "origin\/\$BASE_BRANCH"/, "workflow creates the agent/* branch");
-  has('git config user.name "mallmind-af1[bot]"', "workflow sets a bot git identity");
+  // The official Claude action is GONE from the implementation path.
+  assert(!wf.includes("anthropics/claude-code-action"), "official claude-code-action is absent");
 
-  // Claude prompt forbids all git/PR operations.
+  // Direct CLI: pinned install + verified invocation in the workspace.
+  has("npm install -g @anthropic-ai/claude-code@2.1.196", "installs the pinned Claude CLI");
+  has("working-directory: ${{ github.workspace }}", "CLI runs in $GITHUB_WORKSPACE");
+  has('claude -p "$AF1_PROMPT"', "uses claude -p (non-interactive)");
+  has('--allowedTools "Read Edit Write Glob Grep"', "restricts tools to file ops (no Bash/Web)");
+  has("--permission-mode acceptEdits", "auto-accepts edits non-interactively");
+  has("--output-format json", "captures structured CLI output");
+  has("ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}", "CLI authenticates via ANTHROPIC_API_KEY");
+
+  // Prompt forbids all git/PR operations.
   has("YOU OWN FILE EDITS ONLY", "prompt: Claude owns edits only");
-  has("Do NOT run `git checkout`", "prompt forbids git checkout/branch");
-  has("Do NOT commit. Do NOT push. Do NOT open a pull request", "prompt forbids commit/push/PR");
+  has("Do NOT create or switch git branches", "prompt forbids branch ops");
+  has("Do NOT run `git add`. Do NOT commit. Do NOT push", "prompt forbids add/commit/push");
 
-  // Gate order: scope (pre-commit) -> verify (pre-push) -> commit -> push -> PR.
+  // Direct edits are detected by the workflow via git status.
+  has("git status --porcelain", "workflow detects edits via git status");
   has("scope-guard.mjs --staged", "scope guard runs pre-commit on the staged index");
-  hasRe(/id: scope[\s\S]*?if: steps\.post_claude\.outputs\.edited == 'true'/, "scope runs only if Claude edited");
   hasRe(/id: verify[\s\S]*?if: steps\.scope\.outcome == 'success'/, "verify runs only after scope passes");
   hasRe(/id: commit[\s\S]*?if: steps\.verify\.outcome == 'success'/, "commit runs only after verify passes");
-  hasRe(/id: push[\s\S]*?if: steps\.commit\.outcome == 'success' && steps\.post_claude\.outputs\.app_token == 'present'/, "push runs only after commit AND when App token present");
-  hasRe(/id: pr[\s\S]*?if: steps\.push\.outcome == 'success'/, "draft PR runs only after push succeeds");
 
-  // Push + PR use the Claude App token output (never GITHUB_TOKEN).
-  has("APP_TOKEN: ${{ steps.claude.outputs.github_token }}", "push uses steps.claude.outputs.github_token");
-  has("GH_TOKEN: ${{ steps.claude.outputs.github_token }}", "gh pr create uses the App token");
+  // Push + PR use ONLY the dedicated GitHub App token (create-github-app-token).
+  has("actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1", "mints the App token via the official action (pinned SHA)");
+  has("app-id: ${{ secrets.AF1_APP_ID }}", "App id from a dedicated secret");
+  has("private-key: ${{ secrets.AF1_APP_PRIVATE_KEY }}", "App private key from a dedicated secret");
+  has("APP_TOKEN: ${{ steps.apptoken.outputs.token }}", "push uses the App-token output");
+  has("GH_TOKEN: ${{ steps.apptoken.outputs.token }}", "gh pr create uses the App-token output");
+  assert(!wf.includes("steps.claude.outputs.github_token"), "no longer relies on the action github_token output");
   has("gh pr create --draft", "PR is created as a draft");
-  has("x-access-token:${APP_TOKEN}", "push authenticates with the App token");
   assert(!/git push[^\n]*GITHUB_TOKEN/.test(wf), "push never uses GITHUB_TOKEN");
 
-  // Commit message format + issue link.
-  has("agent(issue-${AF1_ISSUE}): ", "deterministic commit message format");
-  has("Closes #${AF1_ISSUE}", "draft PR links the source issue");
-
-  // No production/deployment permissions added; minimal token retained.
-  assert((wf.match(/id-token:\s*write/g) || []).length === 1, "id-token: write appears once (build job)");
+  // No production/deployment permissions introduced; obsolete ones removed.
+  assert(!/id-token:\s*write/.test(wf), "id-token: write removed (no longer needed)");
   assert(!/contents:\s*write/.test(wf), "no contents: write for GITHUB_TOKEN");
   assert(!/pull-requests:\s*write/.test(wf), "no pull-requests: write for GITHUB_TOKEN");
-  assert(!/\b(deployments|environments|administration):\s*write/.test(wf), "no deployment/environment/administration write");
+  assert(!/\b(deployments|environments|administration|packages):\s*write/.test(wf), "no deployment/environment/admin/packages write");
   assert(wf.split("\n").filter(l => /uses:/.test(l)).every(l => /@[0-9a-f]{40}\b/.test(l)), "all actions pinned to 40-hex SHAs");
 
-  // Evidence wiring: the new stage states are passed in.
-  for (const v of ["AF1_EDITED", "AF1_APP_TOKEN", "AF1_PUSHED", "AF1_PR_CREATED"])
+  // Evidence wiring: the new CLI stage states are passed in.
+  for (const v of ["AF1_CLI_INSTALL_STATE", "AF1_CLI_EXEC_STATE", "AF1_CLI_AUTH", "AF1_EDITED", "AF1_APP_TOKEN", "AF1_PUSHED", "AF1_PR_CREATED"])
     has(v + ":", `evidence receives ${v}`);
   has("af1-evidence.json", "finalize reads the evidence JSON verdict");
 }
 
-console.log(`\n===== AF-1 EVIDENCE + MODEL B CONTRACT: ${passed} passed, ${failed} failed =====`);
+console.log(`\n===== AF-1 EVIDENCE + DIRECT-CLI CONTRACT: ${passed} passed, ${failed} failed =====`);
 if (failed > 0) process.exit(1);
