@@ -3,12 +3,13 @@ import { useNavigate } from "react-router-dom";
 import {
   Clock, Footprints, MapPin, Route as RouteIcon,
   CheckCircle2, Store, ArrowRight, RotateCcw, Search,
-  Zap, Layers, ArrowUp, ArrowDown, Navigation,
+  Zap, Layers, ArrowUp, ArrowDown, Navigation, Play, Pause,
 } from "lucide-react";
 import MobileShell from "@/components/MobileShell";
 import ScreenHeader from "@/components/ScreenHeader";
 import { Button } from "@/components/ui/button";
 import IndoorMapCanvas from "@/components/navigation/IndoorMapCanvas";
+import { computeRouteWalk } from "@/components/navigation/routeWalk";
 import { useShoppingSession } from "@/context/ShoppingSessionContext";
 import { useAuth } from "@/context/AuthContext";
 import { awardXP, XP_REWARDS } from "@/lib/xp";
@@ -55,11 +56,68 @@ const NavigateScreen = () => {
 
   const xpAwardedRef = useRef(false);
 
+  // ── Route-walk simulation (not live GPS) ──────────────────────────────────
+  const SEGMENT_MS = 1800;
+  const [isWalking, setIsWalking] = useState(false);
+  const [elapsedMs, setElapsedMs] = useState(0);
+
+  // Ordered route-node coordinates feeding the simulation. Missing coordinates
+  // fall back to map centre (50%), matching the canvas's own default mapping.
+  const walkNodes = useMemo(
+    () =>
+      activeRouteSteps.map((s) => ({
+        x: s.x_coordinate ?? 50,
+        y: s.y_coordinate ?? 50,
+        floor: s.floor,
+      })),
+    [activeRouteSteps],
+  );
+
+  const walk = useMemo(
+    () => computeRouteWalk(walkNodes, elapsedMs, SEGMENT_MS),
+    [walkNodes, elapsedMs],
+  );
+
+  const simEngaged = elapsedMs > 0 || isWalking;
+
   useEffect(() => {
     if (activeRouteSteps.length > 0 && activeRouteSteps[0].floor) {
       setActiveFloor(activeRouteSteps[0].floor);
     }
   }, [activeRouteSteps]);
+
+  // Animation loop — advances elapsed time while playing. Cleans up on pause,
+  // route change and unmount (the effect re-runs / tears down on every dep change).
+  useEffect(() => {
+    if (!isWalking) return;
+
+    let raf = 0;
+    let last: number | null = null;
+    const tick = (ts: number) => {
+      if (last !== null) setElapsedMs((prev) => prev + (ts - last!));
+      last = ts;
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+
+    return () => cancelAnimationFrame(raf);
+  }, [isWalking]);
+
+  // Stop the loop once the simulated walk reaches the final node.
+  useEffect(() => {
+    if (walk.done && isWalking) setIsWalking(false);
+  }, [walk.done, isWalking]);
+
+  // A new route resets and stops the simulation.
+  useEffect(() => {
+    setIsWalking(false);
+    setElapsedMs(0);
+  }, [activeRouteId]);
+
+  // Follow the simulated marker across floor transitions.
+  useEffect(() => {
+    if (simEngaged && walk.floor) setActiveFloor(walk.floor);
+  }, [walk.floor, simEngaged]);
 
   useEffect(() => {
     const mallId = selectedMall?.id;
@@ -202,6 +260,21 @@ const NavigateScreen = () => {
     navigate("/search");
   }
 
+  function startWalk() {
+    if (walk.done) setElapsedMs(0); // restart a finished walk from the top
+    setIsWalking(true);
+  }
+
+  function pauseWalk() {
+    setIsWalking(false);
+  }
+
+  function resetWalk() {
+    setIsWalking(false);
+    setElapsedMs(0);
+    if (activeRouteSteps[0]?.floor) setActiveFloor(activeRouteSteps[0].floor);
+  }
+
   if (!hasRealRoute && !routeStops.length) {
     return (
       <MobileShell>
@@ -276,10 +349,12 @@ const NavigateScreen = () => {
           className="relative rounded-2xl border border-primary/18 overflow-hidden"
           style={{ height: 252, background: "hsl(240 20% 4%)" }}
         >
-          {/* Honest badge — this is a route preview; no live GPS/blue-dot positioning */}
+          {/* Honest badge — simulated walk-through, NOT live GPS/blue-dot positioning */}
           <div className="absolute left-3 top-3 z-10 flex items-center gap-1 rounded-lg border border-border/50 bg-background/80 backdrop-blur-sm px-2 py-1">
-            <Navigation className="h-3 w-3 text-primary" />
-            <span className="text-[9px] font-bold text-primary uppercase tracking-widest">Preview</span>
+            <Navigation className={cn("h-3 w-3 text-primary", isWalking && "animate-pulse")} />
+            <span className="text-[9px] font-bold text-primary uppercase tracking-widest">
+              {isWalking ? "Simulating" : "Simulation"}
+            </span>
           </div>
 
           <div className="absolute right-3 top-3 z-10 flex flex-col gap-1 rounded-xl border border-border/50 bg-background/85 backdrop-blur-sm p-1">
@@ -306,13 +381,42 @@ const NavigateScreen = () => {
             completedStepIndices={completedStepIndices}
             currentStepIndex={currentStepNum}
             mapModel={indoorMapModel}
+            simulatedPosition={hasRealRoute && simEngaged ? walk.point : null}
           />
         </div>
 
-        {/* Demo honesty line — matches the 21A Assistant handoff copy */}
+        {/* Simulated-walk controls — move the marker without pressing Done each step. */}
+        {hasRealRoute && walkNodes.length > 1 && (
+          <div className="mt-2 flex items-center gap-2">
+            {isWalking ? (
+              <Button variant="glass" size="sm" className="flex-1" onClick={pauseWalk}>
+                <Pause className="h-3.5 w-3.5" />
+                Pause
+              </Button>
+            ) : (
+              <Button variant="neon" size="sm" className="flex-1" onClick={startWalk}>
+                <Play className="h-3.5 w-3.5" />
+                {elapsedMs > 0 && !walk.done ? "Resume walk" : "Start walk"}
+              </Button>
+            )}
+
+            <Button
+              variant="glass"
+              size="sm"
+              className="flex-1"
+              onClick={resetWalk}
+              disabled={elapsedMs === 0 && !isWalking}
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+              Reset
+            </Button>
+          </div>
+        )}
+
+        {/* Demo honesty line — explicit that the moving marker is a simulation. */}
         <p className="mt-2 px-0.5 text-[10px] text-muted-foreground leading-relaxed">
-          Follow these steps on the mall map. Live indoor positioning is not active
-          in this demo.
+          This is a simulated walk-through that animates along your route — not live
+          GPS or indoor positioning.
         </p>
       </div>
 
