@@ -10,6 +10,7 @@ import ScreenHeader from "@/components/ScreenHeader";
 import { Button } from "@/components/ui/button";
 import IndoorMapCanvas from "@/components/navigation/IndoorMapCanvas";
 import { computeRouteWalk } from "@/components/navigation/routeWalk";
+import { reachedNodeCount, walkCompletedSteps } from "@/components/navigation/routeWalkProgress";
 import { useShoppingSession } from "@/context/ShoppingSessionContext";
 import { useAuth } from "@/context/AuthContext";
 import { awardXP, XP_REWARDS } from "@/lib/xp";
@@ -78,6 +79,12 @@ const NavigateScreen = () => {
     [walkNodes, elapsedMs],
   );
 
+  // Nodes the simulated marker has reached — one route step per crossed node.
+  const walkReachedCount = useMemo(
+    () => reachedNodeCount(walk, walkNodes.length),
+    [walk, walkNodes.length],
+  );
+
   const simEngaged = elapsedMs > 0 || isWalking;
 
   useEffect(() => {
@@ -108,10 +115,14 @@ const NavigateScreen = () => {
     if (walk.done && isWalking) setIsWalking(false);
   }, [walk.done, isWalking]);
 
-  // A new route resets and stops the simulation.
+  // A new route resets and stops the simulation, and clears all progress so the
+  // checklist, percentage, arrival state and one-shot XP guard start fresh.
   useEffect(() => {
     setIsWalking(false);
     setElapsedMs(0);
+    setCompletedStepIndices(new Set());
+    setCompletedStopIndices(new Set());
+    xpAwardedRef.current = false;
   }, [activeRouteId]);
 
   // Follow the simulated marker across floor transitions.
@@ -160,6 +171,16 @@ const NavigateScreen = () => {
   }, [selectedMall?.id, activeFloor]);
 
   const hasRealRoute = activeRouteSteps.length > 0;
+
+  // Synchronise route progress with the simulated marker: mark each route node
+  // complete as the marker reaches it. Additive and monotonic (a set union), so
+  // progress never moves backwards, never double-counts a node, reaches 100% when
+  // the marker arrives, and composes with manual "Done" presses.
+  useEffect(() => {
+    setCompletedStepIndices((prev) =>
+      walkCompletedSteps(prev, walkReachedCount, simEngaged && hasRealRoute),
+    );
+  }, [walkReachedCount, simEngaged, hasRealRoute]);
 
   const totalMeters = hasRealRoute
     ? activeRouteSteps.at(-1)?.cumulative_meters ?? 0
@@ -261,17 +282,24 @@ const NavigateScreen = () => {
   }
 
   function startWalk() {
-    if (walk.done) setElapsedMs(0); // restart a finished walk from the top
+    if (walk.done) {
+      // Restart a finished walk from the top — clear progress so the marker and
+      // checklist advance together from the route start (no stale 100% state).
+      setElapsedMs(0);
+      setCompletedStepIndices(new Set());
+    }
     setIsWalking(true);
   }
 
   function pauseWalk() {
+    // Pause only stops the clock; elapsed time and completed steps are preserved.
     setIsWalking(false);
   }
 
   function resetWalk() {
     setIsWalking(false);
     setElapsedMs(0);
+    setCompletedStepIndices(new Set());
     if (activeRouteSteps[0]?.floor) setActiveFloor(activeRouteSteps[0].floor);
   }
 
