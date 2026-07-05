@@ -146,6 +146,9 @@ jobs:
       AF1_ALLOWED_FILES: ${{ needs.preflight.outputs.allowed_files }}
       AF1_MAX_DIFF_LINES: ${{ needs.preflight.outputs.max_diff_lines }}
       AGENT_BRANCH: agent/${{ needs.preflight.outputs.issue_number }}-${{ needs.preflight.outputs.slug }}
+      # Attempt-unique identifiers so multi-attempt reruns never collide (report §4).
+      AF1_RUN_ID: ${{ github.run_id }}
+      AF1_RUN_ATTEMPT: ${{ github.run_attempt }}
     steps:
       - name: Mark issue running
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
@@ -213,8 +216,43 @@ jobs:
           if [ -n "$APP_TOKEN" ]; then echo "::add-mask::$APP_TOKEN"; echo "app_token=present" >> "$GITHUB_OUTPUT";
           else echo "app_token=absent" >> "$GITHUB_OUTPUT"; fi
 
+      # ── Idempotency guard (report §2): never a second commit, duplicate PR,
+      #    force-push, or non-fast-forward failure on a rerun. Detect the remote
+      #    agent branch (via checkout-persisted read creds) and any existing PR
+      #    (via the App token), then let the pure rerun-guard decide the action.
+      - name: Rerun guard (idempotency — no force-push, no duplicate PR)
+        id: guard
+        if: always()
+        env:
+          GH_TOKEN: ${{ steps.apptoken.outputs.token }}
+        run: |
+          set -e
+          if git ls-remote --exit-code --heads origin "refs/heads/${AGENT_BRANCH}" >/dev/null 2>&1; then
+            BR=true; else BR=false; fi
+          PRSTATE=none
+          if [ -n "$GH_TOKEN" ]; then
+            INFO="$(gh pr list --head "$AGENT_BRANCH" --state all --json state,isDraft,mergedAt \
+              --jq 'if length==0 then "none|false|false" else (.[0].state + "|" + (.[0].isDraft|tostring) + "|" + (if .[0].mergedAt then "true" else "false" end)) end' 2>/dev/null || echo 'none|false|false')"
+            STATE="$(printf '%s' "$INFO" | cut -d'|' -f1 | tr '[:upper:]' '[:lower:]')"
+            ISDRAFT="$(printf '%s' "$INFO" | cut -d'|' -f2)"
+            PRMERGED="$(printf '%s' "$INFO" | cut -d'|' -f3)"
+            if [ "$PRMERGED" = "true" ] || [ "$STATE" = "merged" ]; then PRSTATE=merged;
+            elif [ "$STATE" = "open" ] && [ "$ISDRAFT" = "true" ]; then PRSTATE=draft;
+            elif [ "$STATE" = "open" ]; then PRSTATE=open;
+            elif [ "$STATE" = "closed" ]; then PRSTATE=closed; fi
+            if [ "$PRSTATE" != "none" ]; then
+              URL="$(gh pr list --head "$AGENT_BRANCH" --state all --json url --jq '.[0].url' 2>/dev/null || echo '')"
+              echo "existing_pr_url=$URL" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+          # The issue was validated open at preflight (a merged PR closes it, which
+          # preflight rejects), so at build time it is open.
+          AF1_ISSUE_STATE=open AF1_REMOTE_BRANCH_EXISTS="$BR" AF1_PR_STATE="$PRSTATE" AF1_PR_MERGED=false \
+            node scripts/build-os/rerun-guard.mjs
+
       - name: Install pinned Claude CLI
         id: cli_install
+        if: steps.guard.outputs.proceed == 'true'
         continue-on-error: true
         run: npm install -g @anthropic-ai/claude-code@2.1.196
 
@@ -222,7 +260,7 @@ jobs:
       # Runs in $GITHUB_WORKSPACE and edits the checked-out tree directly.
       - name: Claude implement (direct CLI, edits only)
         id: claude
-        if: steps.cli_install.outcome == 'success'
+        if: steps.cli_install.outcome == 'success' && steps.guard.outputs.proceed == 'true'
         continue-on-error: true
         working-directory: ${{ github.workspace }}
         env:
@@ -275,6 +313,20 @@ jobs:
           if [ -n "$(git status --porcelain)" ]; then
             echo "edited=true" >> "$GITHUB_OUTPUT"; echo "edits detected:"; git status --porcelain;
           else echo "edited=false" >> "$GITHUB_OUTPUT"; echo "Claude made no file changes."; fi
+
+      # Persist a SANITIZED, attempt-specific diagnostic record so a benign
+      # non-zero CLI exit can be inspected later (report §3). Never emits secrets:
+      # diagnostics.mjs redacts token-like values and keeps only a short tail.
+      - name: Persist sanitized Claude diagnostics
+        id: diagnostics
+        if: always()
+        env:
+          AF1_CLI_EXIT_CODE: ${{ steps.claude.outputs.exit_code }}
+          AF1_EDITED: ${{ steps.post_claude.outputs.edited }}
+          AF1_CLAUDE_OUT_FILE: ${{ runner.temp }}/claude-out.json
+          AF1_CLAUDE_ERR_FILE: ${{ runner.temp }}/claude-err.txt
+          AF1_DIAG_OUT: af1-claude-diagnostics.json
+        run: node scripts/build-os/diagnostics.mjs || true
 
       # Gate order: scope (pre-commit, staged) -> verify (pre-push). Never push failing code.
       - name: Stage edits + scope guard (pre-commit)
@@ -355,12 +407,25 @@ jobs:
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: af1-evidence-${{ env.AF1_ISSUE }}
+          # Attempt-unique name (report §4): issue + run id + attempt → no collisions.
+          name: af1-evidence-${{ env.AF1_ISSUE }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: af1-evidence.md
           if-no-files-found: warn
 
+      - name: Upload Claude diagnostics artifact
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: af1-claude-diagnostics-${{ env.AF1_ISSUE }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: af1-claude-diagnostics.json
+          if-no-files-found: ignore
+
       - name: Finalize state (labels, comments, verdict)
         if: always()
+        env:
+          AF1_GUARD_ACTION: ${{ steps.guard.outputs.action }}
+          AF1_GUARD_REASON: ${{ steps.guard.outputs.reason }}
+          AF1_EXISTING_PR_URL: ${{ steps.guard.outputs.existing_pr_url }}
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         with:
           script: |
@@ -368,11 +433,33 @@ jobs:
             const n = Number(process.env.AF1_ISSUE);
             const { owner, repo } = context.repo;
 
+            // ── Idempotent rerun (report §2): when the guard did NOT proceed, the
+            // run made no changes — an existing branch/PR was found, or the task is
+            // already delivered. Report truthfully; do NOT relabel a completed task
+            // as a technical failure, and do NOT fail the job for a safe no-op.
+            const guardAction = process.env.AF1_GUARD_ACTION || "proceed";
+            if (guardAction && guardAction !== "proceed") {
+              const reason = process.env.AF1_GUARD_REASON || "an existing agent branch or PR was detected";
+              const existingPr = process.env.AF1_EXISTING_PR_URL || "";
+              const idemBody = `🤖 AF-1 rerun was idempotent — **no changes made**.\n\n**Guard decision:** \`${guardAction}\`\n\n${reason}.${existingPr ? `\n\nExisting pull request: ${existingPr}` : ""}`;
+              try { await core.summary.addRaw(idemBody).write(); } catch (e) { core.warning(e.message); }
+              const body = idemBody;
+              try { await github.rest.issues.createComment({ owner, repo, issue_number: n, body }); } catch (e) { core.warning(e.message); }
+              try { await github.rest.issues.removeLabel({ owner, repo, issue_number: n, name: "agent:running" }); } catch {}
+              // A merged/closed task stays as-is (delivered). An existing open PR or a
+              // reusable branch genuinely needs human review → needs-human, but the run
+              // itself did not fail.
+              if (guardAction !== "stop-merged" && guardAction !== "stop-closed") {
+                try { await github.rest.issues.addLabels({ owner, repo, issue_number: n, labels: ["agent:needs-human"] }); } catch (e) { core.warning(e.message); }
+              }
+              core.notice(`AF-1 idempotent no-op (${guardAction}) — no duplicate PR, no force-push. ${existingPr}`);
+              return;
+            }
+
             // Single source of truth: the deterministic verdict from evidence.mjs,
-            // which distinguishes failed / skipped / not-applicable and names the
-            // EARLIEST real cause (e.g. the Claude action / OIDC failure) as the
-            // primary blocker — so a skipped scope/verify is never reported as an
-            // independent defect.
+            // which distinguishes failed / skipped / not-applicable / warning and
+            // names the EARLIEST real cause as the primary blocker. A benign non-zero
+            // CLI exit AFTER verified edits is a warning, not a blocker (report §1).
             let v = { pass: false, label: "agent:needs-human", primary_blocker: "evidence pack was not produced" };
             try { v = JSON.parse(fs.readFileSync("af1-evidence.json", "utf8")); } catch (e) { core.warning(`evidence json missing: ${e.message}`); }
             const prCreated = "${{ steps.pr.outputs.pr_created }}" === "true";

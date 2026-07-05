@@ -72,6 +72,66 @@ console.log("\nAF-1 evidence — direct-CLI stage semantics");
   const r = deriveStatus(ok);
   assert(r.pass === true && r.label === "agent:done" && r.primaryBlocker === null, "success → ready for approval");
   assert(["cli_install","cli_exec","edits","scope","verify","commit","push","pr"].every(k => r.gates[k] === "passed"), "all eight stages passed");
+  assert(Array.isArray(r.warnings) && r.warnings.length === 0, "clean success has no warnings (8-stage path unchanged)");
+}
+
+// ── CLI-exit reconciliation: Cases A / B / C (report §1) ─────────────────────
+console.log("\nAF-1 CLI-exit reconciliation (Cases A/B/C)");
+
+// Case A — non-zero exit BEFORE edits → terminal CLI failure; downstream n/a.
+{
+  const r = deriveStatus({ ...ok, cliExec: "failure", cliAuth: "ok", edited: "false",
+    scope: "skipped", verify: "skipped", committed: "false", pushed: "false", prCreated: "false" });
+  assert(r.gates.cli_exec === "failed", "A: exit before edits → cli_exec=failed");
+  assert(/before producing edits/i.test(r.primaryBlocker), "A: blocker names 'before producing edits'");
+  assert(["edits","scope","verify","commit","push","pr"].every(k => r.gates[k] === "not-applicable"), "A: downstream n/a (nothing ran)");
+  assert(r.pass === false, "A: not pass");
+}
+
+// Case B (scope) — non-zero exit AFTER edits, scope fails → scope is the blocker.
+{
+  const r = deriveStatus({ ...ok, cliExec: "failure", edited: "true", scope: "failure",
+    verify: "skipped", committed: "false", pushed: "false", prCreated: "false" });
+  assert(r.gates.cli_exec === "warning", "B: exit after edits → cli_exec=warning (not failed)");
+  assert(r.gates.edits === "passed", "B: edits=passed (Stage 3 ran)");
+  assert(r.gates.scope === "failed" && /scope guard failed/i.test(r.primaryBlocker), "B: scope is the actual blocker");
+  assert(r.warnings.some((w) => /non-zero after producing/i.test(w)), "B: benign-exit warning recorded");
+  assert(r.pass === false, "B: not pass");
+}
+
+// Case B (verify) — non-zero exit AFTER edits, scope ok, verify fails → verify blocker.
+{
+  const r = deriveStatus({ ...ok, cliExec: "failure", edited: "true", scope: "success",
+    verify: "failure", committed: "false", pushed: "false", prCreated: "false" });
+  assert(r.gates.cli_exec === "warning" && r.gates.scope === "passed", "B: cli warning, scope passed");
+  assert(r.gates.verify === "failed" && /verify:all failed/i.test(r.primaryBlocker), "B: verify is the actual blocker");
+}
+
+// Case C — non-zero exit AFTER edits, everything else passes → READY FOR APPROVAL.
+{
+  const r = deriveStatus({ ...ok, cliExec: "failure" });
+  assert(r.pass === true && r.label === "agent:done", "C: benign post-edit exit still passes");
+  assert(r.gates.cli_exec === "warning" && r.primaryBlocker === null, "C: cli_exec=warning, no blocker");
+  assert(["edits","scope","verify","commit","push","pr"].every((k) => r.gates[k] === "passed"), "C: stages 3–8 reflect real success");
+  assert(r.warnings.some((w) => /non-zero after producing verified edits/i.test(w)), "C: warning recorded");
+}
+
+// Real stage outcomes are never rewritten to n/a when they actually ran.
+{
+  const r = deriveStatus({ ...ok, cliExec: "failure", edited: "true", scope: "success",
+    verify: "success", committed: "true", pushed: "true", prCreated: "false" });
+  assert(r.gates.pr === "failed", "a PR stage that ran-and-failed is 'failed', not n/a");
+  assert(r.gates.push === "passed" && r.gates.commit === "passed", "commit/push that ran are 'passed', not n/a");
+  assert(/draft pull request creation failed/i.test(r.primaryBlocker), "the real failing stage (PR) is the blocker");
+}
+
+// Regression guard: the exact issue #19 inputs no longer yield a false failure.
+{
+  const issue19 = { cliInstall: "success", cliExec: "failure", cliAuth: "ok", edited: "true",
+    scope: "success", verify: "success", committed: "true", appToken: "present", pushed: "true", prCreated: "true" };
+  const r = deriveStatus(issue19);
+  assert(r.pass === true && r.label === "agent:done", "issue #19 inputs → READY FOR APPROVAL (no false failure)");
+  assert(r.gates.cli_exec === "warning", "issue #19: Stage 2 is a non-blocking warning");
 }
 
 // ── Direct-CLI workflow-ownership contract ──────────────────────────────────
