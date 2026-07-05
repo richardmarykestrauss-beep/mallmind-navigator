@@ -37,12 +37,27 @@ import { execFileSync } from "node:child_process";
 import { writeFileSync, appendFileSync } from "node:fs";
 import process from "node:process";
 
-const PASSED = "passed", FAILED = "failed", SKIPPED = "skipped", NA = "not-applicable";
+const PASSED = "passed", FAILED = "failed", SKIPPED = "skipped", NA = "not-applicable", WARNING = "warning";
 
 /**
  * Pure status derivation for the direct-CLI pipeline. Returns the eight stage
- * states plus the single earliest primary blocker. Downstream stages after the
- * first problem are not-applicable, never misleading failures.
+ * states plus the single earliest primary blocker and any non-blocking warnings.
+ * Downstream stages after the first REAL problem are not-applicable; stages that
+ * actually ran are never rewritten to not-applicable.
+ *
+ * CLI-exit reconciliation (report §1). The Claude CLI can exit non-zero AFTER it
+ * has already produced complete, verifiable edits (a benign post-edit exit). The
+ * deterministic downstream stages — edits present, scope, verify, commit, push,
+ * draft PR — are the authority; the agent-process exit code does not outrank them
+ * once real edits exist:
+ *   Case A — CLI exits non-zero BEFORE any edits            → Stage 2 failed; 3+ n/a; terminal blocker.
+ *   Case B — CLI exits non-zero AFTER edits, but scope/verify fails
+ *                                                           → Stage 2 warning; Stage 3 passed;
+ *                                                             the failing deterministic stage is the blocker.
+ *   Case C — CLI exits non-zero AFTER edits, everything else passes
+ *                                                           → READY FOR APPROVAL; Stage 2 warning (recorded,
+ *                                                             not a blocker); Stages 3–8 reflect real outcomes.
+ * The all-success path (CLI exit 0) is unchanged.
  */
 export function deriveStatus(s = {}) {
   const cliInstall = String(s.cliInstall || "").toLowerCase();
@@ -58,6 +73,7 @@ export function deriveStatus(s = {}) {
 
   const mapStep = (st) => (st === "success" ? PASSED : st === "failure" ? FAILED : SKIPPED);
   const gates = { cli_install: SKIPPED, cli_exec: NA, edits: NA, scope: NA, verify: NA, commit: NA, push: NA, pr: NA };
+  const warnings = [];
 
   let primaryBlocker = null;
 
@@ -66,33 +82,55 @@ export function deriveStatus(s = {}) {
   if (gates.cli_install !== PASSED) {
     primaryBlocker = "Claude CLI install failed";
   } else {
-    gates.cli_exec = cliExec === "success" ? PASSED : (cliExec === "failure" ? FAILED : SKIPPED);
-    if (gates.cli_exec !== PASSED) {
-      primaryBlocker = cliAuth === "failed" ? "Claude CLI authentication failed" : "Claude CLI execution failed";
-    } else if (!edited) {
-      gates.edits = FAILED;
-      primaryBlocker = "Claude made no file changes";
+    const execPassed = cliExec === "success";
+    const execFailed = cliExec === "failure";
+
+    // ── Case A: the CLI did not succeed AND produced no edits → terminal. ──
+    if (!execPassed && !edited) {
+      gates.cli_exec = execFailed ? FAILED : SKIPPED;
+      primaryBlocker = cliAuth === "failed"
+        ? "Claude CLI authentication failed before producing edits"
+        : (execFailed
+            ? "Claude CLI execution failed before producing edits"
+            : "Claude CLI did not run");
+      // Stages 3–8 remain not-applicable: nothing ran.
     } else {
-      gates.edits = PASSED;
-      gates.scope = mapStep(scopeState);
-      if (gates.scope !== PASSED) {
-        primaryBlocker = gates.scope === FAILED ? "scope guard failed" : "scope guard did not run";
+      // ── Cases B/C (and the normal success path): edits exist, or exec passed. ──
+      // A non-zero exit AFTER edits is a WARNING, not a blocker — the deterministic
+      // downstream stages below decide the verdict.
+      if (execPassed) {
+        gates.cli_exec = PASSED;
       } else {
-        gates.verify = mapStep(verifyState);
-        if (gates.verify !== PASSED) {
-          primaryBlocker = gates.verify === FAILED ? "npm run verify:all failed" : "npm run verify:all did not run";
-        } else if (!appToken) {
-          gates.commit = committed ? PASSED : FAILED;
-          primaryBlocker = "GitHub App/PAT token was unavailable — cannot push or open a PR";
+        gates.cli_exec = WARNING;
+        warnings.push("Claude CLI exited non-zero after producing verified edits");
+      }
+
+      if (!edited) {
+        // exec passed but produced no changes.
+        gates.edits = FAILED;
+        primaryBlocker = "Claude made no file changes";
+      } else {
+        gates.edits = PASSED;
+        gates.scope = mapStep(scopeState);
+        if (gates.scope !== PASSED) {
+          primaryBlocker = gates.scope === FAILED ? "scope guard failed" : "scope guard did not run";
         } else {
-          gates.commit = committed ? PASSED : FAILED;
-          if (!committed) primaryBlocker = "commit failed";
-          else {
-            gates.push = pushed ? PASSED : FAILED;
-            if (!pushed) primaryBlocker = "push of the agent branch failed";
+          gates.verify = mapStep(verifyState);
+          if (gates.verify !== PASSED) {
+            primaryBlocker = gates.verify === FAILED ? "npm run verify:all failed" : "npm run verify:all did not run";
+          } else if (!appToken) {
+            gates.commit = committed ? PASSED : FAILED;
+            primaryBlocker = "GitHub App/PAT token was unavailable — cannot push or open a PR";
+          } else {
+            gates.commit = committed ? PASSED : FAILED;
+            if (!committed) primaryBlocker = "commit failed";
             else {
-              gates.pr = prCreated ? PASSED : FAILED;
-              if (!prCreated) primaryBlocker = "draft pull request creation failed";
+              gates.push = pushed ? PASSED : FAILED;
+              if (!pushed) primaryBlocker = "push of the agent branch failed";
+              else {
+                gates.pr = prCreated ? PASSED : FAILED;
+                if (!prCreated) primaryBlocker = "draft pull request creation failed";
+              }
             }
           }
         }
@@ -100,11 +138,13 @@ export function deriveStatus(s = {}) {
     }
   }
 
-  const pass = gates.cli_install === PASSED && gates.cli_exec === PASSED && edited
+  // A WARNING at Stage 2 (benign post-edit non-zero exit) does NOT block success.
+  const execOk = gates.cli_exec === PASSED || gates.cli_exec === WARNING;
+  const pass = gates.cli_install === PASSED && execOk && edited
     && gates.scope === PASSED && gates.verify === PASSED && appToken && committed && pushed && prCreated;
   const finalStatus = pass ? "ready for approval" : "human investigation required";
   const label = pass ? "agent:done" : "agent:needs-human";
-  return { pass, finalStatus, label, primaryBlocker, gates };
+  return { pass, finalStatus, label, primaryBlocker, warnings, gates };
 }
 
 // ── CLI (skipped during unit tests, which import deriveStatus directly) ───────
@@ -146,7 +186,7 @@ if (isMain()) {
   const changedFiles = nameStatus ? nameStatus.split("\n").filter(Boolean) : [];
   const baseSha = git(["rev-parse", base], base);
 
-  const icon = (g) => ({ passed: "✅ passed", failed: "❌ failed", skipped: "⏭️ skipped", "not-applicable": "— n/a" }[g] || g);
+  const icon = (g) => ({ passed: "✅ passed", failed: "❌ failed", skipped: "⏭️ skipped", "not-applicable": "— n/a", warning: "⚠️ warning (non-blocking)" }[g] || g);
 
   const md = `# AF-1 Autonomous Run — Evidence Pack
 
@@ -176,6 +216,7 @@ if (isMain()) {
 
 **Final status: ${st.finalStatus.toUpperCase()}**
 ${st.primaryBlocker ? `\n**Primary blocker:** ${st.primaryBlocker}. Downstream stages marked \`not-applicable\`/\`skipped\` are consequences, not independent defects.` : ""}
+${st.warnings.length ? `\n**Warnings (non-blocking):**\n${st.warnings.map((w) => `- ${w}`).join("\n")}\n\n_The Claude CLI process exit code does not outrank the deterministic downstream stages once verified edits exist. The stages above reflect what actually ran._` : ""}
 
 ## Changed files (${changedFiles.length})
 
@@ -201,7 +242,7 @@ ${diffstat}
   writeFileSync(out, md, "utf8");
   writeFileSync(jsonOut, JSON.stringify({
     issue, task_title: title, task_type: type, branch, base, base_sha: baseSha, head,
-    gates: st.gates, primary_blocker: st.primaryBlocker, final_status: st.finalStatus,
+    gates: st.gates, primary_blocker: st.primaryBlocker, warnings: st.warnings, final_status: st.finalStatus,
     label: st.label, pass: st.pass, pr_url: prUrl, changed_files: changedFiles.length,
     deployment_performed: false, production_db_action_performed: false,
   }, null, 2), "utf8");
@@ -209,7 +250,7 @@ ${diffstat}
   if (env.GITHUB_STEP_SUMMARY) { try { appendFileSync(env.GITHUB_STEP_SUMMARY, md + "\n", "utf8"); } catch {} }
 
   console.log("AF1_EVIDENCE_JSON_BEGIN");
-  console.log(JSON.stringify({ pass: st.pass, final_status: st.finalStatus, primary_blocker: st.primaryBlocker, gates: st.gates }, null, 2));
+  console.log(JSON.stringify({ pass: st.pass, final_status: st.finalStatus, primary_blocker: st.primaryBlocker, warnings: st.warnings, gates: st.gates }, null, 2));
   console.log("AF1_EVIDENCE_JSON_END");
 
   process.exit(st.pass ? 0 : 1);
