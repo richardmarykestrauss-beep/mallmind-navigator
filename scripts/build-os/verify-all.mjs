@@ -50,6 +50,12 @@ const steps = [
     args: ["run", "test:shopping-assistant"],
     cwd: "google-cloud-backend",
   },
+  {
+    name: "CORS allowlist harness",
+    command: "npm",
+    args: ["run", "test:cors"],
+    cwd: "google-cloud-backend",
+  },
 ];
 
 const nodeMajor = Number.parseInt(process.versions.node.split(".")[0], 10);
