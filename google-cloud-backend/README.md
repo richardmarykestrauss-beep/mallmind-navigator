@@ -39,7 +39,9 @@ Copy `.env.example` to `.env` and fill in real values.
 | `GOOGLE_CLOUD_LOCATION` | Optional | GCP region e.g. `us-central1` |
 | `PORT` | Optional | Server port. Cloud Run sets this to `8080` automatically |
 | `NODE_ENV` | Optional | `development` or `production` |
-| `ALLOWED_ORIGIN` | Optional | Frontend origin for CORS in production (e.g. `https://mallmind.app`) |
+| `CORS_ORIGINS` | Recommended | Exact-match browser-origin allowlist, comma-separated (prod domain + approved preview + localhost). Governs all environments. |
+| `ALLOWED_ORIGIN` | Optional (legacy) | Single production origin; still honoured and merged into the allowlist. Prefer `CORS_ORIGINS`. |
+| `CORS_ALLOW_NO_ORIGIN` | Optional | `false` to reject requests with no `Origin` header. Default: allow (server-to-server/health/CLI). |
 
 ---
 
@@ -142,7 +144,7 @@ gcloud run deploy mallmind-backend \
   --platform managed \
   --region us-central1 \
   --allow-unauthenticated \
-  --set-env-vars "NODE_ENV=production,GOOGLE_CLOUD_PROJECT=YOUR_PROJECT_ID" \
+  --set-env-vars "NODE_ENV=production,GOOGLE_CLOUD_PROJECT=YOUR_PROJECT_ID,CORS_ORIGINS=https://mallmind.app" \
   --set-secrets "SUPABASE_URL=supabase-url:latest,SUPABASE_SERVICE_ROLE_KEY=supabase-service-role-key:latest,GEMINI_API_KEY=gemini-api-key:latest"
 ```
 
@@ -206,5 +208,5 @@ See `docs/google-cloud-migration-plan.md` for the full migration roadmap.
 ## Notes
 
 - `/admin-stats` has no auth enforcement yet — marked `DEV_ONLY` in the response. Auth middleware will be added in Phase 7 (Firebase Auth).
-- CORS is open (`*`) in development. Set `ALLOWED_ORIGIN` in production.
+- CORS uses an **exact-match allowlist** from `CORS_ORIGINS` (comma-separated) in **all** environments — there is no `*` policy and no dev wildcard fork. Set `CORS_ORIGINS` to the production domain plus any approved preview/localhost origins; the legacy `ALLOWED_ORIGIN` is still merged in for back-compat. Credentials are disabled (bearer/anon-header auth, no cookies), so `Access-Control-Allow-Credentials` is never `true`. To enable local end-to-end QA, add the exact localhost/preview origin to the **deployed** backend's `CORS_ORIGINS` (an env-var update; no code redeploy required).
 - The Dijkstra route builder (`/build-route`) returns `fallback: true` when no navigation graph exists for a mall. The frontend should handle this gracefully.
