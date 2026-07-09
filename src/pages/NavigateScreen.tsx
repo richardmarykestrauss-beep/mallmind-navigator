@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  Clock, Footprints, MapPin, Route as RouteIcon,
+  Clock, Footprints, MapPin,
   CheckCircle2, Store, ArrowRight, RotateCcw, Search,
   Zap, Layers, ArrowUp, ArrowDown, Navigation, Play, Pause,
 } from "lucide-react";
@@ -11,6 +11,11 @@ import { Button } from "@/components/ui/button";
 import IndoorMapCanvas from "@/components/navigation/IndoorMapCanvas";
 import { computeRouteWalk } from "@/components/navigation/routeWalk";
 import { reachedNodeCount, walkCompletedSteps } from "@/components/navigation/routeWalkProgress";
+import {
+  toFloorplanModel, schematicModelFromRoute, buildRoutePolyline, polylineToWalkNodes,
+  routeFloors, normalizeFloorLabel, floorChip, type FloorplanModel,
+} from "@/components/navigation/floorplanModel";
+import { MALL_REDS_GAME_FLOORPLAN, buildDemoRoutePolyline } from "@/components/navigation/demoFloorplan";
 import { useShoppingSession } from "@/context/ShoppingSessionContext";
 import { useAuth } from "@/context/AuthContext";
 import { awardXP, XP_REWARDS } from "@/lib/xp";
@@ -54,7 +59,7 @@ const NavigateScreen = () => {
 
   const { user, profile, refreshProfile } = useAuth();
 
-  const [activeFloor, setActiveFloor] = useState<string>("G");
+  const [activeFloor, setActiveFloor] = useState<string>("Ground Floor");
   const [completedStepIndices, setCompletedStepIndices] = useState<Set<number>>(new Set());
   const [completedStopIndices, setCompletedStopIndices] = useState<Set<number>>(new Set());
   const [xpToast, setXpToast] = useState<{ xp: number; leveledUp: boolean; badges: string[] } | null>(null);
@@ -68,17 +73,11 @@ const NavigateScreen = () => {
   const [isWalking, setIsWalking] = useState(false);
   const [elapsedMs, setElapsedMs] = useState(0);
 
-  // Ordered route-node coordinates feeding the simulation. Missing coordinates
-  // fall back to map centre (50%), matching the canvas's own default mapping.
-  const walkNodes = useMemo(
-    () =>
-      activeRouteSteps.map((s) => ({
-        x: s.x_coordinate ?? 50,
-        y: s.y_coordinate ?? 50,
-        floor: s.floor,
-      })),
-    [activeRouteSteps],
-  );
+  // Route geometry (floor-unit polyline) derived from the route steps. The
+  // simulated marker travels along THIS polyline, so its motion follows the real
+  // floorplan geometry — not arbitrary progress.
+  const routePolyline = useMemo(() => buildRoutePolyline(activeRouteSteps), [activeRouteSteps]);
+  const walkNodes = useMemo(() => polylineToWalkNodes(routePolyline), [routePolyline]);
 
   const walk = useMemo(
     () => computeRouteWalk(walkNodes, elapsedMs, SEGMENT_MS),
@@ -95,7 +94,7 @@ const NavigateScreen = () => {
 
   useEffect(() => {
     if (activeRouteSteps.length > 0 && activeRouteSteps[0].floor) {
-      setActiveFloor(activeRouteSteps[0].floor);
+      setActiveFloor(normalizeFloorLabel(activeRouteSteps[0].floor));
     }
   }, [activeRouteSteps]);
 
@@ -178,6 +177,14 @@ const NavigateScreen = () => {
 
   const hasRealRoute = activeRouteSteps.length > 0;
 
+  // Build the floor-unit FloorplanModel that drives the canvas: the backend map
+  // graph when available, else a schematic generated from the route itself.
+  const floorplanModel: FloorplanModel = useMemo(() => {
+    const meta = { mallId: String(selectedMall?.id ?? "mall"), mallName: selectedMall?.name ?? "Mall" };
+    if (indoorMapModel) return toFloorplanModel(indoorMapModel, meta);
+    return schematicModelFromRoute(activeRouteSteps, meta);
+  }, [indoorMapModel, activeRouteSteps, selectedMall?.id, selectedMall?.name]);
+
   // Synchronise route progress with the simulated marker: mark each route node
   // complete as the marker reaches it. Additive and monotonic (a set union), so
   // progress never moves backwards, never double-counts a node, reaches 100% when
@@ -217,17 +224,9 @@ const NavigateScreen = () => {
   const routePct = stopCount ? Math.round((doneCount / stopCount) * 100) : 0;
 
   const visibleFloors = useMemo(() => {
-    if (hasRealRoute) {
-      const seen = new Set<string>();
-      activeRouteSteps.forEach((s) => {
-        if (s.floor) seen.add(s.floor);
-      });
-
-      return seen.size > 0 ? [...seen] : ["G", "L1", "L2", "L3"];
-    }
-
-    return ["G", "L1", "L2", "L3"];
-  }, [activeRouteSteps, hasRealRoute]);
+    const fs = routeFloors(routePolyline);
+    return fs.length ? fs : ["Ground Floor"];
+  }, [routePolyline]);
 
   useEffect(() => {
     if (allDone && !xpAwardedRef.current && user && profile) {
@@ -265,7 +264,7 @@ const NavigateScreen = () => {
     });
 
     const nextStep = activeRouteSteps[idx + 1];
-    if (nextStep?.floor) setActiveFloor(nextStep.floor);
+    if (nextStep?.floor) setActiveFloor(normalizeFloorLabel(nextStep.floor));
   }
 
   function markStopDone(idx: number) {
@@ -308,7 +307,7 @@ const NavigateScreen = () => {
     setIsWalking(false);
     setElapsedMs(0);
     setCompletedStepIndices(new Set());
-    if (activeRouteSteps[0]?.floor) setActiveFloor(activeRouteSteps[0].floor);
+    if (activeRouteSteps[0]?.floor) setActiveFloor(normalizeFloorLabel(activeRouteSteps[0].floor));
   }
 
   if (!hasRealRoute && !routeStops.length) {
@@ -316,14 +315,31 @@ const NavigateScreen = () => {
       <MobileShell>
         <ScreenHeader title="Mall Map" subtitle="No active route" />
 
-        <div className="flex flex-col items-center gap-5 px-5 pt-10 text-center animate-fade-in">
-          <div className="relative flex h-20 w-20 items-center justify-center">
-            <div className="absolute h-20 w-20 rounded-full bg-primary/12 blur-xl" />
-            <div className="relative flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10 border border-primary/25">
-              <RouteIcon className="h-7 w-7 text-primary" />
-            </div>
+        {/* Demo of the indoor map engine — a real floorplan coordinate model. */}
+        <div className="mx-4 mb-4 mt-1 animate-fade-in">
+          <div className="mb-2 flex items-center justify-between px-0.5">
+            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-primary">Indoor map engine · demo</span>
+            <span className="text-[10px] text-muted-foreground/70">Mall@Reds → Game</span>
           </div>
+          <div
+            className="relative overflow-hidden rounded-2xl border border-primary/25 shadow-[0_10px_44px_-14px_hsl(190_100%_50%/0.35)]"
+            style={{ height: 220, background: "hsl(240 24% 4%)" }}
+          >
+            <IndoorMapCanvas
+              floorplan={MALL_REDS_GAME_FLOORPLAN}
+              activeFloor="Ground Floor"
+              routePolyline={buildDemoRoutePolyline()}
+              completedStepIndices={new Set()}
+              currentStepIndex={0}
+              isDemo
+            />
+          </div>
+          <p className="mt-2 px-0.5 text-[10px] leading-relaxed text-muted-foreground">
+            Schematic floorplan generated from the MallMind route graph — a simulated preview, not live GPS.
+          </p>
+        </div>
 
+        <div className="flex flex-col items-center gap-5 px-5 pt-2 text-center animate-fade-in">
           <div>
             <p className="font-display font-semibold text-lg">No Route Yet</p>
             <p className="text-sm text-muted-foreground mt-1 max-w-[240px] leading-relaxed">
@@ -398,26 +414,25 @@ const NavigateScreen = () => {
               <button
                 key={f}
                 onClick={() => setActiveFloor(f)}
-                title={`Floor ${f}`}
+                title={`Floor ${floorChip(f)}`}
                 className={cn(
                   "h-8 w-8 rounded-lg text-[10px] font-bold leading-none transition-all",
-                  activeFloor === f
+                  normalizeFloorLabel(activeFloor) === f
                     ? "bg-primary text-primary-foreground shadow-[0_0_14px_hsl(190_100%_50%/0.5)]"
                     : "text-muted-foreground hover:bg-muted hover:text-foreground",
                 )}
               >
-                {f.replace("Level ", "L").replace("Ground Floor", "G")}
+                {floorChip(f)}
               </button>
             ))}
           </div>
 
           <IndoorMapCanvas
-            mallId={selectedMall?.id ?? null}
+            floorplan={floorplanModel}
             activeFloor={activeFloor}
-            activeRouteSteps={activeRouteSteps}
+            routePolyline={routePolyline}
             completedStepIndices={completedStepIndices}
             currentStepIndex={currentStepNum}
-            mapModel={indoorMapModel}
             simulatedPosition={hasRealRoute && simEngaged ? walk.point : null}
           />
         </div>
