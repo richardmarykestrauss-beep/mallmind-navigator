@@ -12,8 +12,9 @@ import IndoorMapCanvas from "@/components/navigation/IndoorMapCanvas";
 import { computeRouteWalk } from "@/components/navigation/routeWalk";
 import { reachedNodeCount, walkCompletedSteps } from "@/components/navigation/routeWalkProgress";
 import {
-  toFloorplanModel, schematicModelFromRoute, buildRoutePolyline, polylineToWalkNodes,
-  routeFloors, normalizeFloorLabel, floorChip, type FloorplanModel,
+  toFloorplanModel, schematicModelFromRoute, buildRoutePolyline, buildSchematicRoutePolyline,
+  polylineToWalkNodes, isDegenerateSpread, routeFloors, normalizeFloorLabel, floorChip,
+  type FloorplanModel,
 } from "@/components/navigation/floorplanModel";
 import { MALL_REDS_GAME_FLOORPLAN, buildDemoRoutePolyline } from "@/components/navigation/demoFloorplan";
 import { useShoppingSession } from "@/context/ShoppingSessionContext";
@@ -73,10 +74,20 @@ const NavigateScreen = () => {
   const [isWalking, setIsWalking] = useState(false);
   const [elapsedMs, setElapsedMs] = useState(0);
 
-  // Route geometry (floor-unit polyline) derived from the route steps. The
-  // simulated marker travels along THIS polyline, so its motion follows the real
-  // floorplan geometry — not arbitrary progress.
-  const routePolyline = useMemo(() => buildRoutePolyline(activeRouteSteps), [activeRouteSteps]);
+  // Route geometry (floor-unit polyline). The backend seed derives coordinates
+  // from unit numbers (X) and FLOOR ORDER (Y), so real single-floor routes are
+  // degenerate (all Y equal → a thin strip). When that happens — or when there
+  // is no backend model — we synthesize a clean spread layout so the map is
+  // always readable. The marker travels along THIS polyline (real geometry).
+  const rawPolyline = useMemo(() => buildRoutePolyline(activeRouteSteps), [activeRouteSteps]);
+  const useSchematic = useMemo(
+    () => !indoorMapModel || isDegenerateSpread(rawPolyline),
+    [indoorMapModel, rawPolyline],
+  );
+  const routePolyline = useMemo(
+    () => (useSchematic ? buildSchematicRoutePolyline(activeRouteSteps) : rawPolyline),
+    [useSchematic, activeRouteSteps, rawPolyline],
+  );
   const walkNodes = useMemo(() => polylineToWalkNodes(routePolyline), [routePolyline]);
 
   const walk = useMemo(
@@ -181,9 +192,14 @@ const NavigateScreen = () => {
   // graph when available, else a schematic generated from the route itself.
   const floorplanModel: FloorplanModel = useMemo(() => {
     const meta = { mallId: String(selectedMall?.id ?? "mall"), mallName: selectedMall?.name ?? "Mall" };
-    if (indoorMapModel) return toFloorplanModel(indoorMapModel, meta);
-    return schematicModelFromRoute(activeRouteSteps, meta);
-  }, [indoorMapModel, activeRouteSteps, selectedMall?.id, selectedMall?.name]);
+    if (!useSchematic && indoorMapModel) return toFloorplanModel(indoorMapModel, meta);
+    // Degenerate/absent backend coords → synthesized schematic, with real store
+    // names (if any) scattered around the route for context.
+    const extraStores = (indoorMapModel?.nodes ?? [])
+      .filter((n) => /shop|store/i.test(n.type))
+      .map((n) => ({ shopId: n.linked_shop_id ?? n.id, name: n.name }));
+    return schematicModelFromRoute(activeRouteSteps, meta, extraStores);
+  }, [useSchematic, indoorMapModel, activeRouteSteps, selectedMall?.id, selectedMall?.name]);
 
   // Synchronise route progress with the simulated marker: mark each route node
   // complete as the marker reaches it. Additive and monotonic (a set union), so

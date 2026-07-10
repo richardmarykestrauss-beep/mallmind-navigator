@@ -218,6 +218,59 @@ export interface RouteStepLike {
   floor: string | null;
   x_coordinate?: number | null;
   y_coordinate?: number | null;
+  node_name?: string | null;
+}
+
+// ── Layout resilience ───────────────────────────────────────────────────────
+// The backend seed derives coordinates from unit numbers (X) and FLOOR ORDER (Y),
+// so on a single floor every node shares the same Y and clusters by unit number —
+// which collapses into a thin strip and renders as an empty box. When we detect
+// that, we synthesize a clean, spread-out layout so the engine always produces a
+// readable indoor map (still an honest schematic — our own generated geometry).
+
+const LAYOUT_MARGIN = 110;
+
+/** Deterministic serpentine spread of `n` points across the floor plane. */
+export function serpentinePositions(n: number, w = FLOOR_WIDTH, h = FLOOR_HEIGHT): FloorplanCoordinate[] {
+  if (n <= 0) return [];
+  if (n === 1) return [{ x: Math.round(w * 0.5), y: Math.round(h * 0.5) }];
+  const usableW = w - 2 * LAYOUT_MARGIN;
+  const midY = h / 2;
+  const amp = Math.min(h * 0.22, 150);
+  return Array.from({ length: n }, (_, i) => {
+    const t = i / (n - 1);
+    return { x: Math.round(LAYOUT_MARGIN + t * usableW), y: Math.round(midY + Math.sin(t * Math.PI * 1.5) * amp) };
+  });
+}
+
+/** True when points are too clustered/flat in either axis to render a real map. */
+export function isDegenerateSpread(points: { x: number; y: number }[], w = FLOOR_WIDTH, h = FLOOR_HEIGHT): boolean {
+  if (points.length < 2) return true;
+  const b = pointsBounds(points);
+  if (!b) return true;
+  return (b.maxX - b.minX) < w * 0.12 || (b.maxY - b.minY) < h * 0.1;
+}
+
+/**
+ * Route polyline with SYNTHESIZED spread geometry — each floor's steps are laid
+ * out along a serpentine across the plane (original stepIndex preserved for
+ * progress sync). Used when the backend coordinates are degenerate.
+ */
+export function buildSchematicRoutePolyline(steps: RouteStepLike[]): RoutePolylinePoint[] {
+  const byFloor = new Map<string, number[]>();
+  steps.forEach((s, i) => {
+    const f = normalizeFloorLabel(s.floor);
+    if (!byFloor.has(f)) byFloor.set(f, []);
+    byFloor.get(f)!.push(i);
+  });
+  const out: RoutePolylinePoint[] = new Array(steps.length);
+  for (const [floor, idxs] of byFloor) {
+    const pos = serpentinePositions(idxs.length);
+    idxs.forEach((stepIdx, k) => {
+      out[stepIdx] = { floor, x: pos[k].x, y: pos[k].y, nodeId: steps[stepIdx].node_id, stepIndex: stepIdx };
+    });
+  }
+  return out;
 }
 
 /**
@@ -256,15 +309,38 @@ export function polylineToWalkNodes(points: RoutePolylinePoint[]): { x: number; 
   return points.map((p) => ({ x: p.x, y: p.y, floor: p.floor }));
 }
 
+/** A store to scatter into the schematic for context (name + id only). */
+export interface ScatterStore {
+  shopId: string;
+  name: string;
+}
+
+/** Place context stores in top/bottom rows, clear of the central route band. */
+function scatterStores(stores: ScatterStore[], floor: string, w = FLOOR_WIDTH, h = FLOOR_HEIGHT): FloorplanStoreAnchor[] {
+  const capped = stores.slice(0, 6);
+  const rows = [Math.round(h * 0.12), Math.round(h * 0.88)];
+  const perRow = Math.max(1, Math.ceil(capped.length / 2));
+  const usableW = w - 2 * LAYOUT_MARGIN;
+  return capped.map((st, i) => {
+    const row = Math.floor(i / perRow);
+    const col = i % perRow;
+    const x = LAYOUT_MARGIN + (perRow <= 1 ? 0.5 : col / (perRow - 1)) * usableW;
+    return { shopId: st.shopId, name: st.name, floor, position: { x: Math.round(x), y: rows[row] ?? rows[0] } };
+  });
+}
+
 /**
- * Build a schematic FloorplanModel directly from route steps when no backend map
- * model is available — the route's own node coordinates become the floor graph
- * (nodes + connecting corridor edges) so the canvas still renders real geometry
- * (honestly labelled "Schematic floorplan generated from MallMind route graph").
+ * Build a schematic FloorplanModel from route steps with SYNTHESIZED spread
+ * geometry (serpentine layout), used when there is no backend model OR the
+ * backend coordinates are degenerate (all clustered/flat). The route becomes a
+ * readable corridor across the plane with a named destination; optional context
+ * stores are scattered around it. Honestly labelled "Schematic floorplan
+ * generated from MallMind route graph".
  */
 export function schematicModelFromRoute(
   steps: RouteStepLike[],
   meta: { mallId: string; mallName: string },
+  extraStores: ScatterStore[] = [],
 ): FloorplanModel {
   const labels: string[] = [];
   for (const s of steps) {
@@ -273,25 +349,38 @@ export function schematicModelFromRoute(
   }
   if (labels.length === 0) labels.push("Ground Floor");
 
-  const floors: FloorplanFloor[] = labels.map((label) => {
-    const onFloor = steps
-      .map((s, i) => ({ s, i }))
-      .filter(({ s }) => normalizeFloorLabel(s.floor) === label);
+  const routeNodeIds = new Set(steps.map((s) => s.node_id));
 
-    const nodes: FloorplanNode[] = onFloor.map(({ s }) => ({
+  const floors: FloorplanFloor[] = labels.map((label, floorIdx) => {
+    const onFloor = steps.filter((s) => normalizeFloorLabel(s.floor) === label);
+    const pos = serpentinePositions(onFloor.length);
+
+    const nodes: FloorplanNode[] = onFloor.map((s, k) => ({
       id: s.node_id,
-      name: s.node_id,
+      name: s.node_name ?? s.node_id,
       floor: label,
-      type: "corridor",
-      position: { x: percentToUnits(s.x_coordinate, FLOOR_WIDTH), y: percentToUnits(s.y_coordinate, FLOOR_HEIGHT) },
+      type: k === 0 ? "entrance" : k === onFloor.length - 1 ? "shop" : "corridor",
+      position: pos[k],
     }));
 
     const edges: FloorplanEdge[] = [];
     for (let k = 0; k < onFloor.length - 1; k++) {
-      edges.push({ from: onFloor[k].s.node_id, to: onFloor[k + 1].s.node_id, type: "corridor" });
+      edges.push({ from: onFloor[k].node_id, to: onFloor[k + 1].node_id, type: "corridor" });
     }
 
-    return { id: label, label, width: FLOOR_WIDTH, height: FLOOR_HEIGHT, nodes, edges, stores: [] };
+    // Destination store anchor (the final step on the primary floor).
+    const stores: FloorplanStoreAnchor[] = [];
+    const last = onFloor[onFloor.length - 1];
+    if (last && pos.length > 0) {
+      stores.push({ shopId: last.node_id, name: last.node_name ?? "Destination", floor: label, position: pos[pos.length - 1] });
+    }
+    // Scatter context stores (that aren't route nodes) on the primary floor only.
+    if (floorIdx === 0) {
+      const contextual = extraStores.filter((st) => !routeNodeIds.has(st.shopId) && st.shopId !== last?.node_id);
+      stores.push(...scatterStores(contextual, label));
+    }
+
+    return { id: label, label, width: FLOOR_WIDTH, height: FLOOR_HEIGHT, nodes, edges, stores };
   });
 
   return { mallId: meta.mallId, mallName: meta.mallName, floors };

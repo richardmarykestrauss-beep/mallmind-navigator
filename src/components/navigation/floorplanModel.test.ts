@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   FLOOR_WIDTH, FLOOR_HEIGHT,
-  buildRoutePolyline, pointsForFloor, routeFloors, polylineToWalkNodes,
+  buildRoutePolyline, buildSchematicRoutePolyline, isDegenerateSpread,
+  pointsForFloor, routeFloors, polylineToWalkNodes,
   toFloorplanModel, schematicModelFromRoute, normalizeFloorLabel, percentToUnits, pointsBounds,
   type BackendIndoorModelLike,
 } from "./floorplanModel";
@@ -95,15 +96,59 @@ describe("toFloorplanModel — backend graph → floor-unit model", () => {
   });
 });
 
-describe("schematicModelFromRoute — fallback when no backend model", () => {
-  it("generates floors/nodes/edges from the route itself, with no floorplan image", () => {
+describe("schematicModelFromRoute — synthesized spread fallback", () => {
+  it("generates floors/nodes/edges from the route with a named destination anchor", () => {
     const model = schematicModelFromRoute(STEPS, { mallId: "m", mallName: "Mall" });
     expect(routeFloors(buildRoutePolyline(STEPS))).toEqual(model.floors.map((f) => f.label));
     const g = model.floors.find((f) => f.label === "Ground Floor")!;
     expect(g.imageUrl).toBeUndefined();          // → renders honest schematic
     expect(g.nodes.map((n) => n.id)).toEqual(["n1", "n2"]);
+    expect(g.nodes[0].type).toBe("entrance");    // first route node is the entrance
     expect(g.edges).toHaveLength(1);             // n1→n2 corridor
-    expect(g.stores).toEqual([]);
+    expect(g.stores.map((s) => s.shopId)).toEqual(["n2"]); // destination anchor
+  });
+
+  it("scatters context stores clear of the route band", () => {
+    const model = schematicModelFromRoute(STEPS, { mallId: "m", mallName: "Mall" }, [
+      { shopId: "w", name: "Woolworths" }, { shopId: "c", name: "Clicks" },
+    ]);
+    const g = model.floors[0];
+    expect(g.stores.map((s) => s.name)).toEqual(expect.arrayContaining(["Woolworths", "Clicks"]));
+  });
+});
+
+describe("layout resilience — degenerate backend coordinates", () => {
+  // The real seed sets Y = floor order, so every ground node shares one Y and
+  // X clusters by unit number → a thin strip that renders as an empty box.
+  const DEGENERATE = [
+    { node_id: "a", floor: "G", x_coordinate: 1, y_coordinate: 1 },
+    { node_id: "b", floor: "G", x_coordinate: 4, y_coordinate: 1 },
+    { node_id: "c", floor: "G", x_coordinate: 12, y_coordinate: 1, node_name: "Game" },
+  ];
+
+  it("flags degenerate coordinates and passes a healthy spread", () => {
+    expect(isDegenerateSpread(buildRoutePolyline(DEGENERATE))).toBe(true);    // all Y equal
+    expect(isDegenerateSpread(buildRoutePolyline(STEPS))).toBe(false);        // real spread
+  });
+
+  it("synthesizes a readable spread polyline from a degenerate route", () => {
+    const spread = buildSchematicRoutePolyline(DEGENERATE);
+    expect(spread).toHaveLength(3);
+    expect(spread.map((p) => p.stepIndex)).toEqual([0, 1, 2]); // progress sync preserved
+    expect(isDegenerateSpread(spread)).toBe(false);            // now a real 2D layout
+    // Stays inside the coordinate plane.
+    const b = pointsBounds(spread)!;
+    expect(b.minX).toBeGreaterThanOrEqual(0);
+    expect(b.maxX).toBeLessThanOrEqual(FLOOR_WIDTH);
+    expect(b.maxY).toBeLessThanOrEqual(FLOOR_HEIGHT);
+  });
+
+  it("serpentine layout matches between the model and its polyline", () => {
+    const spread = buildSchematicRoutePolyline(DEGENERATE);
+    const model = schematicModelFromRoute(DEGENERATE, { mallId: "m", mallName: "Mall" });
+    const g = model.floors[0];
+    // Each route node's model position equals its polyline point (consistent geometry).
+    g.nodes.forEach((n, i) => expect(n.position).toEqual({ x: spread[i].x, y: spread[i].y }));
   });
 });
 
