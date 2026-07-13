@@ -24,6 +24,8 @@ const Profile       = lazy(() => import("./pages/Profile.tsx"));
 const AssistantPage = lazy(() => import("./pages/AssistantPage.tsx"));
 const AuthPage        = lazy(() => import("./pages/AuthPage.tsx"));
 const AdminDashboard  = lazy(() => import("./pages/admin/AdminDashboard.tsx"));
+const DataIngestion   = lazy(() => import("./pages/admin/DataIngestion.tsx"));
+const DataCommandCenter = lazy(() => import("./pages/admin/DataCommandCenter.tsx"));
 const NotFound        = lazy(() => import("./pages/NotFound.tsx"));
 
 const queryClient = new QueryClient();
@@ -51,6 +53,8 @@ const App = () => (
                 <Route path="/rewards" element={<Rewards />} />
                 <Route path="/profile" element={<Profile />} />
                 <Route path="/admin" element={<AdminDashboard />} />
+                <Route path="/admin/data-ingestion" element={<DataIngestion />} />
+                <Route path="/admin/data-command-center" element={<DataCommandCenter />} />
                 {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
                 <Route path="*" element={<NotFound />} />
               </Routes>
