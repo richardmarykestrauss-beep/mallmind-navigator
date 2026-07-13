@@ -19,6 +19,7 @@ export const SOURCE_TYPE_OPTIONS: { value: SourceType; label: string }[] = [
   { value: "admin_csv", label: "Admin CSV" },
   { value: "manual_entry", label: "Manual entry" },
   { value: "user_submission", label: "User submission" },
+  { value: "aggregator_reference", label: "Aggregator reference" },
 ];
 
 export const SOURCE_TYPE_LABEL: Record<string, string> = Object.fromEntries(

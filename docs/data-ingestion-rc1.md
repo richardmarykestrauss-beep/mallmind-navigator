@@ -31,18 +31,35 @@ There is deliberately **no automated scraper execution**.
   `unavailable` — derived from the richer `availabilityScope`; never
   `known_available` without supporting evidence.
 - **Source-registry status:** `candidate`, `approved`, `blocked`, `needs_review`,
-  `deprecated`.
+  `deprecated`, each with a **risk level** (`low` / `medium` / `high`).
+- **Source types** add `aggregator_reference` (benchmark/reference only — never
+  presented as MallMind-verified).
 - **Ingestion-run type:** `manual_csv`, `manual_entry`, `source_snapshot`,
-  `future_agent_research` (reserved — not executed in RC1).
+  `future_agent_research` (reserved — surfaced as a staged run, not executed).
+
+## Offer + run + source fields (additive)
+
+- `ProductOffer` gains `evidenceText`, `evidenceHash`, `conflictGroupId`
+  (conflicting offers share one group id).
+- `IngestionRun` gains `staleItemsDetected` (alongside `conflictsDetected`,
+  rows found/staged/rejected).
+- `Source` gains `riskLevel`. `SourceSnapshot` gains `retailerId`/`mallId`/
+  `reviewStatus`/`reviewedBy`/`notes` and preserves URL + observed timestamp +
+  cited evidence text + content-hash marker (no page is fetched).
 
 ## CSV columns (exact minimum)
 
 `retailer, mall, store, product_title, brand, category, price, original_price,
 source_url, source_type, observed_at, expires_at, trust_label,
-availability_status`
+availability_status, evidence_text`
 
-Rows **stage first** (never auto-approved). Unknown retailers reject; unknown
-products create a new product with a warning; unknown malls warn.
+Rows **stage first** (never auto-approved). Validation: invalid price, unknown
+`source_type`, and unknown `trust_label` **reject**; unknown `availability_status`
+warns (defaults to `unknown`); a missing `source_url` is a **warning** only for
+`manual_admin`/`manual_entry` and an **error** otherwise; unknown retailers reject;
+unknown products create a new product (warning); unknown malls warn; rows already
+stale/expired at import are flagged. Paste-CSV is supported in addition to file
+upload.
 
 ## New modules
 
@@ -62,12 +79,18 @@ spread ≥ R50 **and** ≥ 3% is flagged (≥ 15% → `error`). Different catego
 - **`/admin/data-ingestion`** — Overview, **Sources** (Add source snapshot +
   registry), CSV import, Manual offer, Review queue (staged/needs_review/
   approved/rejected/archived), Assistant preview, Evidence panel.
-- **`/admin/data-command-center`** — read-and-decide control plane with the seven
-  required sections: **Source Registry, Staged Offers, Approved Offers,
-  Conflict/Stale Alerts, Ingestion Runs, Review Queue, Decision Notes.** Each
-  source shows name, URL, type, retailer/mall, status, legal/risk note, last
-  checked, owner notes. Each run shows run type, status, rows found, rows
-  approved, conflicts detected, created_at, and an evidence link/source URL.
+- **`/admin/data-command-center`** — the operational container, with a sticky
+  section nav and all **eleven** required sections: **Overview, Source Registry,
+  Source Snapshots, Manual Offer Entry, CSV Staging, Staged Offers, Approved
+  Offers, Conflict/Stale Alerts, Ingestion Runs, Review Queue, Decision Notes.**
+  Each source shows name, URL, type, retailer/mall, status, **risk level**,
+  legal/risk note, last checked, owner notes. Each run shows run type, status,
+  rows found, rows staged, rows rejected, conflicts, **stale items**, created_at,
+  and an evidence link/source URL.
+
+The form-heavy sections (Manual Offer Entry, CSV Staging, Source Snapshots) are
+shared components in `src/components/ingestion/adminSections.tsx`, so the
+workbench and the command center use one implementation each.
 
 The Command Center is designed so future **Paperclip / Perplexity / Claude**
 research outputs can later be pasted or imported as source snapshots + staged
@@ -82,15 +105,17 @@ unless `availability_status` is `known_available` and the source supports it.**
 
 ## Tests
 
-`src/lib/ingestion/ingestion.test.ts` — **27 deterministic tests**, covering:
-trust-label validation, stale detection, CSV normalization (RC1 columns),
-staged-vs-approved filtering, conflict detection (Game R3999 vs Checkers R4499,
-same source category), recommendation output carrying source/freshness/trust, and
-source-snapshot registration preserving URL + timestamp.
+`src/lib/ingestion/ingestion.test.ts` — **38 deterministic tests**, covering:
+trust-label + source-type validation, the missing-URL rule, stale detection, CSV
+normalization (RC1 columns incl. `evidence_text`), staged-vs-approved filtering,
+conflict detection (Game R3999 vs Checkers R4499, same source category) and shared
+conflict-group ids, manual-entry-produces-staged-offer, source-snapshot capture
+preserving URL + timestamp + evidence, risk levels, run stale-item counting, and
+recommendation output carrying source/freshness/trust.
 
 ## Gates
 
-`npm test` (66 pass) · `npm run build` · `npm run verify:all` (9/9 pass).
+`npm test` (77 pass) · `npm run build` · `npm run verify:all` (9/9 pass).
 `npm run typecheck` has 11 **pre-existing** errors in unrelated files
 (`analytics.ts`, `AssistantPage.tsx`, `SearchPage.tsx`, `AdminDashboard.tsx`,
 `MallIntelligenceTab.tsx`); RC1 adds **zero** new type errors and `verify:all`

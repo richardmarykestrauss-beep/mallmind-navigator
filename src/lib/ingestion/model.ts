@@ -48,6 +48,9 @@ export type AvailabilityStatus = "known_available" | "unknown" | "inferred" | "u
 /** Source-registry lifecycle status. */
 export type SourceRegistryStatus = "candidate" | "approved" | "blocked" | "needs_review" | "deprecated";
 
+/** Legal/operational risk level for a tracked source. */
+export type RiskLevel = "low" | "medium" | "high";
+
 /** Ingestion-run type. `future_agent_research` is reserved (not executed in RC1). */
 export type IngestionRunType = "manual_csv" | "manual_entry" | "source_snapshot" | "future_agent_research";
 
@@ -67,6 +70,7 @@ export type SourceType =
   | "manual_entry"
   | "manual_admin"
   | "user_submission"
+  | "aggregator_reference"
   | "csv_import"
   | "phone_confirmation"
   | "in_store_photo";
@@ -182,6 +186,12 @@ export interface ProductOffer {
   priceTrustLabel: PriceTrustLabel;
   /** Optional link to the stored source snapshot / evidence. */
   snapshotId?: string | null;
+  /** Short cited evidence text (e.g. the price line seen at source). */
+  evidenceText?: string | null;
+  /** Optional content hash of the evidence/source snapshot. */
+  evidenceHash?: string | null;
+  /** Set when this offer participates in a detected price conflict. */
+  conflictGroupId?: string | null;
   reviewStatus: ReviewStatus;
   published: boolean;
   createdAt: string;
@@ -214,6 +224,13 @@ export interface SourceSnapshot {
   parserVersion: string;
   ingestionRunId: string | null;
   status: SnapshotStatus;
+  /** Optional retailer/mall the snapshot pertains to. */
+  retailerId?: string | null;
+  mallId?: string | null;
+  /** Review lifecycle + reviewer for the snapshot's evidence. */
+  reviewStatus?: ReviewStatus;
+  reviewedBy?: string | null;
+  notes?: string | null;
 }
 
 export interface IngestionRun {
@@ -231,6 +248,8 @@ export interface IngestionRun {
   rejectedRows: number;
   warningRows: number;
   conflictsDetected: number;
+  /** Count of items detected as stale/expired during the run. */
+  staleItemsDetected: number;
   initiatedBy: string;
   notes: string | null;
 }
@@ -247,6 +266,8 @@ export interface Source {
   retailerId: string | null;
   mallId: string | null;
   status: SourceRegistryStatus;
+  /** Legal/operational risk level. */
+  riskLevel: RiskLevel;
   legalRiskNote: string | null;
   lastCheckedAt: string | null;
   ownerNotes: string | null;

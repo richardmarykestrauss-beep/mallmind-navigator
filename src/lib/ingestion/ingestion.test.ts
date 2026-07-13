@@ -6,8 +6,9 @@ import { computeEffectiveFreshness } from "./freshness";
 import { rankOffers, storeConfirmedAtMall, buildOfferContext } from "./ranking";
 import { buildTvUnderBudgetAnswer } from "./recommend";
 import { trustMeta, availabilityMeta } from "./labels";
-import { addOffer, decideOfferReview, commitOfferCsv, computeOverview, addSource, decideSourceStatus } from "./store";
-import { detectConflicts, detectStaleOffers, sourceCategory } from "./conflicts";
+import { addOffer, decideOfferReview, commitOfferCsv, computeOverview, addSource, decideSourceStatus, addSourceSnapshot } from "./store";
+import { detectConflicts, detectStaleOffers, sourceCategory, conflictGroupIdForOffer } from "./conflicts";
+import { isValidSourceType, isValidTrustLabel } from "./labels";
 import { deriveAvailabilityStatus } from "./availability";
 import type { ProductOffer } from "./model";
 
@@ -286,6 +287,108 @@ describe("RC1. staged vs approved filtering", () => {
     expect(staged.published).toBe(false);
     const answer = buildTvUnderBudgetAnswer(base, { mallId: "mall_reds", maxPrice: 4000, nowMs: NOW });
     expect(answer.primary.every((o) => o.offerId !== "offer_user_hisense43")).toBe(true);
+  });
+});
+
+describe("RC1. CSV taxonomy validation", () => {
+  const header = "retailer,mall,store,product_title,brand,category,price,original_price,source_url,source_type,observed_at,expires_at,trust_label,availability_status,evidence_text";
+  const good = "Game,Mall@Reds,,Hisense Test TV,Hisense,television,3999,,https://www.game.co.za/x,SRCTYPE,2026-07-13T08:00:00.000Z,,TRUST,inferred,seen at source";
+  const rowsFor = (srcType: string, trust: string) =>
+    parseCsv(`${header}\n${good.replace("SRCTYPE", srcType).replace("TRUST", trust)}`).rows;
+
+  it("rejects an unknown source_type", () => {
+    const r = previewOffersCsv(rowsFor("not_a_source", "recently_observed"), db(), NOW_ISO).results[0];
+    expect(r.status).toBe("rejected");
+    expect(r.issues.some((i) => i.code === "invalid_source_type")).toBe(true);
+  });
+  it("rejects an unknown trust_label", () => {
+    const r = previewOffersCsv(rowsFor("retailer_product_page", "totally_trusted"), db(), NOW_ISO).results[0];
+    expect(r.status).toBe("rejected");
+    expect(r.issues.some((i) => i.code === "invalid_trust_label")).toBe(true);
+  });
+  it("accepts a valid row and preserves the evidence_text column", () => {
+    const r = previewOffersCsv(rowsFor("retailer_product_page", "recently_observed"), db(), NOW_ISO).results[0];
+    expect(r.status).not.toBe("rejected");
+    expect(r.entity!.evidenceText).toBe("seen at source");
+  });
+  it("exposes taxonomy guards", () => {
+    expect(isValidSourceType("aggregator_reference")).toBe(true);
+    expect(isValidSourceType("nope")).toBe(false);
+    expect(isValidTrustLabel("partner_feed")).toBe(true);
+    expect(isValidTrustLabel("nope")).toBe(false);
+  });
+});
+
+describe("RC1. missing-URL rule", () => {
+  const baseInput = {
+    productId: "p_hisense43", retailerId: "ret_game", channel: "in_store" as const, currency: "ZAR",
+    currentPrice: 3999, sourceUrl: "", sourceObservedAt: NOW_ISO,
+    availabilityScope: "availability_unknown" as const, priceTrustLabel: "manual_admin" as const, branchEvidencePresent: false,
+  };
+  it("only warns (not errors) on a missing URL for manual entry", () => {
+    const { issues } = addOffer(db(), { ...baseInput, sourceType: "manual_admin" }, NOW_ISO);
+    expect(issues.some((i) => i.code === "malformed_url")).toBe(false);
+    expect(issues.some((i) => i.code === "missing_url_manual")).toBe(true);
+  });
+  it("errors on a missing URL for a non-manual source type", () => {
+    const { issues } = addOffer(db(), { ...baseInput, sourceType: "retailer_product_page" }, NOW_ISO);
+    expect(issues.some((i) => i.code === "malformed_url")).toBe(true);
+  });
+});
+
+describe("RC1. manual entry produces a staged offer", () => {
+  it("stages (not publishes) a clean manual offer", () => {
+    const { db: next, offer: created } = addOffer(db(), {
+      productId: "p_hisense43", retailerId: "ret_game", channel: "in_store", currency: "ZAR",
+      currentPrice: 3888, sourceUrl: "https://www.game.co.za/manual", sourceType: "manual_admin", sourceObservedAt: NOW_ISO,
+      availabilityScope: "availability_unknown", priceTrustLabel: "manual_admin", branchEvidencePresent: false,
+      evidenceText: "Seen in-store: R3,888",
+    }, NOW_ISO);
+    expect(created.reviewStatus).toBe("staged");
+    expect(created.published).toBe(false);
+    expect(created.evidenceText).toBe("Seen in-store: R3,888");
+    expect(next.reviewQueue.some((q) => q.entityId === created.id && q.status === "staged")).toBe(true);
+  });
+});
+
+describe("RC1. source snapshot preserves URL + timestamp + evidence", () => {
+  it("captures a snapshot without fetching and records a run", () => {
+    const observed = "2026-07-10T09:30:00.000Z";
+    const { db: next, snapshot } = addSourceSnapshot(db(), {
+      sourceUrl: "https://www.checkers.co.za/specials", sourceType: "retailer_specials_page",
+      evidenceText: "Hisense 43\" — R3,799 this week", observedAt: observed, retailerId: "ret_checkers",
+    }, NOW_ISO);
+    expect(snapshot.sourceUrl).toBe("https://www.checkers.co.za/specials");
+    expect(snapshot.retrievedAt).toBe(observed);
+    expect(snapshot.evidenceExcerpt).toContain("R3,799");
+    expect(snapshot.status).toBe("captured");
+    expect(snapshot.reviewStatus).toBe("staged");
+    expect(next.snapshots.some((s) => s.id === snapshot.id)).toBe(true);
+    expect(next.runs.some((r) => r.id === snapshot.ingestionRunId && r.runType === "source_snapshot")).toBe(true);
+  });
+});
+
+describe("RC1. risk level + conflict group + run stale count", () => {
+  it("seeds sources with a risk level", () => {
+    const base = db();
+    expect(base.sources.find((s) => s.id === "src_login_walled")!.riskLevel).toBe("high");
+    expect(base.sources.find((s) => s.id === "src_game")!.riskLevel).toBe("low");
+  });
+  it("assigns a shared conflict group id to conflicting offers", () => {
+    const alerts = detectConflicts(db());
+    const gid = conflictGroupIdForOffer("offer_game_hisense43", alerts);
+    expect(gid).toBeTruthy();
+    expect(conflictGroupIdForOffer("offer_checkers_hisense43", alerts)).toBe(gid);
+    expect(conflictGroupIdForOffer("offer_partner_hisense43", alerts)).toBeNull();
+  });
+  it("counts stale items when committing a CSV run", () => {
+    const base = db();
+    const staleRow = `retailer,mall,store,product_title,brand,category,price,original_price,source_url,source_type,observed_at,expires_at,trust_label,availability_status,evidence_text\nGame,Mall@Reds,,Hisense Stale TV,Hisense,television,3999,,https://www.game.co.za/stale,retailer_product_page,${new Date(NOW - 40 * 3.6e6).toISOString()},,recently_observed,inferred,old`;
+    const preview = previewOffersCsv(parseCsv(staleRow).rows, base, NOW_ISO);
+    const accepted = preview.results.filter((r) => r.status === "accepted").map((r) => r.entity!);
+    const warned = preview.results.filter((r) => r.status === "warning" && r.entity).map((r) => ({ offer: r.entity!, reason: "w" }));
+    const { run } = commitOfferCsv(base, accepted, warned, { filename: "s.csv", initiatedBy: "admin", totalRows: preview.totalRows, rejectedRows: preview.rejectedRows }, NOW_ISO);
+    expect(run.staleItemsDetected).toBeGreaterThanOrEqual(1);
   });
 });
 

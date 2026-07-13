@@ -103,6 +103,11 @@ export function offerHasConflict(offerId: string, alerts: ConflictAlert[]): bool
   return alerts.some((a) => a.offerIds.includes(offerId));
 }
 
+/** The conflict group id an offer belongs to, or null. */
+export function conflictGroupIdForOffer(offerId: string, alerts: ConflictAlert[]): string | null {
+  return alerts.find((a) => a.offerIds.includes(offerId))?.id ?? null;
+}
+
 export interface StaleAlert {
   offerId: string;
   productName: string;

@@ -6,7 +6,7 @@
  * render the SAME honest language everywhere.
  */
 
-import type { PriceTrustLabel, AvailabilityLabel, AvailabilityStatus } from "./model";
+import type { PriceTrustLabel, AvailabilityLabel, AvailabilityStatus, SourceType, RiskLevel } from "./model";
 
 export type BadgeTone = "verified" | "fresh" | "special" | "info" | "muted" | "warning" | "danger";
 
@@ -86,3 +86,31 @@ export function availabilityMeta(key: AvailabilityLabel): AvailabilityLabelMeta 
 
 /** The single availability label that claims confirmed branch stock. */
 export const BRANCH_STOCK_CONFIRMED: AvailabilityLabel = "branch_stock_confirmed";
+
+// ── Validation sets (used by CSV + form validation) ──────────────────────────
+
+/** Every accepted source type (for validating imported/entered rows). */
+export const ALL_SOURCE_TYPES: SourceType[] = [
+  "retailer_product_page", "retailer_search_page", "retailer_specials_page", "retailer_catalogue",
+  "catalogue_pdf", "catalogue_image", "mall_directory", "marketplace_listing", "partner_feed",
+  "admin_csv", "manual_entry", "manual_admin", "user_submission", "aggregator_reference",
+  "csv_import", "phone_confirmation", "in_store_photo",
+];
+const SOURCE_TYPE_SET = new Set<string>(ALL_SOURCE_TYPES);
+export const isValidSourceType = (v: string): v is SourceType => SOURCE_TYPE_SET.has(v);
+
+const TRUST_LABEL_SET = new Set<string>(Object.keys(PRICE_TRUST_LABELS));
+export const isValidTrustLabel = (v: string): v is PriceTrustLabel => TRUST_LABEL_SET.has(v);
+
+const AVAILABILITY_STATUS_SET = new Set<string>(Object.keys(AVAILABILITY_STATUS_LABELS));
+export const isValidAvailabilityStatus = (v: string): v is AvailabilityStatus => AVAILABILITY_STATUS_SET.has(v);
+
+/** Source types for which a missing source URL is a warning (not an error). */
+export const URL_OPTIONAL_SOURCE_TYPES = new Set<SourceType>(["manual_admin", "manual_entry"]);
+
+// ── Risk level ───────────────────────────────────────────────────────────────
+export const RISK_LEVEL_META: Record<RiskLevel, { label: string; tone: BadgeTone; description: string }> = {
+  low:    { label: "Low risk",    tone: "verified", description: "Public data, low legal/operational risk." },
+  medium: { label: "Medium risk", tone: "warning",  description: "Some terms/rate-limit sensitivity — manual review." },
+  high:   { label: "High risk",   tone: "danger",   description: "Login wall / ToS / anti-bot — do not automate." },
+};

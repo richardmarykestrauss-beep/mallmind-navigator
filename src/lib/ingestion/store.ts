@@ -7,10 +7,10 @@
  * are pure `(db, …) => db` transforms so they are unit-testable.
  */
 
-import type { IngestionDatabase, ProductOffer, IngestionRun, ReviewQueueItem, ReviewStatus, Source, SourceType, SourceRegistryStatus } from "./model";
+import type { IngestionDatabase, ProductOffer, IngestionRun, ReviewQueueItem, ReviewStatus, Source, SourceSnapshot, SourceType, SourceRegistryStatus, RiskLevel } from "./model";
 import { buildSeedDatabase } from "./seed";
 import { validateOffer, type ValidationIssue } from "./validation";
-import { computeEffectiveFreshness } from "./freshness";
+import { computeEffectiveFreshness, isEffectivelyStale } from "./freshness";
 import { deriveAvailabilityStatus } from "./availability";
 
 export const STORAGE_KEY = "mallmind.ingestion.v2";
@@ -89,6 +89,7 @@ export interface OfferInput {
   availabilityScope: ProductOffer["availabilityScope"];
   priceTrustLabel: ProductOffer["priceTrustLabel"];
   branchEvidencePresent: boolean;
+  evidenceText?: string | null;
   notes?: string | null;
 }
 
@@ -121,6 +122,9 @@ export function addOffer(db: IngestionDatabase, input: OfferInput, nowIso: strin
     availabilityScope: input.availabilityScope,
     priceTrustLabel: input.priceTrustLabel,
     snapshotId: null,
+    evidenceText: input.evidenceText?.trim() || null,
+    evidenceHash: null,
+    conflictGroupId: null,
     reviewStatus: "staged",
     published: false,
     createdAt: nowIso,
@@ -185,15 +189,17 @@ export function commitOfferCsv(
 ): CommitResult {
   const next = clone(db);
   const runId = newId("run");
+  const nowMs = Date.parse(nowIso);
   for (const p of newProducts) if (!next.products.some((x) => x.id === p.id)) next.products.push(p);
   for (const o of accepted) next.offers.push({ ...o, reviewStatus: "staged", published: false });
   for (const w of warned) {
     next.offers.push({ ...w.offer, reviewStatus: "staged", published: false });
     next.reviewQueue.push({ id: newId("rq"), entityType: "product_offer", entityId: w.offer.id, reason: w.reason, severity: "warning", status: "staged", createdAt: nowIso, reviewedAt: null, reviewedBy: null, decisionNotes: null });
   }
+  const staleItemsDetected = [...accepted, ...warned.map((w) => w.offer)].filter((o) => isEffectivelyStale(o, nowMs)).length;
   const run: IngestionRun = {
     id: runId, runType: "manual_csv", sourceType: "csv_import", filename: meta.filename, evidenceUrl: null, startedAt: nowIso, completedAt: nowIso, status: "completed",
-    totalRows: meta.totalRows, acceptedRows: accepted.length, rejectedRows: meta.rejectedRows, warningRows: warned.length, conflictsDetected: 0,
+    totalRows: meta.totalRows, acceptedRows: accepted.length, rejectedRows: meta.rejectedRows, warningRows: warned.length, conflictsDetected: 0, staleItemsDetected,
     initiatedBy: meta.initiatedBy, notes: "CSV import (prototype — local persisted data).",
   };
   next.runs.push(run);
@@ -208,23 +214,25 @@ export interface SourceInput {
   retailerId?: string | null;
   mallId?: string | null;
   status?: SourceRegistryStatus;
+  riskLevel?: RiskLevel;
   legalRiskNote?: string | null;
   ownerNotes?: string | null;
 }
 
-/** Register a public source snapshot in the registry (no fetching is performed). */
+/** Register a public source in the registry (no fetching is performed). */
 export function addSource(db: IngestionDatabase, input: SourceInput, nowIso: string): { db: IngestionDatabase; source: Source } {
   const next = clone(db);
   const source: Source = {
     id: newId("src"), name: input.name, sourceUrl: input.sourceUrl, sourceType: input.sourceType,
     retailerId: input.retailerId ?? null, mallId: input.mallId ?? null, status: input.status ?? "candidate",
+    riskLevel: input.riskLevel ?? "medium",
     legalRiskNote: input.legalRiskNote ?? null, lastCheckedAt: nowIso, ownerNotes: input.ownerNotes ?? null, createdAt: nowIso,
   };
   next.sources.push(source);
   next.runs.push({
     id: newId("run"), runType: "source_snapshot", sourceType: input.sourceType, filename: null, evidenceUrl: input.sourceUrl,
     startedAt: nowIso, completedAt: nowIso, status: "completed", totalRows: 0, acceptedRows: 0, rejectedRows: 0, warningRows: 0,
-    conflictsDetected: 0, initiatedBy: "admin", notes: `Source registered: ${input.name}.`,
+    conflictsDetected: 0, staleItemsDetected: 0, initiatedBy: "admin", notes: `Source registered: ${input.name}.`,
   });
   return { db: next, source };
 }
@@ -234,4 +242,42 @@ export function decideSourceStatus(db: IngestionDatabase, sourceId: string, stat
   const s = next.sources.find((x) => x.id === sourceId);
   if (s) { s.status = status; s.lastCheckedAt = nowIso; }
   return next;
+}
+
+// ── Source snapshots (captured evidence) ─────────────────────────────────────
+export interface SnapshotInput {
+  sourceUrl: string;
+  sourceType: SourceType;
+  evidenceText: string;
+  retailerId?: string | null;
+  mallId?: string | null;
+  observedAt?: string | null;
+  notes?: string | null;
+}
+
+/**
+ * Capture a source snapshot: preserve the URL, observed timestamp, source type
+ * and cited evidence text. No page is fetched — the admin pastes the evidence.
+ */
+export function addSourceSnapshot(db: IngestionDatabase, input: SnapshotInput, nowIso: string): { db: IngestionDatabase; snapshot: SourceSnapshot } {
+  const next = clone(db);
+  const runId = newId("run");
+  const retrievedAt = input.observedAt?.trim() || nowIso;
+  // Deterministic-enough content hash marker (prototype — not a real digest).
+  const hash = `sha256:snap-${input.evidenceText.length}-${retrievedAt.replace(/[^0-9]/g, "").slice(0, 12)}`;
+  const snapshot: SourceSnapshot = {
+    id: newId("snap"), sourceUrl: input.sourceUrl, sourceType: input.sourceType, retrievedAt,
+    contentHash: hash, evidenceExcerpt: input.evidenceText.trim(),
+    evidenceMetadata: { note: "Admin-captured evidence (prototype — no live page capture stored)." },
+    parserVersion: "ingest-rc1", ingestionRunId: runId, status: "captured",
+    retailerId: input.retailerId ?? null, mallId: input.mallId ?? null,
+    reviewStatus: "staged", reviewedBy: null, notes: input.notes?.trim() || null,
+  };
+  next.snapshots.push(snapshot);
+  next.runs.push({
+    id: runId, runType: "source_snapshot", sourceType: input.sourceType, filename: null, evidenceUrl: input.sourceUrl,
+    startedAt: nowIso, completedAt: nowIso, status: "completed", totalRows: 1, acceptedRows: 0, rejectedRows: 0, warningRows: 0,
+    conflictsDetected: 0, staleItemsDetected: 0, initiatedBy: "admin", notes: `Source snapshot captured for ${input.sourceUrl}.`,
+  });
+  return { db: next, snapshot };
 }

@@ -6,6 +6,7 @@
  */
 
 import type { IngestionDatabase, Product, ProductOffer, Store } from "./model";
+import { URL_OPTIONAL_SOURCE_TYPES } from "./labels";
 
 export interface ValidationIssue {
   code: string;
@@ -58,8 +59,13 @@ export function validateOffer(offer: ProductOffer, db: IngestionDatabase, nowMs:
   const err = (code: string, message: string, field?: string) => issues.push({ code, severity: "error", message, field });
   const warn = (code: string, message: string, field?: string) => issues.push({ code, severity: "warning", message, field });
 
-  // URL + source
-  if (!isValidHttpUrl(offer.sourceUrl)) err("malformed_url", "Source URL is missing or malformed.", "sourceUrl");
+  // URL + source. Missing URL is only tolerable for manual entry (a warning); every
+  // other source type must cite a URL.
+  if (!isValidHttpUrl(offer.sourceUrl)) {
+    if (!offer.sourceUrl?.trim() && URL_OPTIONAL_SOURCE_TYPES.has(offer.sourceType))
+      warn("missing_url_manual", "Source URL missing — permitted for manual entry, but a citation is recommended.", "sourceUrl");
+    else err("malformed_url", "Source URL is missing or malformed.", "sourceUrl");
+  }
   if (!offer.sourceObservedAt || !Number.isFinite(Date.parse(offer.sourceObservedAt)))
     err("missing_observed_at", "Observation timestamp is missing or invalid.", "sourceObservedAt");
 

@@ -6,6 +6,8 @@
 
 import type { IngestionDatabase, Product, ProductOffer, Store, OfferChannel, SourceType, PriceTrustLabel, AvailabilityLabel, AvailabilityStatus } from "./model";
 import { validateOffer, validateProduct, validateStore, type ValidationIssue } from "./validation";
+import { isValidSourceType, isValidTrustLabel, isValidAvailabilityStatus } from "./labels";
+import { isEffectivelyStale } from "./freshness";
 
 export type CsvKind = "stores" | "products" | "offers";
 
@@ -37,10 +39,10 @@ export const CSV_TEMPLATES: Record<CsvKind, CsvTemplate> = {
   offers: {
     kind: "offers",
     filename: "mallmind-offers-template.csv",
-    columns: ["retailer", "mall", "store", "product_title", "brand", "category", "price", "original_price", "source_url", "source_type", "observed_at", "expires_at", "trust_label", "availability_status"],
+    columns: ["retailer", "mall", "store", "product_title", "brand", "category", "price", "original_price", "source_url", "source_type", "observed_at", "expires_at", "trust_label", "availability_status", "evidence_text"],
     sampleRows: [
-      ["Game", "Mall@Reds", "Game Mall@Reds", 'Hisense 43" A4 FHD Smart TV', "Hisense", "television", "3999", "4499", "https://www.game.co.za/hisense-43a4k", "retailer_product_page", "2026-07-13T08:00:00.000Z", "", "recently_observed", "inferred"],
-      ["Checkers", "Mall@Reds", "", 'Hisense 32" A4 HD Smart TV', "Hisense", "television", "2999", "3499", "https://www.checkers.co.za/catalogue/hisense-32", "retailer_specials_page", "2026-07-12T16:00:00.000Z", "2026-07-16T00:00:00.000Z", "catalogue_special", "inferred"],
+      ["Game", "Mall@Reds", "Game Mall@Reds", 'Hisense 43" A4 FHD Smart TV', "Hisense", "television", "3999", "4499", "https://www.game.co.za/hisense-43a4k", "retailer_product_page", "2026-07-13T08:00:00.000Z", "", "recently_observed", "inferred", 'Product page: R3,999 (was R4,499)'],
+      ["Checkers", "Mall@Reds", "", 'Hisense 32" A4 HD Smart TV', "Hisense", "television", "2999", "3499", "https://www.checkers.co.za/catalogue/hisense-32", "retailer_specials_page", "2026-07-12T16:00:00.000Z", "2026-07-16T00:00:00.000Z", "catalogue_special", "inferred", "Weekly catalogue p4"],
     ],
   },
 };
@@ -166,7 +168,26 @@ export function previewOffersCsv(rows: Record<string, string>[], db: IngestionDa
       issues.push({ code: "new_product", severity: "warning", field: "product_title", message: `New product "${title}" will be created (needs normalization).` });
     }
 
-    const availabilityStatus = (raw.availability_status?.trim() as AvailabilityStatus) || "unknown";
+    // Taxonomy validation — invalid enum values must not silently pass through.
+    const rawPrice = raw.price?.trim() ?? "";
+    if (rawPrice === "" || !Number.isFinite(Number(rawPrice)) || Number(rawPrice) <= 0)
+      issues.push({ code: "invalid_price", severity: "error", field: "price", message: `Invalid price "${raw.price ?? ""}".` });
+
+    const rawSourceType = raw.source_type?.trim() || "";
+    if (rawSourceType && !isValidSourceType(rawSourceType))
+      issues.push({ code: "invalid_source_type", severity: "error", field: "source_type", message: `Unknown source_type "${rawSourceType}".` });
+    const sourceType: SourceType = isValidSourceType(rawSourceType) ? rawSourceType : "admin_csv";
+
+    const rawTrust = raw.trust_label?.trim() || "";
+    if (rawTrust && !isValidTrustLabel(rawTrust))
+      issues.push({ code: "invalid_trust_label", severity: "error", field: "trust_label", message: `Unknown trust_label "${rawTrust}".` });
+    const priceTrustLabel: PriceTrustLabel = isValidTrustLabel(rawTrust) ? rawTrust : "manual_admin";
+
+    const rawAvail = raw.availability_status?.trim() || "";
+    if (rawAvail && !isValidAvailabilityStatus(rawAvail))
+      issues.push({ code: "invalid_availability", severity: "warning", field: "availability_status", message: `Unknown availability_status "${rawAvail}" — defaulted to unknown.` });
+    const availabilityStatus: AvailabilityStatus = isValidAvailabilityStatus(rawAvail) ? rawAvail : "unknown";
+
     let entity: ProductOffer | null = null;
     if (retailer && product) {
       entity = {
@@ -180,14 +201,17 @@ export function previewOffersCsv(rows: Record<string, string>[], db: IngestionDa
         previousPrice: raw.original_price?.trim() ? Number(raw.original_price) : null,
         promotionLabel: null,
         sourceUrl: raw.source_url?.trim() || "",
-        sourceType: (raw.source_type?.trim() as SourceType) || "admin_csv",
+        sourceType,
         sourceObservedAt: raw.observed_at?.trim() || nowIso,
         expiresAt: raw.expires_at?.trim() || null,
         validUntil: raw.expires_at?.trim() || null,
         availabilityStatus,
         availabilityScope: scopeForStatus(availabilityStatus),
-        priceTrustLabel: (raw.trust_label?.trim() as PriceTrustLabel) || "manual_admin",
+        priceTrustLabel,
         snapshotId: null,
+        evidenceText: raw.evidence_text?.trim() || null,
+        evidenceHash: null,
+        conflictGroupId: null,
         reviewStatus: "staged",
         published: false,
         createdAt: nowIso,
@@ -195,6 +219,9 @@ export function previewOffersCsv(rows: Record<string, string>[], db: IngestionDa
         demonstrationData: true,
       };
       issues.push(...validateOffer(entity, product === newProduct ? { ...db, products: [...db.products, newProduct!] } : db, nowMs));
+      // Stale-on-import detection (past expiry, or observed beyond its freshness window).
+      if (isEffectivelyStale(entity, nowMs))
+        issues.push({ code: "stale_on_import", severity: "warning", field: "observed_at", message: "Row is already stale/expired at import — will be flagged for re-verification." });
     }
     return { rowNumber: i + 1, raw, entity, newProduct, issues, status: status(issues) };
   });
