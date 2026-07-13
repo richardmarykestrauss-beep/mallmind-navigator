@@ -12,7 +12,7 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   Database, Store as StoreIcon, Package, Tag, AlertTriangle, Clock, Upload, Download,
-  ShieldCheck, FileText, Sparkles, RotateCcw, ArrowLeft, CheckCircle2, XCircle, PencilLine,
+  ShieldCheck, FileText, Sparkles, RotateCcw, ArrowLeft, CheckCircle2, XCircle, PencilLine, Globe, LayoutDashboard,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -20,7 +20,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { cn } from "@/lib/utils";
 import {
   loadDatabase, saveDatabase, resetToSeed, computeOverview, addOffer, decideOfferReview,
-  commitOfferCsv, type OfferInput,
+  commitOfferCsv, addSource, decideSourceStatus, type OfferInput, type SourceInput,
 } from "@/lib/ingestion/store";
 import {
   parseCsv, templateCsvString, previewOffersCsv, type CsvPreview,
@@ -29,13 +29,14 @@ import { buildTvUnderBudgetAnswer } from "@/lib/ingestion/recommend";
 import { PRICE_TRUST_LABELS, AVAILABILITY_LABELS } from "@/lib/ingestion/labels";
 import { relativeAge } from "@/lib/ingestion/freshness";
 import { isValidHttpUrl } from "@/lib/ingestion/validation";
-import type { IngestionDatabase, ProductOffer } from "@/lib/ingestion/model";
-import { TrustBadge, AvailabilityBadge, FreshnessBadge, PublishedBadge, ToneBadge } from "@/components/ingestion/badges";
+import { SOURCE_TYPE_OPTIONS, SOURCE_STATUS_META } from "@/components/ingestion/ingestionMeta";
+import type { IngestionDatabase, ProductOffer, SourceType, SourceRegistryStatus } from "@/lib/ingestion/model";
+import { TrustBadge, AvailabilityBadge, AvailabilityStatusBadge, FreshnessBadge, PublishedBadge, ToneBadge } from "@/components/ingestion/badges";
 
 const inputCls = "w-full rounded-lg border border-border bg-background/60 px-3 py-2 text-sm outline-none focus:border-primary/60";
-const TABS = ["overview", "csv", "manual", "review", "assistant"] as const;
+const TABS = ["overview", "sources", "csv", "manual", "review", "assistant"] as const;
 type Tab = (typeof TABS)[number];
-const TAB_LABEL: Record<Tab, string> = { overview: "Overview", csv: "CSV import", manual: "Manual offer", review: "Review queue", assistant: "Assistant preview" };
+const TAB_LABEL: Record<Tab, string> = { overview: "Overview", sources: "Sources", csv: "CSV import", manual: "Manual offer", review: "Review queue", assistant: "Assistant preview" };
 
 function downloadCsv(kind: "offers" | "products" | "stores") {
   const blob = new Blob([templateCsvString(kind)], { type: "text/csv;charset=utf-8" });
@@ -72,6 +73,9 @@ export default function DataIngestion() {
         <div className="flex flex-wrap items-center gap-2">
           <ToneBadge tone="warning">Prototype — local persisted data</ToneBadge>
           <ToneBadge tone="muted">Curated demonstration data</ToneBadge>
+          <Link to="/admin/data-command-center">
+            <Button variant="glass" size="sm"><LayoutDashboard className="h-3.5 w-3.5" /> Command Center</Button>
+          </Link>
           <Button variant="glass" size="sm" onClick={() => persist(resetToSeed(nowMs))}>
             <RotateCcw className="h-3.5 w-3.5" /> Reset seed
           </Button>
@@ -99,6 +103,7 @@ export default function DataIngestion() {
       </div>
 
       {tab === "overview" && <OverviewSection db={db} overview={overview} nowMs={nowMs} productName={productName} retailerName={retailerName} onEvidence={setEvidenceOffer} />}
+      {tab === "sources" && <SourcesSection db={db} persist={persist} nowMs={nowMs} retailerName={retailerName} />}
       {tab === "csv" && <CsvSection db={db} persist={persist} />}
       {tab === "manual" && <ManualOfferSection db={db} persist={persist} onDone={() => setTab("review")} />}
       {tab === "review" && <ReviewSection db={db} persist={persist} nowMs={nowMs} productName={productName} retailerName={retailerName} onEvidence={setEvidenceOffer} />}
@@ -186,7 +191,8 @@ function CsvSection({ db, persist }: { db: IngestionDatabase; persist: (d: Inges
     if (!preview) return;
     const accepted = preview.results.filter((r) => r.status === "accepted").map((r) => r.entity!).filter(Boolean);
     const warned = preview.results.filter((r) => r.status === "warning" && r.entity).map((r) => ({ offer: r.entity!, reason: r.issues.map((i) => i.message).join("; ") }));
-    const { db: next, run } = commitOfferCsv(db, accepted, warned, { filename: fileName, initiatedBy: "admin", totalRows: preview.totalRows, rejectedRows: preview.rejectedRows }, new Date().toISOString());
+    const newProducts = preview.results.filter((r) => r.status !== "rejected" && r.newProduct).map((r) => r.newProduct!);
+    const { db: next, run } = commitOfferCsv(db, accepted, warned, { filename: fileName, initiatedBy: "admin", totalRows: preview.totalRows, rejectedRows: preview.rejectedRows }, new Date().toISOString(), newProducts);
     persist(next);
     setResult(`Imported ${run.acceptedRows} accepted + ${run.warningRows} with warnings (queued for review). ${preview.rejectedRows} rejected. Run ${run.id.slice(0, 12)} recorded.`);
     setPreview(null);
@@ -224,15 +230,15 @@ function CsvSection({ db, persist }: { db: IngestionDatabase; persist: (d: Inges
               <div className="max-h-80 overflow-auto rounded-lg border border-border/60">
                 <table className="w-full min-w-[640px] text-xs">
                   <thead className="sticky top-0 bg-surface text-left uppercase text-muted-foreground">
-                    <tr><th className="px-3 py-2">Row</th><th className="px-3 py-2">Model</th><th className="px-3 py-2">Retailer</th><th className="px-3 py-2">Price</th><th className="px-3 py-2">Status</th><th className="px-3 py-2">Issues</th></tr>
+                    <tr><th className="px-3 py-2">Row</th><th className="px-3 py-2">Product</th><th className="px-3 py-2">Retailer</th><th className="px-3 py-2">Price</th><th className="px-3 py-2">Status</th><th className="px-3 py-2">Issues</th></tr>
                   </thead>
                   <tbody>
                     {preview.results.map((r) => (
                       <tr key={r.rowNumber} className="border-t border-border/40">
                         <td className="px-3 py-2">{r.rowNumber}</td>
-                        <td className="px-3 py-2">{r.raw.productModelNumber}</td>
-                        <td className="px-3 py-2">{r.raw.retailerSlug}</td>
-                        <td className="px-3 py-2">{r.raw.currentPrice}</td>
+                        <td className="px-3 py-2">{r.raw.product_title}</td>
+                        <td className="px-3 py-2">{r.raw.retailer}</td>
+                        <td className="px-3 py-2">{r.raw.price}</td>
                         <td className="px-3 py-2">{r.status === "accepted" ? <ToneBadge tone="verified">Accepted</ToneBadge> : r.status === "warning" ? <ToneBadge tone="warning">Warning</ToneBadge> : <ToneBadge tone="danger">Rejected</ToneBadge>}</td>
                         <td className="px-3 py-2 text-muted-foreground">{r.issues.map((i) => i.message).join("; ") || "—"}</td>
                       </tr>
@@ -248,6 +254,115 @@ function CsvSection({ db, persist }: { db: IngestionDatabase; persist: (d: Inges
               </div>
             </div>
           )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ── Source registry / Add snapshot (3rd ingestion path) ─────────────────────────
+function SourcesSection({ db, persist, nowMs, retailerName }: {
+  db: IngestionDatabase; persist: (d: IngestionDatabase) => void; nowMs: number; retailerName: (id: string) => string;
+}) {
+  const [f, setF] = useState<Partial<SourceInput>>({ sourceType: "retailer_specials_page", status: "candidate" });
+  const [msg, setMsg] = useState<string | null>(null);
+  const set = (k: keyof SourceInput, v: unknown) => setF((p) => ({ ...p, [k]: v }));
+
+  const missing: string[] = [];
+  if (!f.name?.trim()) missing.push("name");
+  if (!isValidHttpUrl(f.sourceUrl)) missing.push("valid source URL");
+  if (!f.sourceType) missing.push("source type");
+
+  const submit = () => {
+    if (missing.length) return;
+    const input: SourceInput = {
+      name: f.name!.trim(), sourceUrl: f.sourceUrl!, sourceType: f.sourceType as SourceType,
+      retailerId: f.retailerId || null, mallId: f.mallId || null, status: (f.status as SourceRegistryStatus) ?? "candidate",
+      legalRiskNote: f.legalRiskNote?.trim() || null, ownerNotes: f.ownerNotes?.trim() || null,
+    };
+    const { db: next, source } = addSource(db, input, new Date().toISOString());
+    persist(next);
+    setMsg(`Registered “${source.name}” as ${source.status}. A source_snapshot run was recorded — no page was fetched.`);
+    setF({ sourceType: "retailer_specials_page", status: "candidate" });
+  };
+
+  const setStatus = (id: string, status: SourceRegistryStatus) => persist(decideSourceStatus(db, id, status, new Date().toISOString()));
+
+  const Field = ({ label, children }: { label: string; children: React.ReactNode }) => (
+    <label className="block space-y-1"><span className="text-xs font-medium text-muted-foreground">{label}</span>{children}</label>
+  );
+
+  return (
+    <div className="space-y-4">
+      <Card className="border-border/70 bg-surface/40">
+        <CardHeader className="pb-2"><CardTitle className="flex items-center gap-2 text-sm"><Globe className="h-4 w-4 text-primary" /> Add source snapshot (registry only — no fetching)</CardTitle></CardHeader>
+        <CardContent className="space-y-3">
+          <div className="grid gap-3 md:grid-cols-2">
+            <Field label="Source name *"><input className={inputCls} value={f.name ?? ""} onChange={(e) => set("name", e.target.value)} placeholder="e.g. Game — TV specials" /></Field>
+            <Field label="Source URL *"><input className={inputCls} value={f.sourceUrl ?? ""} onChange={(e) => set("sourceUrl", e.target.value)} placeholder="https://…" /></Field>
+            <Field label="Source type *">
+              <select className={inputCls} value={f.sourceType} onChange={(e) => set("sourceType", e.target.value)}>
+                {SOURCE_TYPE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </Field>
+            <Field label="Status">
+              <select className={inputCls} value={f.status} onChange={(e) => set("status", e.target.value)}>
+                {(Object.keys(SOURCE_STATUS_META) as SourceRegistryStatus[]).map((s) => <option key={s} value={s}>{SOURCE_STATUS_META[s].label}</option>)}
+              </select>
+            </Field>
+            <Field label="Retailer (optional)">
+              <select className={inputCls} value={f.retailerId ?? ""} onChange={(e) => set("retailerId", e.target.value)}>
+                <option value="">— none —</option>
+                {db.retailers.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+              </select>
+            </Field>
+            <Field label="Mall (optional)">
+              <select className={inputCls} value={f.mallId ?? ""} onChange={(e) => set("mallId", e.target.value)}>
+                <option value="">— none —</option>
+                {db.malls.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+              </select>
+            </Field>
+          </div>
+          <Field label="Legal / risk note"><input className={inputCls} value={f.legalRiskNote ?? ""} onChange={(e) => set("legalRiskNote", e.target.value)} placeholder="e.g. Public specials page — no login wall" /></Field>
+          <Field label="Owner notes"><textarea className={inputCls} rows={2} value={f.ownerNotes ?? ""} onChange={(e) => set("ownerNotes", e.target.value)} /></Field>
+          {missing.length > 0 && <p className="text-xs text-amber-300">Add: {missing.join(", ")}.</p>}
+          {msg && <div className="rounded-lg border border-secondary/40 bg-secondary/10 px-3 py-2 text-xs text-secondary">{msg}</div>}
+          <Button variant="neon" size="sm" disabled={missing.length > 0} onClick={submit}><Globe className="h-3.5 w-3.5" /> Register source</Button>
+        </CardContent>
+      </Card>
+
+      <Card className="border-border/70 bg-surface/40">
+        <CardHeader className="pb-2"><CardTitle className="text-sm">Source registry ({db.sources.length})</CardTitle></CardHeader>
+        <CardContent className="overflow-x-auto p-0">
+          <table className="w-full min-w-[820px] text-sm">
+            <thead className="text-left text-[11px] uppercase tracking-wide text-muted-foreground">
+              <tr className="border-b border-border/60">
+                <th className="px-4 py-2">Source</th><th className="px-4 py-2">Type</th><th className="px-4 py-2">Retailer</th>
+                <th className="px-4 py-2">Status</th><th className="px-4 py-2">Legal / risk</th><th className="px-4 py-2">Last checked</th><th className="px-4 py-2">Set status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {db.sources.length === 0 && <tr><td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">No sources registered yet.</td></tr>}
+              {db.sources.map((s) => (
+                <tr key={s.id} className="border-b border-border/40 align-top">
+                  <td className="px-4 py-2">
+                    <p className="font-medium">{s.name}</p>
+                    <a href={s.sourceUrl} target="_blank" rel="noreferrer" className="block max-w-[220px] truncate text-[11px] text-primary underline">{s.sourceUrl}</a>
+                  </td>
+                  <td className="px-4 py-2 text-xs text-muted-foreground">{s.sourceType.replace(/_/g, " ")}</td>
+                  <td className="px-4 py-2 text-xs">{s.retailerId ? retailerName(s.retailerId) : "—"}</td>
+                  <td className="px-4 py-2"><ToneBadge tone={SOURCE_STATUS_META[s.status].tone} title={SOURCE_STATUS_META[s.status].description}>{SOURCE_STATUS_META[s.status].label}</ToneBadge></td>
+                  <td className="px-4 py-2 max-w-[200px] text-[11px] text-muted-foreground">{s.legalRiskNote ?? "—"}</td>
+                  <td className="px-4 py-2 text-[11px] text-muted-foreground">{s.lastCheckedAt ? relativeAge(s.lastCheckedAt, nowMs) : "—"}</td>
+                  <td className="px-4 py-2">
+                    <select className={cn(inputCls, "w-36 py-1 text-xs")} value={s.status} onChange={(e) => setStatus(s.id, e.target.value as SourceRegistryStatus)}>
+                      {(Object.keys(SOURCE_STATUS_META) as SourceRegistryStatus[]).map((st) => <option key={st} value={st}>{SOURCE_STATUS_META[st].label}</option>)}
+                    </select>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </CardContent>
       </Card>
     </div>
@@ -283,7 +398,7 @@ function ManualOfferSection({ db, persist, onDone }: { db: IngestionDatabase; pe
     };
     const { db: next, issues } = addOffer(db, input, new Date().toISOString());
     persist(next);
-    setMsg(`Offer created as pending review${issues.length ? ` with ${issues.length} flag(s)` : ""}. Approve it in the Review queue to publish.`);
+    setMsg(`Offer staged for review${issues.length ? ` with ${issues.length} flag(s)` : ""}. Approve it in the Review queue to publish.`);
     setTimeout(onDone, 900);
   };
 
@@ -333,7 +448,7 @@ function ManualOfferSection({ db, persist, onDone }: { db: IngestionDatabase; pe
 
         {missing.length > 0 && <p className="text-xs text-amber-300">Publishing is blocked until: {missing.join(", ")}.</p>}
         {msg && <div className="rounded-lg border border-secondary/40 bg-secondary/10 px-3 py-2 text-xs text-secondary">{msg}</div>}
-        <Button variant="neon" size="sm" disabled={missing.length > 0} onClick={submit}><PencilLine className="h-3.5 w-3.5" /> Create offer (pending review)</Button>
+        <Button variant="neon" size="sm" disabled={missing.length > 0} onClick={submit}><PencilLine className="h-3.5 w-3.5" /> Create offer (staged for review)</Button>
       </CardContent>
     </Card>
   );
@@ -344,16 +459,16 @@ function ReviewSection({ db, persist, nowMs, productName, retailerName, onEviden
   db: IngestionDatabase; persist: (d: IngestionDatabase) => void; nowMs: number;
   productName: (id: string) => string; retailerName: (id: string) => string; onEvidence: (o: ProductOffer) => void;
 }) {
-  const [filter, setFilter] = useState<"pending" | "approved" | "rejected" | "needs_correction">("pending");
+  const [filter, setFilter] = useState<"staged" | "needs_review" | "approved" | "rejected" | "archived">("staged");
   const items = db.reviewQueue.filter((q) => q.status === filter);
 
-  const decide = (offerId: string, decision: "approved" | "rejected" | "needs_correction") =>
+  const decide = (offerId: string, decision: "approved" | "rejected" | "needs_review" | "archived") =>
     persist(decideOfferReview(db, offerId, decision, "admin", null, new Date().toISOString()));
 
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap gap-1 rounded-xl border border-border bg-surface/40 p-1">
-        {(["pending", "approved", "rejected", "needs_correction"] as const).map((s) => (
+        {(["staged", "needs_review", "approved", "rejected", "archived"] as const).map((s) => (
           <button key={s} onClick={() => setFilter(s)} className={cn("rounded-lg px-3 py-1 text-xs font-medium", filter === s ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted")}>
             {s.replace("_", " ")} ({db.reviewQueue.filter((q) => q.status === s).length})
           </button>
@@ -383,15 +498,16 @@ function ReviewSection({ db, persist, nowMs, productName, retailerName, onEviden
                   <span className="text-[11px] text-muted-foreground">{relativeAge(offer.sourceObservedAt, nowMs)}</span>
                 </div>
               )}
-              {q.status === "pending" && offer && (
+              {(q.status === "staged" || q.status === "needs_review") && offer && (
                 <div className="flex flex-wrap gap-2 pt-1">
                   <Button variant="neon" size="sm" onClick={() => decide(offer.id, "approved")}><CheckCircle2 className="h-3.5 w-3.5" /> Approve & publish</Button>
-                  <Button variant="glass" size="sm" onClick={() => decide(offer.id, "needs_correction")}><PencilLine className="h-3.5 w-3.5" /> Needs correction</Button>
+                  <Button variant="glass" size="sm" onClick={() => decide(offer.id, "needs_review")}><PencilLine className="h-3.5 w-3.5" /> Needs review</Button>
                   <Button variant="glass" size="sm" onClick={() => decide(offer.id, "rejected")}><XCircle className="h-3.5 w-3.5" /> Reject</Button>
+                  <Button variant="glass" size="sm" onClick={() => decide(offer.id, "archived")}><FileText className="h-3.5 w-3.5" /> Archive</Button>
                   <Button variant="glass" size="sm" onClick={() => onEvidence(offer)}><FileText className="h-3.5 w-3.5" /> Evidence</Button>
                 </div>
               )}
-              {q.status !== "pending" && <p className="text-[11px] text-muted-foreground">Decided {q.reviewedAt ? relativeAge(q.reviewedAt, nowMs) : ""} by {q.reviewedBy ?? "—"}.</p>}
+              {(q.status === "approved" || q.status === "rejected" || q.status === "archived") && <p className="text-[11px] text-muted-foreground">Decided {q.reviewedAt ? relativeAge(q.reviewedAt, nowMs) : ""} by {q.reviewedBy ?? "—"}.</p>}
             </CardContent>
           </Card>
         );
@@ -475,6 +591,11 @@ function EvidenceDialog({ db, offer, onClose, nowMs, productName, retailerName }
                 <span>Observed: {relativeAge(offer.sourceObservedAt, nowMs)}</span>
                 <span>Source type: {offer.sourceType.replace(/_/g, " ")}</span>
                 <span>Review: {offer.reviewStatus}</span>
+              </div>
+              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                <TrustBadge label={offer.priceTrustLabel} />
+                <AvailabilityStatusBadge status={offer.availabilityStatus} />
+                <FreshnessBadge offer={offer} nowMs={nowMs} />
               </div>
               <a href={offer.sourceUrl} target="_blank" rel="noreferrer" className="mt-1 inline-block break-all text-xs text-primary underline">{offer.sourceUrl}</a>
             </div>

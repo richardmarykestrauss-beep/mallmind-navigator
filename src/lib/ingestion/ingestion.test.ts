@@ -6,7 +6,9 @@ import { computeEffectiveFreshness } from "./freshness";
 import { rankOffers, storeConfirmedAtMall, buildOfferContext } from "./ranking";
 import { buildTvUnderBudgetAnswer } from "./recommend";
 import { trustMeta, availabilityMeta } from "./labels";
-import { addOffer, decideOfferReview, commitOfferCsv, computeOverview } from "./store";
+import { addOffer, decideOfferReview, commitOfferCsv, computeOverview, addSource, decideSourceStatus } from "./store";
+import { detectConflicts, detectStaleOffers, sourceCategory } from "./conflicts";
+import { deriveAvailabilityStatus } from "./availability";
 import type { ProductOffer } from "./model";
 
 const NOW = Date.parse("2026-07-13T12:00:00.000Z");
@@ -17,20 +19,25 @@ const offer = (over: Partial<ProductOffer>): ProductOffer => ({
   id: "o_test", productId: "p_hisense43", retailerId: "ret_game", sellerName: null, channel: "in_store",
   currency: "ZAR", currentPrice: 3999, previousPrice: null, promotionLabel: null,
   sourceUrl: "https://www.game.co.za/x", sourceType: "retailer_product_page", sourceObservedAt: NOW_ISO,
-  validFrom: null, validUntil: null, availabilityScope: "retailer_range_observed", priceTrustLabel: "recently_observed",
+  expiresAt: null, validFrom: null, validUntil: null, availabilityStatus: "inferred",
+  availabilityScope: "retailer_range_observed", priceTrustLabel: "recently_observed", snapshotId: null,
   reviewStatus: "approved", published: true, createdAt: NOW_ISO, updatedAt: NOW_ISO, demonstrationData: true, ...over,
 });
 
-// 1. CSV validation
+// 1. CSV validation (RC1 columns)
 describe("1. CSV validation", () => {
-  it("accepts a well-formed offer row and flags a bad one", () => {
-    const csv = templateCsvString("offers");
-    const { rows } = parseCsv(csv + "BADMODEL,nope,,online,ZAR,-5,,,,not-a-url,retailer_product_page,,availability_unknown,recently_observed\n");
+  it("parses RC1 offer columns and rejects a malformed row", () => {
+    const bad = '"Nope Retailer",Mall@Reds,,"Ghost TV",,television,-5,,not-a-url,retailer_product_page,,,recently_observed,unknown\n';
+    const { rows } = parseCsv(templateCsvString("offers") + bad);
     const preview = previewOffersCsv(rows, db(), NOW_ISO);
-    expect(preview.totalRows).toBe(2);
-    const bad = preview.results.find((r) => r.raw.productModelNumber === "BADMODEL")!;
-    expect(bad.status).toBe("rejected");
-    expect(bad.issues.some((i) => i.code === "missing_product")).toBe(true);
+    expect(preview.totalRows).toBe(3);
+    const badRow = preview.results.find((r) => r.raw.retailer === "Nope Retailer")!;
+    expect(badRow.status).toBe("rejected");
+    expect(badRow.issues.some((i) => i.code === "missing_retailer")).toBe(true);
+    // A known retailer + new product title stages a new product (warning, not rejection).
+    const newProdRow = previewOffersCsv(parseCsv('retailer,mall,store,product_title,brand,category,price,original_price,source_url,source_type,observed_at,expires_at,trust_label,availability_status\nGame,Mall@Reds,,"Brand New TV 55",Hisense,television,4999,,https://www.game.co.za/new55,retailer_product_page,2026-07-13T08:00:00.000Z,,recently_observed,inferred').rows, db(), NOW_ISO).results[0];
+    expect(newProdRow.newProduct).toBeTruthy();
+    expect(newProdRow.issues.some((i) => i.code === "new_product")).toBe(true);
   });
 });
 
@@ -207,6 +214,78 @@ describe("15. assistant — TV under R4000 at Mall@Reds", () => {
   it("is generated from the model and honestly labelled", () => {
     expect(answer.generatedFromModel).toBe(true);
     expect(answer.disclosure).toMatch(/curated demonstration data|not live/i);
+  });
+});
+
+// ── RC1 additions ────────────────────────────────────────────────────────────
+
+describe("RC1. conflict detection", () => {
+  it("flags conflicting prices for the same product from the same source category", () => {
+    // Seed: Game (R3,999) and Checkers (R4,499) both retailer_product_page for Hisense 43.
+    const alerts = detectConflicts(db());
+    const hisense = alerts.find((a) => a.productId === "p_hisense43");
+    expect(hisense).toBeTruthy();
+    expect(hisense!.sourceCategory).toBe("retailer_page");
+    expect(hisense!.offerIds).toEqual(expect.arrayContaining(["offer_game_hisense43", "offer_checkers_hisense43"]));
+    expect(hisense!.spread).toBe(500);
+  });
+  it("does not flag offers from different source categories as conflicts", () => {
+    expect(sourceCategory("partner_feed")).toBe("partner_feed");
+    expect(sourceCategory("user_submission")).toBe("user");
+    // partner_feed (R3,949) is a different category, so it is not a retailer_page conflict.
+    const alerts = detectConflicts(db());
+    const conflictIds = alerts.flatMap((a) => a.offerIds);
+    expect(conflictIds).not.toContain("offer_partner_hisense43");
+  });
+  it("detects stale offers for the alerts panel", () => {
+    const stale = detectStaleOffers(db(), NOW);
+    expect(stale.some((s) => s.offerId === "offer_pnp_hisense40")).toBe(true);
+  });
+});
+
+describe("RC1. trust + availability labels", () => {
+  it("renders the new partner_feed and conflict_detected trust labels", () => {
+    expect(trustMeta("partner_feed").label).toBe("Partner feed");
+    expect(trustMeta("conflict_detected").label).toBe("Conflict detected");
+  });
+  it("derives coarse availability_status from scope conservatively", () => {
+    expect(deriveAvailabilityStatus("branch_stock_confirmed")).toBe("known_available");
+    expect(deriveAvailabilityStatus("retailer_range_observed")).toBe("inferred");
+    expect(deriveAvailabilityStatus("availability_unknown")).toBe("unknown");
+    expect(deriveAvailabilityStatus("out_of_stock")).toBe("unavailable");
+  });
+});
+
+describe("RC1. source registry", () => {
+  it("seeds sources with lifecycle + legal notes and preserves URL/timestamp", () => {
+    const base = db();
+    expect(base.sources.length).toBeGreaterThanOrEqual(4);
+    const blocked = base.sources.find((s) => s.status === "blocked")!;
+    expect(blocked.legalRiskNote).toMatch(/login wall/i);
+    const game = base.sources.find((s) => s.id === "src_game")!;
+    expect(game.sourceUrl).toBe("https://www.game.co.za/");
+    expect(game.lastCheckedAt).toBeTruthy();
+  });
+  it("registers a new source and records a source_snapshot run (no fetching)", () => {
+    const { db: next, source } = addSource(db(), { name: "New source", sourceUrl: "https://example.com/x", sourceType: "retailer_product_page" }, NOW_ISO);
+    expect(next.sources.some((s) => s.id === source.id)).toBe(true);
+    expect(source.status).toBe("candidate");
+    const run = next.runs.find((r) => r.evidenceUrl === "https://example.com/x")!;
+    expect(run.runType).toBe("source_snapshot");
+    const approved = decideSourceStatus(next, source.id, "approved", NOW_ISO);
+    expect(approved.sources.find((s) => s.id === source.id)!.status).toBe("approved");
+  });
+});
+
+describe("RC1. staged vs approved filtering", () => {
+  it("keeps staged offers out of published/approved recommendations until approved", () => {
+    const base = db();
+    // Seed user-submitted offer is staged + unpublished.
+    const staged = base.offers.find((o) => o.id === "offer_user_hisense43")!;
+    expect(staged.reviewStatus).toBe("staged");
+    expect(staged.published).toBe(false);
+    const answer = buildTvUnderBudgetAnswer(base, { mallId: "mall_reds", maxPrice: 4000, nowMs: NOW });
+    expect(answer.primary.every((o) => o.offerId !== "offer_user_hisense43")).toBe(true);
   });
 });
 

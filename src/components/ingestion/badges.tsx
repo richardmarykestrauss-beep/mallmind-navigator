@@ -5,8 +5,8 @@
  */
 
 import { cn } from "@/lib/utils";
-import type { PriceTrustLabel, AvailabilityLabel, ProductOffer } from "@/lib/ingestion/model";
-import { trustMeta, availabilityMeta, type BadgeTone } from "@/lib/ingestion/labels";
+import type { PriceTrustLabel, AvailabilityLabel, AvailabilityStatus, ProductOffer } from "@/lib/ingestion/model";
+import { trustMeta, availabilityMeta, availabilityStatusMeta, type BadgeTone } from "@/lib/ingestion/labels";
 import { computeEffectiveFreshness, type FreshnessState } from "@/lib/ingestion/freshness";
 
 const TONE: Record<BadgeTone, string> = {
@@ -37,6 +37,11 @@ export function AvailabilityBadge({ label }: { label: AvailabilityLabel }) {
   return <ToneBadge tone={m.tone} title={m.description}>{m.label}</ToneBadge>;
 }
 
+export function AvailabilityStatusBadge({ status }: { status: AvailabilityStatus }) {
+  const m = availabilityStatusMeta(status);
+  return <ToneBadge tone={m.tone} title={m.description}>{m.label}</ToneBadge>;
+}
+
 const FRESH_TONE: Record<FreshnessState, BadgeTone> = {
   fresh: "fresh", aging: "warning", stale: "warning", expired: "danger", unpublished: "muted", unavailable: "danger",
 };
@@ -52,6 +57,7 @@ export function FreshnessBadge({ offer, nowMs }: { offer: ProductOffer; nowMs: n
 export function PublishedBadge({ published, reviewStatus }: { published: boolean; reviewStatus: string }) {
   if (published) return <ToneBadge tone="verified">Published</ToneBadge>;
   if (reviewStatus === "rejected") return <ToneBadge tone="danger">Rejected</ToneBadge>;
-  if (reviewStatus === "needs_correction") return <ToneBadge tone="warning">Needs correction</ToneBadge>;
+  if (reviewStatus === "archived") return <ToneBadge tone="muted">Archived</ToneBadge>;
+  if (reviewStatus === "needs_review") return <ToneBadge tone="warning">Needs review</ToneBadge>;
   return <ToneBadge tone="muted">Review required</ToneBadge>;
 }

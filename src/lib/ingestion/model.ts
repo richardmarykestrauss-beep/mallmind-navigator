@@ -15,15 +15,17 @@
 
 // ── Enumerations ────────────────────────────────────────────────────────────
 
-/** Exact price-trust labels required by the sprint. */
+/** Exact price-trust labels (RC1). */
 export type PriceTrustLabel =
   | "verified_live"
   | "recently_observed"
   | "catalogue_special"
   | "manual_admin"
+  | "partner_feed"
   | "user_submitted"
   | "stale"
-  | "unavailable";
+  | "unavailable"
+  | "conflict_detected";
 
 /** Exact availability labels required by the sprint. */
 export type AvailabilityLabel =
@@ -37,14 +39,32 @@ export type AvailabilityLabel =
   | "out_of_stock"
   | "no_longer_listed";
 
-export type ReviewStatus = "pending" | "approved" | "rejected" | "needs_correction";
+/** RC1 review lifecycle. */
+export type ReviewStatus = "staged" | "needs_review" | "approved" | "rejected" | "archived";
+
+/** Coarse availability confidence (RC1 offer field). */
+export type AvailabilityStatus = "known_available" | "unknown" | "inferred" | "unavailable";
+
+/** Source-registry lifecycle status. */
+export type SourceRegistryStatus = "candidate" | "approved" | "blocked" | "needs_review" | "deprecated";
+
+/** Ingestion-run type. `future_agent_research` is reserved (not executed in RC1). */
+export type IngestionRunType = "manual_csv" | "manual_entry" | "source_snapshot" | "future_agent_research";
 
 export type OfferChannel = "in_store" | "online" | "marketplace" | "click_and_collect" | "catalogue";
 
 export type SourceType =
   | "retailer_product_page"
+  | "retailer_search_page"
+  | "retailer_specials_page"
   | "retailer_catalogue"
+  | "catalogue_pdf"
+  | "catalogue_image"
+  | "mall_directory"
   | "marketplace_listing"
+  | "partner_feed"
+  | "admin_csv"
+  | "manual_entry"
   | "manual_admin"
   | "user_submission"
   | "csv_import"
@@ -84,7 +104,7 @@ export type ReviewSeverity = "info" | "warning" | "error";
 
 export type SnapshotStatus = "captured" | "parsed" | "failed";
 
-export type IngestionRunStatus = "started" | "validating" | "completed" | "failed" | "cancelled";
+export type IngestionRunStatus = "staged" | "started" | "validating" | "completed" | "failed" | "needs_review" | "cancelled";
 
 export type LegalReviewStatus = "not_reviewed" | "in_review" | "cleared" | "blocked";
 
@@ -152,11 +172,16 @@ export interface ProductOffer {
   sourceUrl: string;
   sourceType: SourceType;
   sourceObservedAt: string;
+  expiresAt?: string | null;
   validFrom?: string | null;
   validUntil?: string | null;
-  /** Availability trust for this offer (never derived from website+store presence alone). */
+  /** Coarse availability confidence (RC1). Never "known_available" without supporting evidence. */
+  availabilityStatus: AvailabilityStatus;
+  /** Detailed availability scope (never derived from website+store presence alone). */
   availabilityScope: AvailabilityLabel;
   priceTrustLabel: PriceTrustLabel;
+  /** Optional link to the stored source snapshot / evidence. */
+  snapshotId?: string | null;
   reviewStatus: ReviewStatus;
   published: boolean;
   createdAt: string;
@@ -193,8 +218,11 @@ export interface SourceSnapshot {
 
 export interface IngestionRun {
   id: string;
+  runType: IngestionRunType;
   sourceType: SourceType | "csv_import";
   filename: string | null;
+  /** Evidence/source URL for the run, where applicable. */
+  evidenceUrl?: string | null;
   startedAt: string;
   completedAt: string | null;
   status: IngestionRunStatus;
@@ -202,8 +230,27 @@ export interface IngestionRun {
   acceptedRows: number;
   rejectedRows: number;
   warningRows: number;
+  conflictsDetected: number;
   initiatedBy: string;
   notes: string | null;
+}
+
+/**
+ * Source registry entry — a public source MallMind has snapshotted or is
+ * tracking. This is a registry only; RC1 performs NO automated fetching.
+ */
+export interface Source {
+  id: string;
+  name: string;
+  sourceUrl: string;
+  sourceType: SourceType;
+  retailerId: string | null;
+  mallId: string | null;
+  status: SourceRegistryStatus;
+  legalRiskNote: string | null;
+  lastCheckedAt: string | null;
+  ownerNotes: string | null;
+  createdAt: string;
 }
 
 export interface ReviewQueueItem {
@@ -255,6 +302,7 @@ export interface IngestionDatabase {
   offers: ProductOffer[];
   observations: StoreOfferObservation[];
   snapshots: SourceSnapshot[];
+  sources: Source[];
   runs: IngestionRun[];
   reviewQueue: ReviewQueueItem[];
   policies: SourcePolicy[];
@@ -262,8 +310,8 @@ export interface IngestionDatabase {
 
 export function emptyDatabase(now: string): IngestionDatabase {
   return {
-    meta: { isPrototype: true, dataOrigin: "curated_demonstration", label: "Curated demonstration data", createdAt: now, version: 1 },
+    meta: { isPrototype: true, dataOrigin: "curated_demonstration", label: "Curated demonstration data", createdAt: now, version: 2 },
     malls: [], retailers: [], stores: [], products: [], offers: [],
-    observations: [], snapshots: [], runs: [], reviewQueue: [], policies: [],
+    observations: [], snapshots: [], sources: [], runs: [], reviewQueue: [], policies: [],
   };
 }

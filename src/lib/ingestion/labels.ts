@@ -6,7 +6,7 @@
  * render the SAME honest language everywhere.
  */
 
-import type { PriceTrustLabel, AvailabilityLabel } from "./model";
+import type { PriceTrustLabel, AvailabilityLabel, AvailabilityStatus } from "./model";
 
 export type BadgeTone = "verified" | "fresh" | "special" | "info" | "muted" | "warning" | "danger";
 
@@ -24,15 +24,31 @@ export const PRICE_TRUST_LABELS: Record<PriceTrustLabel, TrustLabelMeta> = {
   recently_observed: { key: "recently_observed", label: "Recently observed",         tone: "fresh",    priority: 2, description: "Observed from a retailer source recently; may drift over time." },
   catalogue_special: { key: "catalogue_special", label: "Catalogue special",         tone: "special",  priority: 3, description: "A dated catalogue/promotion price, valid until its end date." },
   manual_admin:      { key: "manual_admin",      label: "Manual admin",              tone: "info",     priority: 4, description: "Entered by an admin from a cited source." },
-  user_submitted:    { key: "user_submitted",    label: "User submitted",            tone: "muted",    priority: 5, description: "Reported by a shopper; unpublished until reviewed." },
-  stale:             { key: "stale",             label: "Stale — needs verification", tone: "warning",  priority: 6, description: "Past its freshness window; confirm before relying on it." },
-  unavailable:       { key: "unavailable",       label: "Unavailable",               tone: "danger",   priority: 7, description: "No usable current price." },
+  partner_feed:      { key: "partner_feed",      label: "Partner feed",              tone: "info",     priority: 5, description: "Supplied by a data partner feed (not live-verified by MallMind)." },
+  user_submitted:    { key: "user_submitted",    label: "User submitted",            tone: "muted",    priority: 6, description: "Reported by a shopper; unpublished until reviewed." },
+  stale:             { key: "stale",             label: "Stale — needs verification", tone: "warning",  priority: 7, description: "Past its freshness window; confirm before relying on it." },
+  conflict_detected: { key: "conflict_detected", label: "Conflict detected",         tone: "warning",  priority: 8, description: "Conflicting prices exist for this product from the same source category — needs review." },
+  unavailable:       { key: "unavailable",       label: "Unavailable",               tone: "danger",   priority: 9, description: "No usable current price." },
 };
 
 /** Trust priority order (best → worst) for deterministic ranking. */
 export const TRUST_PRIORITY: PriceTrustLabel[] = [
-  "verified_live", "recently_observed", "catalogue_special", "manual_admin", "user_submitted", "stale", "unavailable",
+  "verified_live", "recently_observed", "catalogue_special", "manual_admin", "partner_feed", "user_submitted", "stale", "conflict_detected", "unavailable",
 ];
+
+// ── Coarse availability status (RC1) ─────────────────────────────────────────
+export interface AvailabilityStatusMeta { key: AvailabilityStatus; label: string; tone: BadgeTone; description: string; }
+
+export const AVAILABILITY_STATUS_LABELS: Record<AvailabilityStatus, AvailabilityStatusMeta> = {
+  known_available: { key: "known_available", label: "Known available", tone: "verified", description: "Availability is known and the source supports it." },
+  inferred:        { key: "inferred",        label: "Inferred",        tone: "info",     description: "Availability inferred from the retailer's range, not confirmed." },
+  unknown:         { key: "unknown",         label: "Unknown",         tone: "warning",  description: "Availability is not known." },
+  unavailable:     { key: "unavailable",     label: "Unavailable",     tone: "danger",   description: "Confirmed unavailable / not listed." },
+};
+
+export function availabilityStatusMeta(key: AvailabilityStatus): AvailabilityStatusMeta {
+  return AVAILABILITY_STATUS_LABELS[key];
+}
 
 export function trustMeta(key: PriceTrustLabel): TrustLabelMeta {
   return PRICE_TRUST_LABELS[key];

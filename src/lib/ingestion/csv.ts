@@ -4,7 +4,7 @@
  * scraping: this is a controlled manual/CSV import path only.
  */
 
-import type { IngestionDatabase, Product, ProductOffer, Store, OfferChannel, SourceType, PriceTrustLabel, AvailabilityLabel } from "./model";
+import type { IngestionDatabase, Product, ProductOffer, Store, OfferChannel, SourceType, PriceTrustLabel, AvailabilityLabel, AvailabilityStatus } from "./model";
 import { validateOffer, validateProduct, validateStore, type ValidationIssue } from "./validation";
 
 export type CsvKind = "stores" | "products" | "offers";
@@ -37,12 +37,23 @@ export const CSV_TEMPLATES: Record<CsvKind, CsvTemplate> = {
   offers: {
     kind: "offers",
     filename: "mallmind-offers-template.csv",
-    columns: ["productModelNumber", "retailerSlug", "sellerName", "channel", "currency", "currentPrice", "previousPrice", "promotionLabel", "sourceUrl", "sourceType", "sourceObservedAt", "validUntil", "availabilityScope", "priceTrustLabel"],
+    columns: ["retailer", "mall", "store", "product_title", "brand", "category", "price", "original_price", "source_url", "source_type", "observed_at", "expires_at", "trust_label", "availability_status"],
     sampleRows: [
-      ["43A4K", "game", "", "in_store", "ZAR", "3999", "4499", "Weekend special", "https://www.game.co.za/hisense-43a4k", "retailer_product_page", "2026-07-13T08:00:00.000Z", "", "retailer_range_observed", "recently_observed"],
+      ["Game", "Mall@Reds", "Game Mall@Reds", 'Hisense 43" A4 FHD Smart TV', "Hisense", "television", "3999", "4499", "https://www.game.co.za/hisense-43a4k", "retailer_product_page", "2026-07-13T08:00:00.000Z", "", "recently_observed", "inferred"],
+      ["Checkers", "Mall@Reds", "", 'Hisense 32" A4 HD Smart TV', "Hisense", "television", "2999", "3499", "https://www.checkers.co.za/catalogue/hisense-32", "retailer_specials_page", "2026-07-12T16:00:00.000Z", "2026-07-16T00:00:00.000Z", "catalogue_special", "inferred"],
     ],
   },
 };
+
+/** Map the coarse RC1 availability_status onto a detailed availability scope. */
+function scopeForStatus(status: AvailabilityStatus): AvailabilityLabel {
+  switch (status) {
+    case "known_available": return "online_stock_only";
+    case "inferred": return "retailer_range_observed";
+    case "unavailable": return "out_of_stock";
+    default: return "availability_unknown";
+  }
+}
 
 /** Build a downloadable CSV string (header + sample rows) for a template. */
 export function templateCsvString(kind: CsvKind): string {
@@ -85,6 +96,8 @@ export interface CsvRowResult<T> {
   rowNumber: number;
   raw: Record<string, string>;
   entity: T | null;
+  /** A new product to be created on commit (offers CSV, when the title is unknown). */
+  newProduct?: Product | null;
   issues: ValidationIssue[];
   status: "accepted" | "warning" | "rejected";
 }
@@ -121,42 +134,69 @@ function assemble<T>(kind: CsvKind, results: CsvRowResult<T>[]): CsvPreview<T> {
   };
 }
 
+const norm = (s: string | null | undefined) => String(s ?? "").trim().toLowerCase();
+
 export function previewOffersCsv(rows: Record<string, string>[], db: IngestionDatabase, nowIso: string): CsvPreview<ProductOffer> {
   const nowMs = Date.parse(nowIso);
   const results = rows.map((raw, i): CsvRowResult<ProductOffer> => {
     const issues: ValidationIssue[] = [];
-    const product = db.products.find((p) => p.modelNumber.trim().toLowerCase() === (raw.productModelNumber ?? "").trim().toLowerCase());
-    const retailer = db.retailers.find((r) => r.slug === (raw.retailerSlug ?? "").trim().toLowerCase());
-    if (!product) issues.push({ code: "missing_product", severity: "error", field: "productModelNumber", message: `No product with model "${raw.productModelNumber}".` });
-    if (!retailer) issues.push({ code: "missing_retailer", severity: "error", field: "retailerSlug", message: `No retailer with slug "${raw.retailerSlug}".` });
+    // Retailer (required) — resolve by name or slug.
+    const rName = norm(raw.retailer);
+    const retailer = db.retailers.find((r) => norm(r.name) === rName || r.slug === rName);
+    if (!retailer) issues.push({ code: "missing_retailer", severity: "error", field: "retailer", message: `No retailer "${raw.retailer}".` });
+    // Mall (optional).
+    let mallId: string | null = null;
+    if (raw.mall?.trim()) {
+      const mall = db.malls.find((m) => norm(m.name) === norm(raw.mall) || m.slug === norm(raw.mall));
+      if (!mall) issues.push({ code: "wrong_mall", severity: "warning", field: "mall", message: `Mall "${raw.mall}" not found — offer staged without a mall link.` });
+      else mallId = mall.id;
+    }
+    // Product — resolve by title; stage a NEW product if unknown.
+    const title = raw.product_title?.trim() || "";
+    if (!title) issues.push({ code: "missing_product", severity: "error", field: "product_title", message: "product_title is required." });
+    let product = title ? db.products.find((p) => norm(p.canonicalName) === norm(title)) : undefined;
+    let newProduct: Product | null = null;
+    if (title && !product) {
+      newProduct = {
+        id: newId("product"), canonicalName: title, brand: raw.brand?.trim() || "", modelNumber: "",
+        category: raw.category?.trim() || "television", descriptionSummary: "", gtin: null, manufacturerSku: null,
+        normalizationStatus: "needs_review",
+      };
+      product = newProduct;
+      issues.push({ code: "new_product", severity: "warning", field: "product_title", message: `New product "${title}" will be created (needs normalization).` });
+    }
 
+    const availabilityStatus = (raw.availability_status?.trim() as AvailabilityStatus) || "unknown";
     let entity: ProductOffer | null = null;
-    if (product && retailer) {
+    if (retailer && product) {
       entity = {
         id: newId("offer"),
         productId: product.id,
         retailerId: retailer.id,
-        sellerName: raw.sellerName?.trim() || null,
-        channel: (raw.channel?.trim() as OfferChannel) || "online",
-        currency: (raw.currency?.trim() || "ZAR").toUpperCase(),
-        currentPrice: Number(raw.currentPrice),
-        previousPrice: raw.previousPrice?.trim() ? Number(raw.previousPrice) : null,
-        promotionLabel: raw.promotionLabel?.trim() || null,
-        sourceUrl: raw.sourceUrl?.trim() || "",
-        sourceType: (raw.sourceType?.trim() as SourceType) || "csv_import",
-        sourceObservedAt: raw.sourceObservedAt?.trim() || nowIso,
-        validUntil: raw.validUntil?.trim() || null,
-        availabilityScope: (raw.availabilityScope?.trim() as AvailabilityLabel) || "availability_unknown",
-        priceTrustLabel: (raw.priceTrustLabel?.trim() as PriceTrustLabel) || "manual_admin",
-        reviewStatus: "pending",
+        sellerName: null,
+        channel: (retailer.physicalRetailer ? "in_store" : "online") as OfferChannel,
+        currency: "ZAR",
+        currentPrice: Number(raw.price),
+        previousPrice: raw.original_price?.trim() ? Number(raw.original_price) : null,
+        promotionLabel: null,
+        sourceUrl: raw.source_url?.trim() || "",
+        sourceType: (raw.source_type?.trim() as SourceType) || "admin_csv",
+        sourceObservedAt: raw.observed_at?.trim() || nowIso,
+        expiresAt: raw.expires_at?.trim() || null,
+        validUntil: raw.expires_at?.trim() || null,
+        availabilityStatus,
+        availabilityScope: scopeForStatus(availabilityStatus),
+        priceTrustLabel: (raw.trust_label?.trim() as PriceTrustLabel) || "manual_admin",
+        snapshotId: null,
+        reviewStatus: "staged",
         published: false,
         createdAt: nowIso,
         updatedAt: nowIso,
         demonstrationData: true,
       };
-      issues.push(...validateOffer(entity, db, nowMs));
+      issues.push(...validateOffer(entity, product === newProduct ? { ...db, products: [...db.products, newProduct!] } : db, nowMs));
     }
-    return { rowNumber: i + 1, raw, entity, issues, status: status(issues) };
+    return { rowNumber: i + 1, raw, entity, newProduct, issues, status: status(issues) };
   });
   return assemble("offers", results);
 }
