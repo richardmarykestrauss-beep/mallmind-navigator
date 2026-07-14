@@ -12,7 +12,9 @@
  * evidence; publishing only ever happens through the existing human review queue.
  */
 
-import type { PriceTrustLabel } from "@/lib/ingestion/model";
+import type { PriceTrustLabel, AvailabilityStatus, ReviewStatus, GeographicScope } from "@/lib/ingestion/model";
+
+export type { GeographicScope };
 
 // ── Adapter modes + lifecycle ────────────────────────────────────────────────
 
@@ -334,6 +336,91 @@ export interface AdapterRun {
   notes: string;
 }
 
+// ── Sprint 2A: evidence → offer bridge ───────────────────────────────────────
+
+export const GEOGRAPHIC_SCOPES: GeographicScope[] = ["online_only", "national", "province", "mall", "branch", "unknown"];
+
+export type ConflictState = "none" | "conflict_detected" | "resolved";
+
+/**
+ * A normalized offer candidate derived from one or more extraction candidates.
+ * It is NOT an offer — it is the reviewable bridge between evidence and a staged
+ * ProductOffer. Mall/branch availability is never inferred from retailer presence.
+ */
+export interface OfferDraft {
+  id: string;
+  sourceId: string;
+  retailerId: string | null;
+  retailerName: string | null;
+  mallId: string | null;
+  storeId: string | null;
+  productIdentityCandidateId: string | null;
+  productTitle: string;
+  brand: string | null;
+  manufacturerModel: string | null;
+  retailerSku: string | null;
+  gtin: string | null;
+  category: string | null;
+  price: number;
+  currency: string;
+  originalPrice: number | null;
+  promoText: string | null;
+  promoStart: string | null;
+  promoEnd: string | null;
+  availabilityStatus: AvailabilityStatus;
+  geographicScope: GeographicScope;
+  sellerName: string | null;
+  observedAt: string;
+  expiresAt: string | null;
+  suggestedTrustLabel: PriceTrustLabel;
+  finalTrustLabel: PriceTrustLabel | null;
+  reviewStatus: ReviewStatus;
+  evidenceIds: string[];
+  confidence: ConfidenceDimensions;
+  warnings: string[];
+  conflictState: ConflictState;
+  /** Idempotent identity: same candidate + normalizer version → same hash. */
+  draftHash: string;
+  normalizerVersion: string;
+  adapterId: string | null;
+  extractorId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type ReviewDecisionType = "approve" | "reject" | "request_changes" | "archive";
+
+/** An explicit reviewer correction — visible as a patch, never a silent overwrite. */
+export interface FieldPatch {
+  field: string;
+  from: unknown;
+  to: unknown;
+}
+
+/** An auditable, append-only review decision over a draft. */
+export interface ReviewDecision {
+  id: string;
+  draftId: string;
+  evidenceIds: string[];
+  reviewerId: string;
+  decision: ReviewDecisionType;
+  finalTrustLabel: PriceTrustLabel | null;
+  approvedAvailabilityStatus: AvailabilityStatus | null;
+  approvedGeographicScope: GeographicScope | null;
+  correctedFields: FieldPatch[];
+  reasoning: string;
+  decidedAt: string;
+  previousDecisionId: string | null;
+  decisionVersion: number;
+}
+
+/** Deterministic publication gate. Blockers never silently become warnings. */
+export interface PublicationDecision {
+  eligible: boolean;
+  blockers: string[];
+  warnings: string[];
+}
+
 // ── Fabric database (local prototype persistence) ────────────────────────────
 
 export interface FabricDatabase {
@@ -343,4 +430,6 @@ export interface FabricDatabase {
   provenance: ProvenanceLink[];
   runs: AdapterRun[];
   events: FabricEvent[];
+  drafts: OfferDraft[];
+  decisions: ReviewDecision[];
 }

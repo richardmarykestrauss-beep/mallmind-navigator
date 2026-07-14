@@ -45,6 +45,9 @@ export type ReviewStatus = "staged" | "needs_review" | "approved" | "rejected" |
 /** Coarse availability confidence (RC1 offer field). */
 export type AvailabilityStatus = "known_available" | "unknown" | "inferred" | "unavailable";
 
+/** Where an offer's price/availability applies. Never inferred from retailer presence. */
+export type GeographicScope = "online_only" | "national" | "province" | "mall" | "branch" | "unknown";
+
 /** Source-registry lifecycle status. */
 export type SourceRegistryStatus = "candidate" | "approved" | "blocked" | "needs_review" | "deprecated";
 
@@ -198,6 +201,23 @@ export interface ProductOffer {
   updatedAt: string;
   /** Curated-demo marker; true unless real evidence exists. */
   demonstrationData?: boolean;
+  // ── Sprint 2A: evidence → offer lineage (additive, optional) ──
+  /** Where the price/availability applies (never inferred from retailer presence). */
+  geographicScope?: GeographicScope;
+  /** The fabric source this offer's evidence came from (for policy resolution). */
+  sourceId?: string | null;
+  /** The OfferDraft this offer was created from. */
+  draftId?: string | null;
+  /** The ReviewDecision that approved this offer. */
+  reviewDecisionId?: string | null;
+  /** Evidence records backing this offer (retained through the bridge). */
+  evidenceIds?: string[];
+  /** Lineage of how the offer was produced. */
+  normalizerVersion?: string | null;
+  adapterId?: string | null;
+  extractorId?: string | null;
+  /** Bumped when a revised decision updates the offer. */
+  offerRevision?: number;
 }
 
 export interface StoreOfferObservation {

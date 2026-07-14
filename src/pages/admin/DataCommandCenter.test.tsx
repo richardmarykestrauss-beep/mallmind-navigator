@@ -17,6 +17,12 @@ describe("Data Command Center sections render", () => {
     for (const label of ["Retail Intelligence Fabric", "Adapter Registry", "Source Policies", "Evidence Vault", "Adapter Runs"]) {
       expect(getAllByText(new RegExp(label)).length).toBeGreaterThan(0);
     }
+    // Sprint 2A bridge views.
+    for (const label of ["Evidence . Offer Bridge", "Extraction Review Queue", "Publication Readiness"]) {
+      expect(getAllByText(new RegExp(label)).length).toBeGreaterThan(0);
+    }
+    // A seeded draft is in the review queue.
+    expect(getAllByText(/Hisense 43" A4 FHD Smart TV/).length).toBeGreaterThan(0);
     // The four demo adapters are listed.
     expect(getByText("JSON-LD (fixture)")).toBeTruthy();
     expect(getByText("Catalogue (fixture)")).toBeTruthy();
