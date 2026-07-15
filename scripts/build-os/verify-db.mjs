@@ -49,9 +49,9 @@ begin
     into migration_count
     from supabase_migrations.schema_migrations;
 
-  if migration_count <> 33 then
+  if migration_count <> 34 then
     raise exception
-      'Expected 33 applied migrations (000-032), found %',
+      'Expected 34 applied migrations (000-033), found %',
       migration_count;
   end if;
 
@@ -219,7 +219,7 @@ run(
 );
 
 run(
-  "Rebuild database from migrations 000-032",
+  "Rebuild database from migrations 000-033",
   "npx",
   ["supabase", "db", "reset"],
 );

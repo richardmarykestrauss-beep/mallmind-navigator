@@ -17,8 +17,8 @@ describe("Data Command Center sections render", () => {
     for (const label of ["Retail Intelligence Fabric", "Adapter Registry", "Source Policies", "Evidence Vault", "Adapter Runs"]) {
       expect(getAllByText(new RegExp(label)).length).toBeGreaterThan(0);
     }
-    // Sprint 2A bridge views + Sprint 2B recommendation spine + Sprint 2C bulk intake.
-    for (const label of ["Evidence . Offer Bridge", "Extraction Review Queue", "Publication Readiness", "Recommendation Spine", "Bulk Intake Engine", "Intake Jobs", "Quarantine", "Scale Test"]) {
+    // Sprint 2A bridge + 2B spine + 2C bulk intake + 2D durable worker.
+    for (const label of ["Evidence . Offer Bridge", "Extraction Review Queue", "Publication Readiness", "Recommendation Spine", "Bulk Intake Engine", "Intake Jobs", "Quarantine", "Scale Test", "Durable Intake Worker", "Durable Jobs", "Recovery Test"]) {
       expect(getAllByText(new RegExp(label)).length).toBeGreaterThan(0);
     }
     // A seeded draft is in the review queue.
