@@ -31,6 +31,7 @@ import { TrustBadge, AvailabilityStatusBadge, FreshnessBadge, ToneBadge } from "
 import { CsvSection, ManualOfferSection, SnapshotsSection, EvidenceDialog } from "@/components/ingestion/adminSections";
 import { FabricPanels, FABRIC_SECTIONS } from "@/components/ingestion/fabricSections";
 import { BridgePanels, BRIDGE_SECTIONS } from "@/components/ingestion/bridgeSections";
+import { IntakePanels, INTAKE_SECTIONS } from "@/components/ingestion/intakeSections";
 import type { IngestionDatabase, ProductOffer, SourceRegistryStatus } from "@/lib/ingestion/model";
 
 const inputCls = "w-full rounded-lg border border-border bg-background/60 px-2 py-1 text-xs outline-none focus:border-primary/60";
@@ -50,6 +51,7 @@ const SECTIONS: { id: string; label: string }[] = [
   { id: "decisions", label: "Decision Notes" },
   ...FABRIC_SECTIONS.map((s) => ({ id: s.id, label: s.label })),
   ...BRIDGE_SECTIONS.map((s) => ({ id: s.id, label: s.label })),
+  ...INTAKE_SECTIONS.map((s) => ({ id: s.id, label: s.label })),
 ];
 
 function SectionCard({ id, icon, title, count, children }: { id: string; icon: React.ReactNode; title: string; count?: number; children: React.ReactNode }) {
@@ -404,6 +406,14 @@ export default function DataCommandCenter() {
           <h2 className="mb-3 flex items-center gap-2 font-display text-lg font-bold"><LayoutDashboard className="h-5 w-5 text-primary" /> Evidence → Offer Bridge</h2>
           <div className="space-y-5">
             <BridgePanels resolveProductName={productName} nowMs={nowMs} />
+          </div>
+        </div>
+
+        {/* Sprint 2C — Bulk Intake Engine */}
+        <div className="mt-2 border-t border-border/50 pt-4">
+          <h2 className="mb-3 flex items-center gap-2 font-display text-lg font-bold"><LayoutDashboard className="h-5 w-5 text-primary" /> Bulk Intake Engine</h2>
+          <div className="space-y-5">
+            <IntakePanels />
           </div>
         </div>
       </div>
