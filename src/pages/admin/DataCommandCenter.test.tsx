@@ -17,8 +17,8 @@ describe("Data Command Center sections render", () => {
     for (const label of ["Retail Intelligence Fabric", "Adapter Registry", "Source Policies", "Evidence Vault", "Adapter Runs"]) {
       expect(getAllByText(new RegExp(label)).length).toBeGreaterThan(0);
     }
-    // Sprint 2A bridge views.
-    for (const label of ["Evidence . Offer Bridge", "Extraction Review Queue", "Publication Readiness"]) {
+    // Sprint 2A bridge views + Sprint 2B recommendation spine observability.
+    for (const label of ["Evidence . Offer Bridge", "Extraction Review Queue", "Publication Readiness", "Recommendation Spine"]) {
       expect(getAllByText(new RegExp(label)).length).toBeGreaterThan(0);
     }
     // A seeded draft is in the review queue.
