@@ -302,7 +302,20 @@ export type FabricEventType =
   | "review.approved"
   | "offer.published"
   | "offer.marked_stale"
-  | "source.policy_blocked";
+  | "source.policy_blocked"
+  // Sprint 2C — bulk intake events (design maps to future Pub/Sub / Eventarc).
+  | "intake.job_created"
+  | "intake.job_started"
+  | "intake.chunk_started"
+  | "intake.chunk_completed"
+  | "intake.record_quarantined"
+  | "intake.checkpoint_saved"
+  | "intake.job_paused"
+  | "intake.job_resumed"
+  | "intake.job_completed"
+  | "intake.job_failed"
+  | "review.batch_created"
+  | "publication.plan_created";
 
 export interface FabricEvent {
   id: string;
