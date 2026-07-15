@@ -22,7 +22,8 @@ import {
   loadDatabase, saveDatabase, resetToSeed, computeOverview, decideOfferReview,
   addSource, decideSourceStatus, type SourceInput,
 } from "@/lib/ingestion/store";
-import { buildTvUnderBudgetAnswer } from "@/lib/ingestion/recommend";
+import { buildShopperAnswer, type ShopperOption, type RecommendationMode } from "@/lib/fabric/recommendationSpine";
+import { loadFabric } from "@/lib/fabric/store";
 import { RISK_LEVEL_META } from "@/lib/ingestion/labels";
 import { relativeAge } from "@/lib/ingestion/freshness";
 import { isValidHttpUrl } from "@/lib/ingestion/validation";
@@ -340,29 +341,39 @@ function ReviewSection({ db, persist, nowMs, productName, retailerName, onEviden
 }
 
 // ── Assistant preview ──────────────────────────────────────────────────────────
+const MODE_LABEL: Record<RecommendationMode, string> = { normal: "Normal (governed)", curated_demo: "Curated demo", admin_preview: "Admin preview" };
+
 function AssistantSection({ db, nowMs }: { db: IngestionDatabase; nowMs: number }) {
   const [budget, setBudget] = useState(4000);
+  const [mode, setMode] = useState<RecommendationMode>("normal");
+  const [intent, setIntent] = useState<"budget" | "cheapest">("budget");
+  const [verifiedOnly, setVerifiedOnly] = useState(false);
   const mallId = db.malls[0]?.id ?? "mall_reds";
-  const answer = useMemo(() => buildTvUnderBudgetAnswer(db, { mallId, maxPrice: budget, nowMs }), [db, mallId, budget, nowMs]);
+  const fabric = useMemo(() => loadFabric(), []);
+  const answer = useMemo(() => buildShopperAnswer(db, fabric, {
+    mallId, category: "television", budget,
+    intent: verifiedOnly ? "verified_only" : intent,
+    trustPreference: verifiedOnly ? "verified_only" : "any",
+  }, nowMs, mode), [db, fabric, mallId, budget, intent, verifiedOnly, mode, nowMs]);
+  const d = answer.diagnostics;
 
-  const OfferCard = ({ o, showWhy }: { o: (typeof answer.primary)[number]; showWhy: boolean }) => (
+  const OptionCard = ({ o }: { o: ShopperOption }) => (
     <Card className="border-border/70 bg-surface/50">
       <CardContent className="space-y-1.5 p-4">
         <div className="flex items-start justify-between gap-2">
-          <div><p className="font-semibold">{o.productName}</p><p className="text-xs text-muted-foreground">{o.retailerName}{o.sellerName ? ` · seller: ${o.sellerName}` : ""} · {o.channel}</p></div>
-          <p className="text-xl font-bold text-primary">{o.priceFormatted}</p>
+          <div><p className="font-semibold">{o.productTitle}</p><p className="text-xs text-muted-foreground">{o.retailer}{o.storeTradingName ? ` · ${o.storeTradingName}` : ""}</p></div>
+          <div className="text-right"><p className="text-xl font-bold text-primary">{o.priceFormatted}</p>{o.originalPrice && <p className="text-[11px] text-muted-foreground line-through">R{o.originalPrice.toLocaleString("en-ZA")}</p>}</div>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
-          <ToneBadge tone={o.priceTrust.tone}>{o.priceTrust.label}</ToneBadge>
-          <ToneBadge tone={o.availability.tone}>{o.availability.label}</ToneBadge>
-          <span className="text-[11px] text-muted-foreground">Observed {o.observedRelative}</span>
+          <ToneBadge tone="info">{o.trustLabel}</ToneBadge>
+          <ToneBadge tone={o.branchStock === "confirmed" ? "verified" : "warning"}>Branch stock {o.branchStock === "confirmed" ? "confirmed" : "not confirmed"}</ToneBadge>
         </div>
-        <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-[11px]">
-          <span>Store at Mall@Reds: <b className={o.storeAtMall === "confirmed" ? "text-secondary" : "text-muted-foreground"}>{o.storeAtMall === "confirmed" ? "Confirmed" : "Not a mall store"}</b></span>
-          <span>Branch stock: <b className={o.branchStock === "confirmed" ? "text-secondary" : "text-amber-300"}>{o.branchStock === "confirmed" ? "Confirmed" : "Not confirmed"}</b></span>
-          <span className="text-muted-foreground">Source: {o.sourceType.replace(/_/g, " ")}</span>
-        </div>
-        {showWhy && o.whyRecommended && <p className="text-xs text-muted-foreground"><b>Why:</b> {o.whyRecommended}</p>}
+        <p className="text-[11px] text-muted-foreground">{o.freshnessStatement}</p>
+        <p className="text-[11px] text-muted-foreground">{o.scopeStatement}</p>
+        <p className="text-[11px] text-muted-foreground">{o.availabilityStatement}</p>
+        {o.expiry && <p className="text-[11px] text-amber-300">Valid until {new Date(o.expiry).toLocaleDateString()}.</p>}
+        <p className="text-[11px] text-muted-foreground"><b>Why:</b> {o.explanation}</p>
+        {o.routeAction && <ToneBadge tone="fresh">In-store route available — {o.routeAction.storeTradingName}</ToneBadge>}
       </CardContent>
     </Card>
   );
@@ -371,22 +382,54 @@ function AssistantSection({ db, nowMs }: { db: IngestionDatabase; nowMs: number 
     <div className="space-y-4">
       <Card className="border-border/70 bg-surface/40">
         <CardContent className="flex flex-wrap items-end gap-3 p-4">
-          <label className="space-y-1"><span className="text-xs text-muted-foreground">Max budget (R)</span><input className={cn(inputCls, "w-32")} type="number" value={budget} onChange={(e) => setBudget(Number(e.target.value) || 0)} /></label>
-          <div className="text-xs text-muted-foreground">Query: <b className="text-foreground">“I need a TV under R{budget.toLocaleString("en-ZA")} at Mall@Reds.”</b> — generated from the ingestion model.</div>
+          <label className="space-y-1"><span className="text-xs text-muted-foreground">Mode</span>
+            <select className={cn(inputCls, "w-44")} value={mode} onChange={(e) => setMode(e.target.value as RecommendationMode)}>
+              {(Object.keys(MODE_LABEL) as RecommendationMode[]).map((m) => <option key={m} value={m}>{MODE_LABEL[m]}</option>)}
+            </select>
+          </label>
+          <label className="space-y-1"><span className="text-xs text-muted-foreground">Intent</span>
+            <select className={cn(inputCls, "w-32")} value={intent} onChange={(e) => setIntent(e.target.value as "budget" | "cheapest")} disabled={verifiedOnly}>
+              <option value="budget">Budget</option><option value="cheapest">Cheapest</option>
+            </select>
+          </label>
+          <label className="space-y-1"><span className="text-xs text-muted-foreground">Max budget (R)</span><input className={cn(inputCls, "w-28")} type="number" value={budget} onChange={(e) => setBudget(Number(e.target.value) || 0)} /></label>
+          <label className="flex items-center gap-2 self-end pb-2 text-xs"><input type="checkbox" checked={verifiedOnly} onChange={(e) => setVerifiedOnly(e.target.checked)} /> Verified only</label>
+          <div className="text-xs text-muted-foreground">Query: <b className="text-foreground">“{verifiedOnly ? "Verified TVs only" : intent === "cheapest" ? "Cheapest TV" : `TV under R${budget.toLocaleString("en-ZA")}`} at Mall@Reds.”</b></div>
         </CardContent>
       </Card>
 
       <div>
         <h3 className="mb-2 flex items-center gap-2 text-sm font-bold"><Sparkles className="h-4 w-4 text-secondary" /> {answer.headline}</h3>
-        <div className="grid gap-3 md:grid-cols-2">{answer.primary.map((o) => <OfferCard key={o.offerId} o={o} showWhy />)}</div>
-        {answer.primary.length === 0 && <p className="text-sm text-muted-foreground">No qualifying in-mall offers under budget.</p>}
+        <div className="grid gap-3 md:grid-cols-2">{answer.options.map((o) => <OptionCard key={o.offerId} o={o} />)}</div>
+        {answer.options.length === 0 && <p className="text-sm text-muted-foreground">No offers returned for this query and mode.</p>}
       </div>
 
-      {answer.onlineComparisons.length > 0 && (
-        <div>
-          <h3 className="mb-2 flex items-center gap-2 text-sm font-bold text-muted-foreground"><Package className="h-4 w-4" /> Online comparison (not a Mall@Reds store)</h3>
-          <div className="grid gap-3 md:grid-cols-2">{answer.onlineComparisons.map((o) => <OfferCard key={o.offerId} o={o} showWhy={false} />)}</div>
-        </div>
+      {/* Observability (admin surface — not shopper-facing) */}
+      <Card className="border-border/70 bg-surface/40">
+        <CardHeader className="pb-2"><CardTitle className="text-sm">Retrieval diagnostics (admin only — never shown to shoppers)</CardTitle></CardHeader>
+        <CardContent className="flex flex-wrap gap-2 p-4 text-[11px]">
+          <ToneBadge tone="muted">Considered {d.totalConsidered}</ToneBadge>
+          <ToneBadge tone="verified">Eligible {d.eligible}</ToneBadge>
+          <ToneBadge tone="warning">Review {d.excludedByReview}</ToneBadge>
+          <ToneBadge tone="warning">Publication {d.excludedByPublication}</ToneBadge>
+          <ToneBadge tone="warning">Stale/expired {d.excludedStaleExpired}</ToneBadge>
+          <ToneBadge tone="warning">Unavailable {d.excludedUnavailable}</ToneBadge>
+          <ToneBadge tone="danger">Conflict {d.excludedConflict}</ToneBadge>
+          <ToneBadge tone="warning">No evidence {d.excludedMissingEvidence}</ToneBadge>
+          <ToneBadge tone="muted">Mall/store {d.excludedMallStoreMismatch}</ToneBadge>
+          {verifiedOnly && <ToneBadge tone="muted">Not verified {d.excludedNotVerified}</ToneBadge>}
+        </CardContent>
+      </Card>
+
+      {mode === "admin_preview" && d.exclusions.length > 0 && (
+        <Card className="border-border/70 bg-surface/40">
+          <CardHeader className="pb-2"><CardTitle className="text-sm">Excluded offers (admin preview — blockers visible, never publishable)</CardTitle></CardHeader>
+          <CardContent className="space-y-1 p-4 text-[11px] text-muted-foreground">
+            {d.exclusions.slice(0, 12).map((x) => (
+              <p key={x.offerId}>{x.offerId}: <span className="text-red-300">{x.reasons.join(", ")}</span></p>
+            ))}
+          </CardContent>
+        </Card>
       )}
 
       <p className="rounded-lg border border-border/60 bg-surface/30 px-3 py-2 text-[11px] text-muted-foreground">{answer.disclosure}</p>

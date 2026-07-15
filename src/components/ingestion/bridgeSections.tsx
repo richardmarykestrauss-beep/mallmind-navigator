@@ -9,7 +9,7 @@
  */
 
 import { useMemo, useState } from "react";
-import { ClipboardList, GitCompare, Rocket, CheckCircle2, XCircle, PencilLine, Archive, ShieldCheck } from "lucide-react";
+import { ClipboardList, GitCompare, Rocket, CheckCircle2, XCircle, PencilLine, Archive, ShieldCheck, Filter } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -22,6 +22,7 @@ import { loadFabric, saveFabric } from "@/lib/fabric/store";
 import { approvalBlockers, ReviewValidationError, type DecisionInput } from "@/lib/fabric/review";
 import { submitDecision } from "@/lib/fabric/bridgeStore";
 import { offerPublication } from "@/lib/fabric/assistantSafe";
+import { getShopperEligibleOffers } from "@/lib/fabric/recommendationSpine";
 import { GEOGRAPHIC_SCOPES } from "@/lib/fabric/types";
 import type { OfferDraft, FabricDatabase, EvidenceRecord, FieldPatch, SourceAccessPolicy, ReviewDecisionType } from "@/lib/fabric/types";
 import type { IngestionDatabase, AvailabilityStatus, PriceTrustLabel, GeographicScope } from "@/lib/ingestion/model";
@@ -31,6 +32,7 @@ const inputCls = "w-full rounded-lg border border-border bg-background/60 px-2 p
 export const BRIDGE_SECTIONS = [
   { id: "review-queue", label: "Extraction Review Queue" },
   { id: "publication", label: "Publication Readiness" },
+  { id: "spine", label: "Recommendation Spine" },
 ] as const;
 
 function SectionCard({ id, icon, title, count, children }: { id: string; icon: React.ReactNode; title: string; count?: number; children: React.ReactNode }) {
@@ -145,6 +147,29 @@ export function BridgePanels({ resolveProductName, nowMs }: { resolveProductName
             </tbody>
           </table>
         </div>
+      </SectionCard>
+
+      {/* Recommendation Spine — governed retrieval diagnostics (admin only) */}
+      <SectionCard id="spine" icon={<Filter className="h-4 w-4 text-primary" />} title="Recommendation Spine — normal-mode retrieval">
+        {(() => {
+          const { diagnostics: g } = getShopperEligibleOffers(ingestion, fabric, { mallId: ingestion.malls[0]?.id ?? "mall_reds", category: "television", budget: 4000 }, nowMs, "normal");
+          return (
+            <div className="space-y-2 p-4">
+              <p className="text-[11px] text-muted-foreground">Sample query “TV under R4000 at {ingestion.malls[0]?.name ?? "the mall"}” — the NORMAL shopper path only returns governed eligible offers. Diagnostics are admin-only and never shown to shoppers.</p>
+              <div className="flex flex-wrap gap-2 text-[11px]">
+                <ToneBadge tone="muted">Considered {g.totalConsidered}</ToneBadge>
+                <ToneBadge tone="verified">Eligible {g.eligible}</ToneBadge>
+                <ToneBadge tone="warning">Review {g.excludedByReview}</ToneBadge>
+                <ToneBadge tone="warning">Publication {g.excludedByPublication}</ToneBadge>
+                <ToneBadge tone="warning">Stale/expired {g.excludedStaleExpired}</ToneBadge>
+                <ToneBadge tone="warning">Unavailable {g.excludedUnavailable}</ToneBadge>
+                <ToneBadge tone="danger">Conflict {g.excludedConflict}</ToneBadge>
+                <ToneBadge tone="warning">No evidence {g.excludedMissingEvidence}</ToneBadge>
+                <ToneBadge tone="muted">Mall/store {g.excludedMallStoreMismatch}</ToneBadge>
+              </div>
+            </div>
+          );
+        })()}
       </SectionCard>
 
       {reviewDraft && (
