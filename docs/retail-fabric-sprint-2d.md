@@ -147,7 +147,9 @@ that is documented below and gated on credentials, not run here.
    ```
 5. Smoke: create a fixture job → claim → commit chunks → confirm counters +
    checkpoint + no duplicate dedup keys.
-6. Rollback: `psql -f 033_retail_intake_durable_rollback.sql` (additive → reversible).
+6. Rollback: `psql -f supabase/rollback/033_retail_intake_durable_rollback.sql`
+   (additive → reversible). The rollback lives OUTSIDE `supabase/migrations/` so the
+   migration runner never treats it as a forward migration.
 
 ## Browser QA (zero app console errors)
 
