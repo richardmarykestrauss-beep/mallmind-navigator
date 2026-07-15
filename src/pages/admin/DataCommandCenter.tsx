@@ -29,6 +29,7 @@ import { RISK_LEVEL_META } from "@/lib/ingestion/labels";
 import { SOURCE_STATUS_META, RUN_TYPE_META, RUN_STATUS_META, sourceTypeLabel } from "@/components/ingestion/ingestionMeta";
 import { TrustBadge, AvailabilityStatusBadge, FreshnessBadge, ToneBadge } from "@/components/ingestion/badges";
 import { CsvSection, ManualOfferSection, SnapshotsSection, EvidenceDialog } from "@/components/ingestion/adminSections";
+import { FabricPanels, FABRIC_SECTIONS } from "@/components/ingestion/fabricSections";
 import type { IngestionDatabase, ProductOffer, SourceRegistryStatus } from "@/lib/ingestion/model";
 
 const inputCls = "w-full rounded-lg border border-border bg-background/60 px-2 py-1 text-xs outline-none focus:border-primary/60";
@@ -46,6 +47,7 @@ const SECTIONS: { id: string; label: string }[] = [
   { id: "runs", label: "Ingestion Runs" },
   { id: "queue", label: "Review Queue" },
   { id: "decisions", label: "Decision Notes" },
+  ...FABRIC_SECTIONS.map((s) => ({ id: s.id, label: s.label })),
 ];
 
 function SectionCard({ id, icon, title, count, children }: { id: string; icon: React.ReactNode; title: string; count?: number; children: React.ReactNode }) {
@@ -386,6 +388,14 @@ export default function DataCommandCenter() {
             ))}
           </div>
         </SectionCard>
+
+        {/* Retail Intelligence Fabric — Sprint 1 operational views */}
+        <div className="mt-2 border-t border-border/50 pt-4">
+          <h2 className="mb-3 flex items-center gap-2 font-display text-lg font-bold"><LayoutDashboard className="h-5 w-5 text-primary" /> Retail Intelligence Fabric</h2>
+          <div className="space-y-5">
+            <FabricPanels resolveOfferLabel={offerLabel} nowMs={nowMs} />
+          </div>
+        </div>
       </div>
 
       <p className="mt-6 text-center text-[11px] text-muted-foreground">
