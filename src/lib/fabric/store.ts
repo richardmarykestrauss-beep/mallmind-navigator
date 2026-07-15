@@ -8,7 +8,7 @@
  */
 
 import type {
-  FabricDatabase, SourceAccessPolicy, EvidenceRecord, ProvenanceLink, AdapterRun, FabricEvent, ConfidenceDimensions,
+  FabricDatabase, SourceAccessPolicy, EvidenceRecord, ProvenanceLink, AdapterRun, FabricEvent, ConfidenceDimensions, OfferDraft, ReviewDecision,
 } from "./types";
 import { AdapterRegistry, defaultCapabilities } from "./registry";
 import { runAdapter } from "./runner";
@@ -57,7 +57,13 @@ export function loadFabric(now: number = Date.now()): FabricDatabase {
   if (typeof localStorage !== "undefined") {
     try {
       const raw = localStorage.getItem(FABRIC_STORAGE_KEY);
-      if (raw) return JSON.parse(raw) as FabricDatabase;
+      if (raw) {
+        const db = JSON.parse(raw) as FabricDatabase;
+        // Defensive: older persisted fabric may predate drafts/decisions.
+        if (!db.drafts) db.drafts = [];
+        if (!db.decisions) db.decisions = [];
+        return db;
+      }
     } catch { /* fall through to seed */ }
   }
   return buildSeedFabric(now);
@@ -176,5 +182,34 @@ export function buildSeedFabric(now: number): FabricDatabase {
     { id: "evt_seed_cat", type: "extraction.completed", sourceId: "src_checkers_specials", adapterId: "catalogue_fixture", payload: { count: 2 }, occurredAt: iso(-20 * HOUR) },
   ];
 
-  return { version: 1, policies: seedPolicies(nowIso), evidence, provenance, runs, events };
+  // Seed offer drafts across the review scenarios (needs_review; no decisions yet).
+  const baseConf = conf({ identityConfidence: 0.9, priceConfidence: 0.85, availabilityConfidence: 0.6, freshnessConfidence: 0.8, sourceAuthority: 0.6 });
+  const draft = (over: Partial<OfferDraft>): OfferDraft => ({
+    id: "draft_x", sourceId: "src_game", retailerId: "ret_game", retailerName: "Game", mallId: null, storeId: null,
+    productIdentityCandidateId: null, productTitle: 'Hisense 43" A4 FHD Smart TV', brand: "Hisense", manufacturerModel: "43A4K",
+    retailerSku: "43A4K", gtin: "6942147489012", category: "television", price: 3999, currency: "ZAR", originalPrice: 4499,
+    promoText: null, promoStart: null, promoEnd: null, availabilityStatus: "inferred", geographicScope: "online_only",
+    sellerName: null, observedAt: iso(-3 * HOUR), expiresAt: null, suggestedTrustLabel: "recently_observed", finalTrustLabel: null,
+    reviewStatus: "needs_review", evidenceIds: ["ev_seed_jsonld_game43"], confidence: baseConf, warnings: [], conflictState: "none",
+    draftHash: "sha256:txt-seeddraft", normalizerVersion: "1.0.0", adapterId: "jsonld_fixture", extractorId: "schema_org_jsonld",
+    createdAt: iso(-3 * HOUR), updatedAt: iso(-3 * HOUR), ...over,
+  });
+
+  const drafts: OfferDraft[] = [
+    draft({ id: "draft_seed_game43" }),
+    draft({ id: "draft_seed_conflict", conflictState: "conflict_detected", price: 4499, retailerId: "ret_checkers", retailerName: "Checkers", warnings: ["Conflicting price for the same product/source category."] }),
+    draft({
+      id: "draft_seed_expired_cat", sourceId: "src_checkers_specials", retailerId: "ret_checkers", retailerName: "Checkers",
+      productTitle: 'Hisense 32" A4 HD Smart TV', manufacturerModel: "32A4K", retailerSku: "32A4K", gtin: null, price: 2999, originalPrice: 3499,
+      promoStart: iso(-8 * DAY), promoEnd: iso(-1 * DAY), expiresAt: iso(-1 * DAY), availabilityStatus: "inferred", geographicScope: "national",
+      suggestedTrustLabel: "catalogue_special", evidenceIds: ["ev_seed_catalogue_checkers32"], adapterId: "catalogue_fixture", extractorId: "catalogue_blocks",
+      warnings: ["Catalogue past its validity window."],
+    }),
+    draft({
+      id: "draft_seed_unknown_avail", availabilityStatus: "unknown", geographicScope: "unknown", evidenceIds: ["ev_seed_manual_game43"],
+      adapterId: "manual_snapshot", extractorId: "manual_fields", suggestedTrustLabel: "manual_admin", warnings: ["Availability is unknown — not presented as in-stock."],
+    }),
+  ];
+
+  return { version: 2, policies: seedPolicies(nowIso), evidence, provenance, runs, events, drafts, decisions: [] };
 }
