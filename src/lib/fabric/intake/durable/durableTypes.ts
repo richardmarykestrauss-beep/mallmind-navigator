@@ -150,6 +150,9 @@ export interface CreateJobInputDurable {
   totalBytes?: number | null;
   estimatedRows?: number | null;
   maxRetries?: number;
+  /** Generated-fixture marker. The deployed dev worker REFUSES anything else. */
+  isFixture?: boolean;
+  traceId?: string | null;
 }
 
 export class StaleWorkerError extends Error {
