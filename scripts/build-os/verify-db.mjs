@@ -49,9 +49,9 @@ begin
     into migration_count
     from supabase_migrations.schema_migrations;
 
-  if migration_count <> 34 then
+  if migration_count <> 35 then
     raise exception
-      'Expected 34 applied migrations (000-033), found %',
+      'Expected 35 applied migrations (000-034), found %',
       migration_count;
   end if;
 
@@ -163,6 +163,26 @@ begin
     raise exception 'publish_verified_observation RPC is missing';
   end if;
 
+  -- Sprint 2D/2E — durable intake contract must survive a full rebuild.
+  if to_regclass('public.retail_intake_jobs') is null
+     or to_regclass('public.retail_intake_job_chunks') is null
+     or to_regclass('public.retail_intake_checkpoints') is null
+     or to_regclass('public.retail_intake_dedup_keys') is null then
+    raise exception 'One or more durable intake tables are missing';
+  end if;
+
+  if not exists (
+    select 1
+      from pg_proc p
+      join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname = 'public'
+       and p.proname in ('commit_intake_chunk', 'claim_next_intake_job', 'create_intake_job', 'intake_job_reconciliation')
+     group by true
+    having count(distinct p.proname) = 4
+  ) then
+    raise exception 'One or more durable intake RPCs are missing';
+  end if;
+
   if not exists (
     select 1
       from storage.buckets
@@ -219,7 +239,7 @@ run(
 );
 
 run(
-  "Rebuild database from migrations 000-033",
+  "Rebuild database from migrations 000-034",
   "npx",
   ["supabase", "db", "reset"],
 );

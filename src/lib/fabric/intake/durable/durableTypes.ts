@@ -159,39 +159,60 @@ export class IntegrityError extends Error {
   constructor(message: string) { super(message); this.name = "IntegrityError"; }
 }
 
+/** A value that may be returned synchronously (in-memory store) or awaited (Postgres store). */
+export type Awaitable<T> = T | Promise<T>;
+
 /**
- * The durable store contract. The in-memory reference store and a future Supabase
- * store implement this identically. Only `service_role` may call the Supabase RPCs
- * behind these methods (never the browser).
+ * The durable store contract. The in-memory reference store (synchronous) and the
+ * real `PostgresDurableIntakeStore` (async, Supabase RPCs) implement this
+ * identically — callers `await` every method. Only `service_role` may call the
+ * Supabase RPCs behind these methods (never the browser).
  */
 export interface DurableIntakeStore {
-  createJob(input: CreateJobInputDurable, nowIso: string): DurableJobRow;
-  getJob(jobId: string): DurableJobRow | undefined;
-  listJobs(): DurableJobRow[];
+  createJob(input: CreateJobInputDurable, nowIso: string): Awaitable<DurableJobRow>;
+  getJob(jobId: string): Awaitable<DurableJobRow | undefined>;
+  listJobs(): Awaitable<DurableJobRow[]>;
 
   /** Atomically claim the next queued/expired job (FOR UPDATE SKIP LOCKED semantics). */
-  claimNextJob(workerId: string, leaseSeconds: number, nowIso: string): DurableJobRow | null;
+  claimNextJob(workerId: string, leaseSeconds: number, nowIso: string): Awaitable<DurableJobRow | null>;
   /** Claim/renew a specific job's lease; throws StaleWorkerError if not the owner or version stale. */
-  claimJob(jobId: string, workerId: string, leaseSeconds: number, nowIso: string): DurableJobRow;
-  renewLease(jobId: string, workerId: string, leaseSeconds: number, jobVersion: number, nowIso: string): WorkerLeaseRow;
-  getLease(jobId: string): WorkerLeaseRow | undefined;
+  claimJob(jobId: string, workerId: string, leaseSeconds: number, nowIso: string): Awaitable<DurableJobRow>;
+  renewLease(jobId: string, workerId: string, leaseSeconds: number, jobVersion: number, nowIso: string): Awaitable<WorkerLeaseRow>;
+  getLease(jobId: string): Awaitable<WorkerLeaseRow | undefined>;
 
-  loadCheckpoint(jobId: string): CheckpointRow | undefined;
-  loadDedupScope(scope: string): Set<string>;
+  loadCheckpoint(jobId: string): Awaitable<CheckpointRow | undefined>;
+  loadDedupScope(scope: string): Awaitable<Set<string>>;
   /** Durable (product,source-category)→price index for cross-chunk/resume conflict detection. */
-  loadProductIndex(scope: string): Record<string, { price: number; draftRef: string }>;
+  loadProductIndex(scope: string): Awaitable<Record<string, { price: number; draftRef: string }>>;
 
   /** Atomic chunk commit: all-or-nothing. Idempotent on (jobId, chunkIndex). */
-  commitChunk(commit: ChunkCommit, nowIso: string): CommitResult;
+  commitChunk(commit: ChunkCommit, nowIso: string): Awaitable<CommitResult>;
 
-  requestPause(jobId: string, nowIso: string): DurableJobRow;
-  requestResume(jobId: string, nowIso: string): DurableJobRow;
-  requestCancel(jobId: string, nowIso: string): DurableJobRow;
-  markFailed(jobId: string, workerId: string, jobVersion: number, code: string, messageSanitized: string, nowIso: string): DurableJobRow;
-  finalize(jobId: string, workerId: string, jobVersion: number, status: DurableJobStatus, nowIso: string): DurableJobRow;
+  requestPause(jobId: string, nowIso: string): Awaitable<DurableJobRow>;
+  requestResume(jobId: string, nowIso: string): Awaitable<DurableJobRow>;
+  requestCancel(jobId: string, nowIso: string): Awaitable<DurableJobRow>;
+  markFailed(jobId: string, workerId: string, jobVersion: number, code: string, messageSanitized: string, nowIso: string): Awaitable<DurableJobRow>;
+  finalize(jobId: string, workerId: string, jobVersion: number, status: DurableJobStatus, nowIso: string): Awaitable<DurableJobRow>;
 
-  listChunks(jobId: string): ChunkRow[];
-  listQuarantine(jobId: string): QuarantineRecord[];
-  listEvents(jobId: string): DurableEventRow[];
-  listDrafts(jobId: string): { draftRef: string; recordHash: string; conflictState: string }[];
+  listChunks(jobId: string): Awaitable<ChunkRow[]>;
+  listQuarantine(jobId: string): Awaitable<QuarantineRecord[]>;
+  listEvents(jobId: string): Awaitable<DurableEventRow[]>;
+  listDrafts(jobId: string): Awaitable<{ draftRef: string; recordHash: string; conflictState: string }[]>;
+}
+
+/** Counter reconciliation summary (durable source of truth). */
+export interface ReconciliationSummary {
+  jobId: string;
+  processedRows: number;
+  validRows: number;
+  rejectedRows: number;
+  duplicateRows: number;
+  conflictRows: number;
+  stagedDrafts: number;
+  evidenceCreated: number;
+  committedChunks: number;
+  quarantineRows: number;
+  dedupKeys: number;
+  checkpointRowOffset: number | null;
+  reconciles: boolean;
 }
