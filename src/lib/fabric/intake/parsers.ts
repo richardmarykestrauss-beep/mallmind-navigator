@@ -9,7 +9,10 @@
 import type { RawRecord } from "./types";
 import { safeJsonParse, scrubObject } from "./security";
 
-function toText(chunk: string | Uint8Array, dec: TextDecoder): string {
+// `InstanceType<typeof TextDecoder>` rather than `TextDecoder`: the DOM lib declares
+// TextDecoder as both a type and a value, but Node's lib declares only the value, and
+// this module is compiled for BOTH the browser bundle and the Cloud Run worker.
+function toText(chunk: string | Uint8Array, dec: InstanceType<typeof TextDecoder>): string {
   return typeof chunk === "string" ? chunk : dec.decode(chunk, { stream: true });
 }
 

@@ -1,0 +1,60 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# MallMind Durable Intake Worker — Dockerfile
+#
+# Separate image from the API service. The existing Dockerfile is deliberately
+# untouched, so a worker change can never destabilise mallmind-backend-dev.
+#
+# BUILD CONTEXT IS THE REPO ROOT, not google-cloud-backend/:
+#   docker build -f google-cloud-backend/Dockerfile.worker .
+# The worker reuses the fabric intake engine from ../src/lib/fabric, which the API
+# image's context cannot see. esbuild bundles the fabric + worker into one file, so
+# the runtime image ships no TypeScript, no build config, and no frontend source.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Stage 1 — Build
+FROM node:22-alpine AS builder
+
+WORKDIR /app
+
+COPY google-cloud-backend/package.json google-cloud-backend/package-lock.json ./google-cloud-backend/
+WORKDIR /app/google-cloud-backend
+RUN npm ci
+
+WORKDIR /app
+# Only what the bundle needs: the backend sources + the fabric library.
+COPY google-cloud-backend/tsconfig.json google-cloud-backend/tsconfig.worker.json ./google-cloud-backend/
+COPY google-cloud-backend/src/ ./google-cloud-backend/src/
+COPY src/lib/fabric/ ./src/lib/fabric/
+
+WORKDIR /app/google-cloud-backend
+# Types are proven before the artifact is produced — a type error fails the build.
+RUN npm run typecheck:worker
+RUN npm run build:worker
+
+# Stage 2 — Production image
+FROM node:22-alpine AS runner
+
+WORKDIR /app
+
+COPY google-cloud-backend/package.json google-cloud-backend/package-lock.json ./
+RUN npm ci --omit=dev
+
+COPY --from=builder /app/google-cloud-backend/dist-worker ./dist-worker
+
+# Run unprivileged.
+USER node
+
+ENV PORT=8080
+ENV NODE_ENV=production
+# Fail closed by default: the worker refuses non-fixture jobs unless this is
+# explicitly set to the exact string "false" at deploy time.
+ENV INTAKE_FIXTURE_ONLY_MODE=true
+
+# NO secrets are baked into this image. SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY
+# arrive from Secret Manager at deploy time; Cloud Storage and identity-token
+# verification use the service account's Application Default Credentials, so there
+# is no service-account JSON key in the image, in env, or in source control.
+
+EXPOSE 8080
+
+CMD ["node", "dist-worker/worker.js"]

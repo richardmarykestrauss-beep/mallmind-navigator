@@ -1,7 +1,7 @@
 {
   "name": "mallmind-google-cloud-backend",
   "version": "0.1.0",
-  "description": "MallMind Cloud Run backend \u2014 connects to existing Supabase DB, wraps Gemini AI",
+  "description": "MallMind Cloud Run backend — connects to existing Supabase DB, wraps Gemini AI",
   "private": true,
   "engines": {
     "node": "22.x",
@@ -17,7 +17,11 @@
     "test:retail-csv-intake": "ts-node --transpile-only src/services/retail/__tests__/retailCsvIntakeHarness.ts",
     "test:shopping-assistant": "ts-node --transpile-only src/services/assistant/__tests__/shoppingAssistantHarness.ts",
     "test:cors": "ts-node --transpile-only src/tests/corsHarness.ts",
-    "test:health": "curl -s http://localhost:8080/health | jq ."
+    "test:health": "curl -s http://localhost:8080/health | jq .",
+    "typecheck:worker": "tsc -p tsconfig.worker.json --noEmit",
+    "build:worker": "esbuild src/worker.ts --bundle --platform=node --target=node22 --format=cjs --outfile=dist-worker/worker.js --tsconfig=tsconfig.worker.json --packages=external",
+    "start:worker": "node dist-worker/worker.js",
+    "test:intake-worker": "ts-node --transpile-only src/services/intake/__tests__/intakeWorkerHarness.ts"
   },
   "dependencies": {
     "@google-cloud/vision": "^5.3.6",
@@ -28,14 +32,17 @@
     "express": "^4.21.2",
     "helmet": "^8.0.0",
     "image-size": "^1.2.1",
-    "zod": "^3.24.2"
+    "zod": "^3.24.2",
+    "@google-cloud/storage": "^7.14.0",
+    "google-auth-library": "^9.15.0"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.1",
     "@types/node": "^22.15.3",
     "ts-node-dev": "^2.0.0",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "esbuild": "^0.24.0"
   },
   "packageManager": "npm@11.17.0"
 }
