@@ -56,6 +56,29 @@ const steps = [
     args: ["run", "test:cors"],
     cwd: "google-cloud-backend",
   },
+  {
+    // The durable worker is the one backend target that compiles against the
+    // frontend fabric, so it needs its own typecheck: the main backend build
+    // deliberately excludes it (see google-cloud-backend/tsconfig.worker.json).
+    name: "Durable intake worker typecheck",
+    command: "npm",
+    args: ["run", "typecheck:worker"],
+    cwd: "google-cloud-backend",
+  },
+  {
+    name: "Durable intake worker harness",
+    command: "npm",
+    args: ["run", "test:intake-worker"],
+    cwd: "google-cloud-backend",
+  },
+  {
+    // Proves the deployable artifact actually bundles (fabric + worker) before a
+    // deploy is ever attempted, rather than discovering it in Cloud Build.
+    name: "Durable intake worker bundle",
+    command: "npm",
+    args: ["run", "build:worker"],
+    cwd: "google-cloud-backend",
+  },
 ];
 
 const nodeMajor = Number.parseInt(process.versions.node.split(".")[0], 10);
