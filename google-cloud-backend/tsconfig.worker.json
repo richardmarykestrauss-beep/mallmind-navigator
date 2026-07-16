@@ -34,6 +34,10 @@
   "exclude": [
     "node_modules",
     "dist",
-    "../src/lib/fabric/**/*.test.ts"
+    "../src/lib/fabric/**/*.test.ts",
+    // Browser-only: this is the dashboard's client for the worker, so it reads
+    // Vite's import.meta.env and is never imported by the worker itself. It is
+    // typechecked by the frontend's tsconfig.app.json instead.
+    "../src/lib/fabric/intake/durable/durableWorkerClient.ts"
   ]
 }
