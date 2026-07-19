@@ -23,6 +23,9 @@
     "node_modules",
     "dist",
     "src/**/*.test.ts",
-    "src/**/__tests__/**"
+    "src/**/__tests__/**",
+    "src/worker.ts",
+    "src/services/intake/**",
+    "src/routes/internalIntake.ts"
   ]
 }

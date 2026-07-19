@@ -72,18 +72,18 @@ export function createIntakeService(deps: ServiceDeps) {
 
   return {
     /** POST /internal/intake/jobs (create from an authorized input). */
-    createJob: (req: ServiceRequest): Promise<ServiceResponse> => guard(() => {
+    createJob: (req: ServiceRequest): Promise<ServiceResponse> => guard(async () => {
       requireServiceAuth(req, deps.internalToken);
       const b = (req.body ?? {}) as Partial<CreateJobInputDurable>;
       if (!b.id || !b.sourceId || !b.inputRef || !b.inputHash || !b.mode) throw new BadRequestError("missing job fields");
       validId(b.id, "id"); validId(b.sourceId, "sourceId");
-      const job = deps.store.createJob({ ...(b as CreateJobInputDurable), requestedBy: req.callerId ?? "service" }, deps.now());
+      const job = await deps.store.createJob({ ...(b as CreateJobInputDurable), requestedBy: req.callerId ?? "service" }, deps.now());
       return { status: 201, body: publicJob(job) };
     }),
 
     claimNextRun: (req: ServiceRequest): Promise<ServiceResponse> => guard(async () => {
       requireServiceAuth(req, deps.internalToken);
-      const claimed = deps.store.claimNextJob(workerId(), 60, deps.now());
+      const claimed = await deps.store.claimNextJob(workerId(), 60, deps.now());
       if (!claimed) return { status: 204, body: null };
       const res = await runDurableJob({ store: deps.store, inputStore: deps.inputStore, jobId: claimed.id, workerId: workerId(), policy: deps.policyFor(claimed.sourceId), nowIso: deps.now(), parseMode: deps.parseModeFor(claimed.mode) });
       return { status: 200, body: { jobId: res.job.id, status: res.status } };
@@ -92,24 +92,24 @@ export function createIntakeService(deps: ServiceDeps) {
     run: (req: ServiceRequest): Promise<ServiceResponse> => guard(async () => {
       requireServiceAuth(req, deps.internalToken);
       const jobId = validId(req.params?.jobId, "jobId");
-      const job = deps.store.getJob(jobId); if (!job) throw new BadRequestError("unknown job");
+      const job = await deps.store.getJob(jobId); if (!job) throw new BadRequestError("unknown job");
       const res = await runDurableJob({ store: deps.store, inputStore: deps.inputStore, jobId, workerId: workerId(), policy: deps.policyFor(job.sourceId), nowIso: deps.now(), parseMode: deps.parseModeFor(job.mode) });
       return { status: 200, body: { jobId, status: res.status } };
     }),
 
-    pause: (req: ServiceRequest): Promise<ServiceResponse> => guard(() => { requireServiceAuth(req, deps.internalToken); const id = validId(req.params?.jobId, "jobId"); return { status: 200, body: publicJob(deps.store.requestPause(id, deps.now())) }; }),
-    resume: (req: ServiceRequest): Promise<ServiceResponse> => guard(() => { requireServiceAuth(req, deps.internalToken); const id = validId(req.params?.jobId, "jobId"); return { status: 200, body: publicJob(deps.store.requestResume(id, deps.now())) }; }),
-    cancel: (req: ServiceRequest): Promise<ServiceResponse> => guard(() => { requireServiceAuth(req, deps.internalToken); const id = validId(req.params?.jobId, "jobId"); return { status: 200, body: publicJob(deps.store.requestCancel(id, deps.now())) }; }),
+    pause: (req: ServiceRequest): Promise<ServiceResponse> => guard(async () => { requireServiceAuth(req, deps.internalToken); const id = validId(req.params?.jobId, "jobId"); return { status: 200, body: publicJob(await deps.store.requestPause(id, deps.now())) }; }),
+    resume: (req: ServiceRequest): Promise<ServiceResponse> => guard(async () => { requireServiceAuth(req, deps.internalToken); const id = validId(req.params?.jobId, "jobId"); return { status: 200, body: publicJob(await deps.store.requestResume(id, deps.now())) }; }),
+    cancel: (req: ServiceRequest): Promise<ServiceResponse> => guard(async () => { requireServiceAuth(req, deps.internalToken); const id = validId(req.params?.jobId, "jobId"); return { status: 200, body: publicJob(await deps.store.requestCancel(id, deps.now())) }; }),
 
-    getJob: (req: ServiceRequest): Promise<ServiceResponse> => guard(() => {
+    getJob: (req: ServiceRequest): Promise<ServiceResponse> => guard(async () => {
       requireServiceAuth(req, deps.internalToken);
-      const id = validId(req.params?.jobId, "jobId"); const job = deps.store.getJob(id);
+      const id = validId(req.params?.jobId, "jobId"); const job = await deps.store.getJob(id);
       return job ? { status: 200, body: publicJob(job) } : { status: 404, body: { error: "not_found" } };
     }),
-    getEvents: (req: ServiceRequest): Promise<ServiceResponse> => guard(() => {
+    getEvents: (req: ServiceRequest): Promise<ServiceResponse> => guard(async () => {
       requireServiceAuth(req, deps.internalToken);
       const id = validId(req.params?.jobId, "jobId");
-      const events: DurableEventRow[] = deps.store.listEvents(id).slice(0, 500); // bounded
+      const events: DurableEventRow[] = (await deps.store.listEvents(id)).slice(0, 500); // bounded
       return { status: 200, body: { events } };
     }),
   };

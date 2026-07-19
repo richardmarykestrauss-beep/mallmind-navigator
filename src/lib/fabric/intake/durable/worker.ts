@@ -130,22 +130,22 @@ export async function runDurableJob(opts: RunDurableOptions): Promise<RunDurable
   const chunkSize = Math.max(1, opts.chunkSize ?? 200);
 
   // 1. Claim / renew lease.
-  let job = store.claimJob(jobId, workerId, leaseSeconds, nowIso);
+  let job = await store.claimJob(jobId, workerId, leaseSeconds, nowIso);
   let version = job.version;
 
   // 2. Validate input reference (hash + generation + size). Fail safely if it changed.
   const meta = await inputStore.stat(job.inputRef);
   if ((meta.metadata.contentHash ?? "") && meta.metadata.contentHash !== job.inputHash) {
-    const failed = store.markFailed(jobId, workerId, version, "input_changed", "Input content hash no longer matches the job.", nowIso);
+    const failed = await store.markFailed(jobId, workerId, version, "input_changed", "Input content hash no longer matches the job.", nowIso);
     return { job: failed, status: "failed", drafts: [], evidence: [] };
   }
 
   // 3. Resume from the durable checkpoint.
-  const checkpoint = store.loadCheckpoint(jobId);
+  const checkpoint = await store.loadCheckpoint(jobId);
   const rowOffset = checkpoint?.rowOffset ?? 0;
   if (checkpoint && checkpoint.rowOffset !== job.currentRowOffset) throw new IntegrityError("Checkpoint and job counters disagree.");
   const dedupScope = job.sourceId;
-  const working: WorkingSet = { seen: store.loadDedupScope(dedupScope), productIndex: store.loadProductIndex(dedupScope) };
+  const working: WorkingSet = { seen: await store.loadDedupScope(dedupScope), productIndex: await store.loadProductIndex(dedupScope) };
 
   const engineJob = { id: job.id, sourceId: job.sourceId, adapterId: job.adapterId ?? undefined, mode: job.mode, inputRef: job.inputRef } as unknown as IntakeJob;
   const chunks = await inputStore.open(job.inputRef);
@@ -157,17 +157,17 @@ export async function runDurableJob(opts: RunDurableOptions): Promise<RunDurable
 
   for await (const { chunk, startOffset } of chunkedSkip(records, chunkSize, rowOffset)) {
     // Honour pause / cancel at the safe chunk boundary.
-    const live = store.getJob(jobId)!;
-    if (live.cancellationRequestedAt) { job = store.finalize(jobId, workerId, live.version, "cancelled", nowIso); return { job, status: "cancelled", drafts, evidence }; }
+    const live = (await store.getJob(jobId))!;
+    if (live.cancellationRequestedAt) { job = await store.finalize(jobId, workerId, live.version, "cancelled", nowIso); return { job, status: "cancelled", drafts, evidence }; }
     if (live.pausedAt) return { job: live, status: "paused", drafts, evidence };
 
     // Heartbeat (renew lease). A stale worker throws here and aborts safely.
-    store.renewLease(jobId, workerId, leaseSeconds, version, nowIso);
+    await store.renewLease(jobId, workerId, leaseSeconds, version, nowIso);
 
     // Optional injected transient fault → bounded retry (does not bypass gates).
     if (opts.transientFaultAt?.(chunkIndex)) {
-      const cur = store.getJob(jobId)!;
-      if (cur.retryCount < cur.maxRetries) { store.markFailed(jobId, workerId, version, "transient", "Injected transient fault.", nowIso); throw new Error(`transient_fault_chunk_${chunkIndex}`); }
+      const cur = (await store.getJob(jobId))!;
+      if (cur.retryCount < cur.maxRetries) { await store.markFailed(jobId, workerId, version, "transient", "Injected transient fault.", nowIso); throw new Error(`transient_fault_chunk_${chunkIndex}`); }
     }
 
     const t0 = Date.now();
@@ -176,7 +176,7 @@ export async function runDurableJob(opts: RunDurableOptions): Promise<RunDurable
 
     await opts.hooks?.onBeforeCommit?.(chunkIndex);   // crash-before-commit hook
 
-    const result = store.commitChunk({ ...built.commit, jobVersion: version }, nowIso);
+    const result = await store.commitChunk({ ...built.commit, jobVersion: version }, nowIso);
     version = result.jobVersion;
     if (result.committed) { drafts.push(...built.drafts); evidence.push(...built.evidence); }
 
@@ -186,15 +186,15 @@ export async function runDurableJob(opts: RunDurableOptions): Promise<RunDurable
   }
 
   // 4. Finalize honestly.
-  const finalJob = store.getJob(jobId)!;
+  const finalJob = (await store.getJob(jobId))!;
   const status: DurableJobStatus = finalJob.rejectedRows > 0 ? "completed_with_errors" : finalJob.stagedDrafts > 0 ? "needs_review" : "completed";
-  job = store.finalize(jobId, workerId, finalJob.version, status, nowIso);
+  job = await store.finalize(jobId, workerId, finalJob.version, status, nowIso);
   return { job, status, drafts, evidence };
 }
 
 /** Claim the next queued/expired job and run it (Cloud Run `claim-next` entrypoint). */
 export async function claimNextAndRun(opts: Omit<RunDurableOptions, "jobId"> & { leaseSeconds?: number }): Promise<RunDurableResult | null> {
-  const claimed = opts.store.claimNextJob(opts.workerId, opts.leaseSeconds ?? 60, opts.nowIso);
+  const claimed = await opts.store.claimNextJob(opts.workerId, opts.leaseSeconds ?? 60, opts.nowIso);
   if (!claimed) return null;
   return runDurableJob({ ...opts, jobId: claimed.id });
 }

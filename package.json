@@ -21,7 +21,8 @@
     "test:issue-form": "node scripts/build-os/issue-form.test.mjs",
     "test:evidence": "node scripts/build-os/evidence.test.mjs",
     "test:rerun": "node scripts/build-os/rerun-guard.test.mjs",
-    "test:diagnostics": "node scripts/build-os/diagnostics.test.mjs"
+    "test:diagnostics": "node scripts/build-os/diagnostics.test.mjs",
+    "intake:fixture:upload": "npm --prefix google-cloud-backend run intake:fixture:upload --"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
