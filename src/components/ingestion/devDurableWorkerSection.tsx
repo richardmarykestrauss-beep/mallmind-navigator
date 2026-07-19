@@ -20,25 +20,21 @@ import { Cloud, RefreshCw, Play, Pause, Square, ShieldCheck } from "lucide-react
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ToneBadge } from "@/components/ingestion/badges";
-import { supabase } from "@/lib/supabaseClient";
+// Import-safe: durableWorkerAdminApi resolves the admin session lazily at request
+// time and never statically imports the browser Supabase client, so rendering this
+// panel with no Supabase env vars (e.g. in CI) cannot crash at module evaluation.
 import {
-  durableWorkerClient, isDurableWorkerConfigured, DurableWorkerError,
-  type DurableWorkerStatus,
-} from "@/lib/fabric/intake/durable/durableWorkerClient";
+  durableWorkerAdminApi, describeDurableError,
+  type ControlAction, type DurableWorkerStatus,
+} from "@/lib/durableWorkerAdminApi";
 import type { DurableJobRow } from "@/lib/fabric/intake/durable/durableTypes";
 
 export const DEV_WORKER_SECTIONS = [{ id: "durable-dev-worker", label: "Dev durable worker" }] as const;
 
-/** The signed-in user's token — never a service-role key. */
-const getToken = async (): Promise<string | null> => {
-  const { data } = await supabase.auth.getSession();
-  return data.session?.access_token ?? null;
-};
-
 const FIXTURE_LABEL = "Generated fixture — no retailer data";
 
 export function DevDurableWorkerPanel() {
-  const configured = isDurableWorkerConfigured();
+  const configured = durableWorkerAdminApi.isConfigured();
   const [status, setStatus] = useState<DurableWorkerStatus | null>(null);
   const [jobs, setJobs] = useState<DurableJobRow[]>([]);
   const [busy, setBusy] = useState(false);
@@ -48,16 +44,16 @@ export function DevDurableWorkerPanel() {
     if (!configured) return;
     setBusy(true); setError(null);
     try {
-      const s = await durableWorkerClient.status(getToken);
+      const s = await durableWorkerAdminApi.status();
       setStatus(s);
       if (s.configured && s.reachable) {
-        const { jobs: rows } = await durableWorkerClient.listJobs(getToken);
+        const { jobs: rows } = await durableWorkerAdminApi.listJobs();
         setJobs(rows ?? []);
       }
     } catch (err) {
       // Surface the real reason (not configured / not admin / unreachable) rather
       // than an empty table that looks like "no jobs".
-      setError(err instanceof DurableWorkerError ? err.message : "Could not load durable jobs.");
+      setError(describeDurableError(err, "Could not load durable jobs."));
     } finally {
       setBusy(false);
     }
@@ -65,13 +61,13 @@ export function DevDurableWorkerPanel() {
 
   useEffect(() => { void load(); }, [load]);
 
-  const act = async (jobId: string, action: "run" | "pause" | "resume" | "cancel") => {
+  const act = async (jobId: string, action: ControlAction) => {
     setBusy(true); setError(null);
     try {
-      await durableWorkerClient[action](jobId, getToken);
+      await durableWorkerAdminApi.control(jobId, action);
       await load();
     } catch (err) {
-      setError(err instanceof DurableWorkerError ? err.message : `Could not ${action} this job.`);
+      setError(describeDurableError(err, `Could not ${action} this job.`));
     } finally {
       setBusy(false);
     }

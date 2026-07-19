@@ -1,9 +1,26 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, cleanup } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import DataCommandCenter from "./DataCommandCenter";
 
-afterEach(() => { cleanup(); try { localStorage.clear(); } catch { /* noop */ } });
+afterEach(() => { cleanup(); vi.unstubAllEnvs(); vi.resetModules(); try { localStorage.clear(); } catch { /* noop */ } });
+
+describe("Data Command Center import safety", () => {
+  // Guards the Sprint 2E regression: CI provides no Supabase URL/key, so any module
+  // in the render tree that eagerly builds the browser Supabase client crashes on
+  // import ("supabaseUrl is required"). The dev-durable panel must reach the worker
+  // only through the authenticated backend proxy, resolving its session lazily at
+  // request time. We simulate CI by stubbing the env empty and re-importing the
+  // whole module graph fresh (the static import at file top used the real env).
+  it("imports and renders with no Supabase frontend env vars", async () => {
+    vi.resetModules();
+    vi.stubEnv("VITE_SUPABASE_URL", "");
+    vi.stubEnv("VITE_SUPABASE_ANON_KEY", "");
+    vi.stubEnv("VITE_GOOGLE_BACKEND_URL", "");
+    const { default: FreshDCC } = await import("./DataCommandCenter");
+    expect(() => render(<MemoryRouter><FreshDCC /></MemoryRouter>)).not.toThrow();
+  });
+});
 
 describe("Data Command Center sections render", () => {
   it("renders every required section incl. the Retail Fabric operational views", () => {
