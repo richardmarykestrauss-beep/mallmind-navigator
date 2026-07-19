@@ -171,16 +171,35 @@ begin
     raise exception 'One or more durable intake tables are missing';
   end if;
 
-  if not exists (
-    select 1
+  -- Presence: all four durable intake RPC names must exist. Scalar count, so it
+  -- works on every Postgres version (the earlier group-by form did not).
+  if (
+    select count(distinct p.proname)
       from pg_proc p
       join pg_namespace n on n.oid = p.pronamespace
      where n.nspname = 'public'
        and p.proname in ('commit_intake_chunk', 'claim_next_intake_job', 'create_intake_job', 'intake_job_reconciliation')
-     group by true
-    having count(distinct p.proname) = 4
-  ) then
+  ) <> 4 then
     raise exception 'One or more durable intake RPCs are missing';
+  end if;
+
+  -- Signatures: a name-only check would pass for an overloaded or wrong-argument
+  -- function, so assert each RPC's exact input-argument types (033 + 034).
+  -- oidvectortypes(proargtypes) yields the types ONLY ("uuid, text, ..."), unlike
+  -- pg_get_function_identity_arguments which also embeds the parameter names.
+  if (
+    select count(*)
+      from pg_proc p
+      join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname = 'public'
+       and (p.proname, oidvectortypes(p.proargtypes)) in (
+         ('commit_intake_chunk',        'uuid, text, bigint, jsonb'),
+         ('claim_next_intake_job',      'text, integer'),
+         ('create_intake_job',          'uuid, text, text, text, text, text, integer, bigint, integer, integer, boolean, text, boolean'),
+         ('intake_job_reconciliation',  'uuid')
+       )
+  ) <> 4 then
+    raise exception 'Durable intake RPCs have unexpected signatures';
   end if;
 
   if not exists (
