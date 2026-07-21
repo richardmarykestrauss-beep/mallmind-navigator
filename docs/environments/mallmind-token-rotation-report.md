@@ -1,7 +1,8 @@
 # MallMind — Token Rotation Report
 
-**Status: ⛔ INCOMPLETE — awaiting Richard's manual revocation.**
-No token value appears in this document or in any command output.
+**Status: ✅ REVOKED AND CLEANED — one residual class (dead-token session logs) noted below.**
+No token value appears in this document. Prose references to the `sbp_` prefix are the
+literal prefix only, never a token value.
 
 ## What was exposed
 
@@ -11,77 +12,91 @@ A Supabase **personal access token** (prefix `sbp_`) was found in plaintext in:
 .claude/worktrees/epic-moore-2f721a/.claude/settings.local.json
 ```
 
-It appears **14 times**, embedded inside pre-approved `curl` / CLI command strings in a
+It appeared **14 times**, embedded inside pre-approved `curl` / CLI command strings in a
 Claude Code permission allowlist.
 
-### Blast radius
+### Blast radius (now neutralised by revocation)
 
-The token is a Supabase **Management API** credential. The commands it was embedded in
-demonstrate its scope:
+The token was a Supabase **Management API** credential. The commands it was embedded in
+showed its scope: deploy edge functions, `PATCH …/functions/ai-assistant {verify_jwt:false}`
+(disable JWT verification on a live function), `GET …/secrets` (read project secrets), and
+read project logs.
 
-- `supabase functions deploy …` — deploy edge functions to the live project
-- `PATCH /v1/projects/<ref>/functions/ai-assistant` with `verify_jwt:false` — **disable JWT
-  verification on a live edge function**
-- `GET /v1/projects/<ref>/secrets` — **read project secrets**
-- `POST /v1/projects/<ref>/analytics/endpoints/logs.all` — read project logs
+## Revocation — DONE ✅
 
-Treat it as capable of modifying and reading secrets on the live project.
+Richard revoked **all** personal access tokens shown in the Supabase dashboard, including:
 
-## Containment status
+- `MallMindPowerShell`
+- `Redeploy`
+- `cli_sovereign_systems_sa` token(s)
+- `cli_RICHARD` token(s)
 
-| Check | Result |
+Because Supabase never displays a token's value after creation, the exposed value could not
+be matched by value — so revoking the full set is the correct, conservative outcome. Every
+`sbp_` credential that previously existed is now dead.
+
+## Plaintext cleanup — DONE ✅
+
+| Location | Action | Result |
+|---|---|---|
+| `.claude/worktrees/epic-moore-2f721a/.claude/settings.local.json` | Removed the 14 allowlist entries containing the token; preserved the 94 unrelated entries | **0** `sbp_` occurrences; file re-validated as JSON (94 entries) |
+| Session task-output temp file (`…/tasks/br6bvq9vq.output`, from the 2F-B background scan) | Deleted | Gone; temp dir re-scanned clean |
+
+The settings file was left functional (it is a Claude Code permission allowlist for an active
+worktree) rather than deleted, because only 14 of its 108 entries were token-bearing and the
+rest are legitimate unrelated permissions.
+
+## Post-cleanup scan
+
+Scope: main repository, **all 16 sibling `mallmind-*` worktrees**, `.claude` metadata
+(project-local and global `~/.claude`), scratchpad/task temp files, and untracked files.
+Pattern: a **real token value** = `sbp_` followed by ≥20 alphanumerics.
+
+| Surface | Real token values found |
 |---|---|
-| Token committed to git? | **No** — zero `sbp_` occurrences in any tracked file |
-| File tracked? | **No** — untracked |
-| Path ignored? | **Yes** — `.gitignore:30` ignores `.claude/` |
-| Other plaintext copies in worktree? | **None** — exactly one file, repo-wide scan |
-| Token printed to chat/logs by this process? | **No** |
-| Replacement token created automatically? | **No** — deliberately not; Phase 5 requires manual creation |
+| All `mallmind-*` worktrees (main repo included) | **0** |
+| `~/.claude` active settings / config / env files | **0** |
+| Session scratchpad + task-output temp files | **0** |
+| Tracked git files (any branch) | **0** (was already 0 — never committed) |
 
-**Mitigating:** it was never committed, so it is not in git history or on the remote.
-**Aggravating:** it sat in a file whose entire purpose is to *pre-authorise* command
-execution, and it remains valid until revoked.
+**Confirmed: zero operational/usable plaintext copies of any personal access token remain.**
 
-## Required manual action (PENDING)
+## Residual: dead-token session transcripts (noted, not auto-deleted)
 
-Supabase never displays a token's value after creation, so the exposed value **cannot be
-matched against the dashboard list**. The dashboard shows only *name*, *created*, and
-*last used*.
+Two Claude Code **session transcript logs** still contain the token as historical text:
 
-1. Supabase Dashboard → avatar (top-right) → **Account settings**
-2. Open **Access Tokens**
-3. Revoke the token used for MallMind / Claude / local automation
-4. **Recommended:** revoke every personal access token not positively recognised as still
-   needed. A replacement takes seconds to create, and any unaccounted-for token should be
-   treated as compromised.
+```
+~/.claude/projects/…-mallmind-navigator/72ae7c8c-….jsonl                 (this live session)
+~/.claude/projects/…-epic-moore-2f721a/8bd09785-….jsonl                   (an older worktree session)
+```
 
-## Steps deliberately NOT taken (blocked on the gate above)
+These are append-only session records maintained by the Claude Code harness, outside the git
+repository. The token they contain is **revoked and non-functional**, so they are inert text,
+not an exploitable credential. They were **not** auto-deleted because:
 
-- ❌ Deleting the plaintext copies — intentionally deferred until revocation is confirmed,
-  so the token remains identifiable if it needs to be traced first.
-- ❌ Creating a replacement token — must be created manually by Richard.
-- ❌ Authenticating the Supabase CLI — will not authenticate with a credential pending
-  revocation.
+- deleting the **live** session's own transcript while it is running can corrupt session state;
+- these are harness-managed history files, not project artifacts.
 
-## After revocation is confirmed — planned sequence
+**Optional belt-and-suspenders for Richard:** after this session ends, the two `.jsonl` files
+above may be deleted manually to purge even the dead-token text. Not required for security —
+revocation already closed the risk.
 
-1. Delete the plaintext token from `settings.local.json`; if the remaining entries are only
-   obsolete allowlists tied to the revoked token, remove them or delete the stale
-   `epic-moore-2f721a` worktree metadata entirely.
-2. Re-scan the full worktree for `sbp_` and for Supabase access-token environment variables.
-3. Confirm: no tracked file contains a token; no plaintext copy remains; no value printed.
-4. If a replacement is needed, Richard creates it manually and exports it **for the current
-   shell only**:
-   ```powershell
-   $env:SUPABASE_ACCESS_TOKEN="<paste locally — never into chat>"
-   ```
-   It must never be written to `settings.local.json`, `.env.example`, tracked files,
-   command allowlists, documentation, or shell history.
+## Replacement token
 
-## Hardening applied in this branch (independent of the token)
+**Not created.** Per instruction, no replacement was generated or requested. When one is
+later needed, Richard creates it manually and exports it **for the current shell only**:
 
-- `supabase/.temp/linked-project.json` **untracked** and `supabase/.temp/` git-ignored — it
-  had pinned the repo's CLI to the **live** project.
-- Real project ref replaced with `YOUR_PROJECT_REF` in `scripts/scraper/README.md`,
-  `scripts/scraper/.env.example`, `google-dev-agent/.env.example`.
-- `scripts/supabase/guard-target.mjs` added — fail-closed project targeting.
+```powershell
+$env:SUPABASE_ACCESS_TOKEN="<paste locally — never into chat>"
+```
+
+It must never be written to `settings.local.json`, `.env.example`, tracked files, command
+allowlists, documentation, or shell history.
+
+## Related hardening already landed on this branch
+
+- `supabase/.temp/linked-project.json` untracked and `supabase/.temp/` git-ignored — it had
+  pinned the repo's CLI to the **live** project.
+- Real project ref replaced with `YOUR_PROJECT_REF` in tracked examples/docs.
+- `scripts/supabase/guard-target.mjs` — fail-closed project targeting (prod requires an
+  explicit `MALLMIND_ALLOW_PROD=1`).
