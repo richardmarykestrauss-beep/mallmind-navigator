@@ -3,8 +3,44 @@
 **Purpose:** establish a genuinely isolated `mallmind-dev` Supabase project, and make it
 structurally impossible for a routine command to hit the live project by accident.
 
-**Status:** design + guardrails landed. `mallmind-dev` **not yet created** (requires
-Richard). Nothing has been applied to any remote project.
+**Status:** design + guardrails landed. `mallmind-dev` **created and confirmed isolated**
+(see §0). Not yet linked, migrated, or connected — nothing has been applied to either
+remote project.
+
+---
+
+## 0. Environment separation — CONFIRMED
+
+Two genuinely separate Supabase projects now exist. The CLI/repo is **not** yet linked to
+either; this section records the confirmed facts only.
+
+| | Project ref (redacted) | Name | Region | State |
+|---|---|---|---|---|
+| **Existing (production)** | `qsps********` | "Mallmind" | *not recorded in repo — read from dashboard when needed* | Live, in use |
+| **New (development)** | `iivm********` | `mallmind-dev` | **North EU (Stockholm), `eu-north-1`** | Nano compute · healthy · **no migrations · no data · no repository link · no branches** |
+
+The two refs differ in their leading characters (`qsps…` vs `iivm…`) — genuine isolation,
+not a rename of one project. The full dev ref is a **non-secret** project identifier (it
+appears in the project's own URL); the production ref stays redacted here by convention.
+
+### Region decision — KEEP Stockholm (`eu-north-1`)
+
+Decided deliberately. Rationale, recorded for the future production-region gate:
+
+- **`mallmind-dev` is an isolated development environment.** Development correctness and
+  isolation take priority over minor regional latency differences.
+- **Supabase currently offers no African primary database region.** Every available option is
+  a cross-continent hop from South Africa; the latency is dominated by the SA↔Europe path
+  (~150–190 ms RTT) regardless of which European city, so no option co-locates with the
+  backend. The Stockholm-vs-closer-EU delta (~10–30 ms) is negligible for dev.
+- **Cloud Run remains in `africa-south1`** (Johannesburg; `cloudbuild.yaml`). Vertex AI is a
+  separate concern in `us-central1`.
+- **Actual Cloud Run→Supabase latency must be measured during the deployed-worker proof** —
+  not assumed from this reasoning.
+- **The future production-region and data-residency decision is a separate formal
+  architecture gate.** Real SA users and POPIA residency will weigh differently there.
+- **This decision does NOT approve Stockholm for future production.** It applies to the dev
+  project only.
 
 ---
 

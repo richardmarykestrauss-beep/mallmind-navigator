@@ -53,10 +53,10 @@ project the moment one exists.
 
 | # | Gate | Status |
 |---|---|---|
-| 1 | Revoke the exposed `sbp_` personal access token | ⛔ **PENDING** |
-| 2 | Purge plaintext token copies (blocked on #1) | ⛔ blocked |
-| 3 | Create the `mallmind-dev` project in the dashboard | ⛔ **PENDING** |
-| 4 | Supply a fresh access token to the current shell only | ⛔ pending |
+| 1 | Revoke the exposed `sbp_` personal access token | ✅ **DONE** — all dashboard tokens revoked |
+| 2 | Purge plaintext token copies | ✅ **DONE** — 0 operational copies remain |
+| 3 | Create the `mallmind-dev` project in the dashboard | ✅ **DONE** — `iivm********`, Stockholm, empty |
+| 4 | Supply a fresh access token to the current shell only | ⛔ **NEXT** — awaiting manual token creation |
 | 5 | Approve the migration plan before it is applied | ⛔ pending |
 
 ## Phase 9 — Remote migration plan (PREPARED, NOT EXECUTED)
