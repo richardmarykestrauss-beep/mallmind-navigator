@@ -1,0 +1,72 @@
+{
+  "artifact": "mallreds-retailer-targets",
+  "sprint": "2F",
+  "generated_by": "read-only repository audit (no live internet research — repository truth only)",
+  "base_branch": "claude-premium-nav-test",
+  "scope_note": "Retailers below are inferred from committed docs (QA checklist), unmerged branch CSVs (mallreds_seed_starter.csv, mallreds_batch2_source_pack.csv), and seed.sql presence in OTHER malls. No live research performed. 'reusable_across_other_malls' is judged from seed.sql, which is repository evidence.",
+  "national_multi_branch_retailers": [
+    {
+      "retailer_name": "Game",
+      "normalized": "game",
+      "mallreds_branch_record_exists": "DEMO/PLACEHOLDER only — shop_id a1b2c3d4-...0001, named 'Game' in QA checklist; no committed shops row",
+      "product_source_exists": "unmerged CSVs (electronics: Hisense/Samsung/LG TVs, JBL, Sony, Defy, Russell Hobbs)",
+      "likely_national_catalogue_model": true,
+      "branch_specific_availability_currently_known": false,
+      "reusable_across_other_malls": "YES — strongest signal. seed.sql already places 'Game' as an Electronics shop in Mall of Africa, Gateway, Canal Walk, Eastgate, Cresta, Menlyn (6 malls).",
+      "priority_category": "Electronics (matches the flagship '43-inch TV under R5000' demo scenario)",
+      "technical_gaps": ["no canonical product/offer entity (would duplicate per mall)", "no retailer_id normalization", "no evidence-backed price", "no branch availability model", "no image/SKU/GTIN columns"]
+    },
+    {
+      "retailer_name": "Woolworths",
+      "normalized": "woolworths",
+      "mallreds_branch_record_exists": "PLACEHOLDER only — shop_id ...0003 (inferred from product brand; store name not recorded)",
+      "product_source_exists": "unmerged CSVs (Food: milk, eggs, bread, chicken, yoghurt). 1 row website-verified.",
+      "likely_national_catalogue_model": true,
+      "branch_specific_availability_currently_known": false,
+      "reusable_across_other_malls": "LIKELY — national chain; not present in current seed.sql but a standard SA anchor tenant. Website woolworths.co.za referenced in docs as a public-page evidence source.",
+      "priority_category": "Grocery / Food",
+      "technical_gaps": ["online price needs in-store confirmation (noted in CSV)", "no canonical product/offer entity", "no evidence table", "no branch availability model"]
+    },
+    {
+      "retailer_name": "PEP",
+      "normalized": "pep",
+      "mallreds_branch_record_exists": "PLACEHOLDER only — shop_id ...0005 (inferred from product brand; store name not recorded)",
+      "product_source_exists": "unmerged batch2 CSV (Clothing/Home: t-shirts, leggings, socks, sneakers, towels)",
+      "likely_national_catalogue_model": true,
+      "branch_specific_availability_currently_known": false,
+      "reusable_across_other_malls": "LIKELY — very large national footprint; intended source 'MallMind Store Visit Evidence'.",
+      "priority_category": "Clothing / General merchandise (value)",
+      "technical_gaps": ["all rows placeholder (DO NOT APPLY)", "no canonical product/offer entity", "no evidence captured", "no branch availability model"]
+    },
+    {
+      "retailer_name": "Clicks",
+      "normalized": "clicks",
+      "mallreds_branch_record_exists": "INFERRED — shop_id ...0004 holds a 'Clicks Vitamin C' item; store name not recorded",
+      "product_source_exists": "unmerged batch2 CSV (Health & Beauty: Panado, Colgate, Dove, Clicks Vitamin C, Johnson's)",
+      "likely_national_catalogue_model": true,
+      "branch_specific_availability_currently_known": false,
+      "reusable_across_other_malls": "LIKELY — national pharmacy/health-and-beauty chain.",
+      "priority_category": "Health & Beauty / Pharmacy",
+      "technical_gaps": ["store identity uncertain (only one Clicks-branded item)", "all rows placeholder", "no evidence captured", "no branch availability model"]
+    },
+    {
+      "retailer_name": "UNKNOWN grocery anchor (shop_id ...0002)",
+      "normalized": null,
+      "mallreds_branch_record_exists": "PLACEHOLDER only — grocery products (Coca-Cola, Lay's, Albany, Jacobs, Nescafe, Huletts, Sunlight) but NO store name recorded",
+      "product_source_exists": "unmerged CSVs (Groceries)",
+      "likely_national_catalogue_model": true,
+      "branch_specific_availability_currently_known": false,
+      "reusable_across_other_malls": "UNKNOWN — cannot name the retailer from repo evidence (could be Shoprite/Checkers/Pick n Pay/SPAR). Requires live research.",
+      "priority_category": "Grocery",
+      "technical_gaps": ["retailer identity unknown", "all rows placeholder", "no evidence", "no branch availability model"]
+    }
+  ],
+  "product_brands_seen_not_retailers": ["Hisense", "Samsung", "LG", "JBL", "Sony", "Defy", "Russell Hobbs", "Sunbeam", "Coca-Cola", "Lay's", "Albany", "Jacobs", "Nescafe", "Huletts", "Sunlight", "Panado", "Colgate", "Dove", "Johnson's"],
+  "reuse_assessment": {
+    "strongest_reuse_candidate": "Game — already modeled across 6 malls in seed.sql; a national Game catalogue connector would immediately benefit every existing mall.",
+    "blocking_reality": "The schema has NO retailer entity and NO canonical-product/offer entity, so today every 'national' catalogue must be duplicated as per-mall product rows. Reuse is a data-modeling aspiration, not a current capability.",
+    "count_of_retailers_suitable_for_reusable_national_connectors": 4,
+    "count_note": "Game, Woolworths, PEP, Clicks are all clearly national multi-branch chains with a product source in the repo. The 5th (grocery anchor) is national but cannot be named from repo evidence."
+  },
+  "headline": "Four clearly-national chains (Game, Woolworths, PEP, Clicks) plus one unidentifiable grocery anchor are associated with Mall@Reds in unmerged WIP data. Game is the standout reuse candidate — it already appears across six malls in seed.sql. But no retailer or canonical-offer entity exists, so 'reusable national connector' is currently impossible without duplication."
+}

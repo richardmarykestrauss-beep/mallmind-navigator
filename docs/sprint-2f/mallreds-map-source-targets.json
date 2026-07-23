@@ -1,0 +1,142 @@
+{
+  "artifact": "mallreds-map-source-targets",
+  "sprint": "2F",
+  "purpose": "Live-research targets for the Mall@Reds tenant directory, store metadata, and map/floor-plan sources. Research targets only — nothing fetched, scraped, or ingested. All external facts require live verification.",
+  "mall_identity_from_repo": {
+    "name": "Mall@Reds",
+    "mall_id_demo": "f4a2c1b3-8d7e-4f6a-9b0c-1d2e3f4a5b6c",
+    "coordinates_from_repo": { "lat": -25.8537, "lng": 28.1878, "note": "The Reeds, Centurion, Gauteng — from google-dev-agent/.env.example (not independently verified)" },
+    "official_site_referenced": "mallatreds.co.za (cited in docs/MALL_RESEARCH_BATCH_WORKFLOW.md; not verified live)"
+  },
+  "ingestion_destinations": {
+    "directory": "existing store/shops model + retail intake staging (review before publish)",
+    "map": "mall_nodes / mall_edges graph (migration 005) via the Map Factory pipeline (migration 019) — human-reviewed publish; source column provenance (migration 021)",
+    "note": "Do NOT write directly to mall_nodes/mall_edges; route through Map Factory staging + review."
+  },
+  "directory_targets": [
+    {
+      "target": "official_mall_tenant_directory",
+      "source_class": "official mall website",
+      "discovery_query": "mallatreds.co.za/stores OR Mall@Reds official store directory",
+      "evidence_needed": "official page listing every tenant with shop number + floor",
+      "expected_data": ["retailer_name", "shop_number", "floor", "category", "trading_hours"],
+      "confidence_method": "official-source primary; cross-check against Google Places",
+      "copyright_licensing": "directory facts are low-risk; verbatim copy of styled content is not — extract facts only",
+      "priority": "critical — unblocks the true tenant list and every retailer identity gap",
+      "requires_live_verification": true
+    },
+    {
+      "target": "official_contact_channels",
+      "source_class": "official mall website / management",
+      "discovery_query": "Mall@Reds management office contact phone email",
+      "evidence_needed": "official contact for directory/map confirmation + tenant phone verification",
+      "expected_data": ["management_contact", "per_store_phone"],
+      "confidence_method": "official source",
+      "copyright_licensing": "n/a (contact facts)",
+      "priority": "high — enables the manual_controlled_uploads evidence lane (phone verification)",
+      "requires_live_verification": true
+    },
+    {
+      "target": "google_places_store_records",
+      "source_class": "Google Places / Maps",
+      "discovery_query": "Google Places API: businesses at lat -25.8537 lng 28.1878 (Mall@Reds)",
+      "evidence_needed": "Places records for tenants (name, address, hours, phone, lat/lng)",
+      "expected_data": ["name", "formatted_address", "opening_hours", "phone", "location", "place_id"],
+      "confidence_method": "Places is authoritative for hours/phone; cross-check tenancy vs official directory",
+      "copyright_licensing": "Google Places ToS — respect usage/caching terms; requires API key + billing review",
+      "priority": "high — best source for trading hours + phone + geolocation",
+      "requires_live_verification": true
+    },
+    {
+      "target": "historical_cached_directories",
+      "source_class": "web archive",
+      "discovery_query": "web.archive.org Mall@Reds mallatreds.co.za stores (historical snapshots)",
+      "evidence_needed": "prior tenant lists to detect churn / fill gaps",
+      "expected_data": ["historical tenant lists with dates"],
+      "confidence_method": "dated snapshots; treat as lower-confidence/aging",
+      "copyright_licensing": "archive fair-use; still facts-only extraction",
+      "priority": "medium",
+      "requires_live_verification": true
+    },
+    {
+      "target": "mall_social_newsletter",
+      "source_class": "official social pages / newsletter",
+      "discovery_query": "Mall@Reds Facebook/Instagram store openings promotions",
+      "evidence_needed": "current tenant signals, new-store announcements, promo timing",
+      "expected_data": ["tenant announcements", "promo events"],
+      "confidence_method": "corroborating, not primary",
+      "copyright_licensing": "facts-only",
+      "priority": "low-medium",
+      "requires_live_verification": true
+    }
+  ],
+  "map_targets": [
+    {
+      "target": "official_floor_plans",
+      "source_class": "official mall website / management",
+      "discovery_query": "Mall@Reds floor plan / centre map PDF",
+      "evidence_needed": "official floor plan showing store positions per floor",
+      "expected_data": ["store polygons/positions", "floor levels", "unit numbers"],
+      "confidence_method": "official primary; verify against on-site",
+      "copyright_licensing": "floor-plan artwork is COPYRIGHTED — obtain permission or derive our own node graph from factual positions rather than copying artwork",
+      "ingestion_destination": "Map Factory extraction → mall_nodes/mall_edges staging → review",
+      "priority": "critical for real routing",
+      "requires_live_verification": true
+    },
+    {
+      "target": "public_map_images",
+      "source_class": "public web / directory boards",
+      "discovery_query": "Mall@Reds centre map image; on-site directory board photos",
+      "evidence_needed": "any accurate positional reference to build the node graph",
+      "expected_data": ["relative store positions", "entrances", "vertical transitions"],
+      "confidence_method": "cross-check multiple images + on-site",
+      "copyright_licensing": "copyright applies to images; extract factual layout, don't redistribute artwork",
+      "ingestion_destination": "Map Factory staging",
+      "priority": "high",
+      "requires_live_verification": true
+    },
+    {
+      "target": "store_numbers_and_floors",
+      "source_class": "official directory + on-site",
+      "discovery_query": "Mall@Reds shop numbers per tenant",
+      "evidence_needed": "authoritative shop-number ↔ tenant ↔ floor mapping",
+      "expected_data": ["shop_number", "floor", "tenant"],
+      "confidence_method": "official directory + physical confirmation",
+      "copyright_licensing": "facts-only",
+      "ingestion_destination": "shops table (with node linkage)",
+      "priority": "critical (routing links every store to a node)",
+      "requires_live_verification": true
+    },
+    {
+      "target": "circulation_features",
+      "source_class": "floor plan + on-site survey",
+      "discovery_query": "Mall@Reds entrances, parking, lifts, escalators, stairs, accessible routes",
+      "evidence_needed": "positions of entrances / vertical transitions / parking / accessible paths",
+      "expected_data": ["entrance nodes", "parking entrances", "lift/escalator/stair nodes", "accessibility edges"],
+      "confidence_method": "floor plan + physical walk-through",
+      "copyright_licensing": "facts-only",
+      "ingestion_destination": "mall_nodes (types entrance/parking/lift/escalator/stairs) + mall_edges (floor_change)",
+      "priority": "high (fixes the audit finding that special node types are unrendered/absent)",
+      "requires_live_verification": true
+    },
+    {
+      "target": "legitimate_document_sources",
+      "source_class": "leasing brochures / municipal / property listings",
+      "discovery_query": "Mall@Reds leasing brochure OR property listing floor plan",
+      "evidence_needed": "supplementary official layout documents",
+      "expected_data": ["GLA layout", "unit numbering", "anchor positions"],
+      "confidence_method": "official/property-source",
+      "copyright_licensing": "permission for any artwork reuse; facts-only otherwise",
+      "ingestion_destination": "Map Factory staging",
+      "priority": "medium",
+      "requires_live_verification": true
+    }
+  ],
+  "summary": {
+    "directory_targets": 5,
+    "map_targets": 5,
+    "critical_targets": ["official_mall_tenant_directory", "official_floor_plans", "store_numbers_and_floors"],
+    "primary_confidence_sources": ["official mall directory", "Google Places (hours/phone/geo)", "on-site physical confirmation"],
+    "copyright_principle": "Extract FACTS (tenant names, shop numbers, positions, hours). Do NOT copy or redistribute copyrighted floor-plan artwork or styled directory content; derive our own node graph from factual positions."
+  }
+}
