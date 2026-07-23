@@ -48,7 +48,7 @@ cp .env.example .env
 
 Open `.env` and fill in:
 ```
-SUPABASE_URL=https://qspsouemjtcdcfnivpnt.supabase.co
+SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
 SUPABASE_SERVICE_KEY=your_service_role_key_here
 ```
 
@@ -76,7 +76,7 @@ Deploy the daily scraper that runs at 3am SA time automatically:
 ```bash
 npm install -g supabase
 supabase login
-supabase link --project-ref qspsouemjtcdcfnivpnt
+supabase link --project-ref YOUR_PROJECT_REF
 ```
 
 ### Deploy
