@@ -84,6 +84,11 @@ export interface RoutePolylinePoint {
 }
 
 // ── Floor-label normalization (shared with the canvas) ──────────────────────
+// GEOMETRY ONLY. This buckets a route/node onto a floor-plane for the map model,
+// so a blank/unknown floor must resolve to *some* plane ("Ground Floor"). Do NOT
+// use this to render a real store's floor to shoppers — an unknown store floor
+// must read as "not yet verified", never "Ground Floor". For shopper-facing store
+// location text use describeShopFloor() in src/lib/shopLocation.ts (Sprint 2G).
 export function normalizeFloorLabel(value: string | null | undefined): string {
   const raw = String(value ?? "").trim();
   if (!raw) return "Ground Floor";

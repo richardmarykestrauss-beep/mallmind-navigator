@@ -21,6 +21,7 @@ import { useAuth } from "@/context/AuthContext";
 import { awardXP, XP_REWARDS } from "@/lib/xp";
 import { trackEvent } from "@/lib/analytics";
 import { cn } from "@/lib/utils";
+import { describeShopFloor, describeEntrance } from "@/lib/shopLocation";
 import { getIndoorMapModel, type IndoorMapModel } from "@/lib/googleBackendClient";
 
 /** Truncate a step instruction for the compact "then …" next-action hint. */
@@ -681,10 +682,10 @@ const NavigateScreen = () => {
 
               <p className="text-xs font-medium text-secondary">
                 {completedStopIndices.size === 0
-                  ? `Enter via ${routeStops[currentStopIndex].floor === "G" ? "Ground Floor" : `${routeStops[currentStopIndex].floor} entrance`} · Start at ${routeStops[currentStopIndex].name}`
+                  ? `Enter via ${describeEntrance(routeStops[currentStopIndex].floor)} · Start at ${routeStops[currentStopIndex].name}`
                   : allDone
                   ? "All stops complete! Head to your car."
-                  : `Next: ${routeStops[currentStopIndex].floor} · ${routeStops[currentStopIndex].name}`}
+                  : `Next: ${describeShopFloor(routeStops[currentStopIndex].floor)} · ${routeStops[currentStopIndex].name}`}
               </p>
             </div>
           )}
@@ -728,7 +729,7 @@ const NavigateScreen = () => {
                     </p>
 
                     <p className="text-[11px] text-muted-foreground">
-                      {stop.floor ?? "?"} · Unit {stop.unit_number ?? "—"}
+                      {describeShopFloor(stop.floor)} · Unit {stop.unit_number ?? "—"}
                       {stop.category ? ` · ${stop.category}` : ""}
                     </p>
                   </div>

@@ -24,6 +24,22 @@ export type Shop = {
   closing_time: string | null;
   opening_hours: string | null;
   deleted_at: string | null;
+  // Contact (columns exist since migration 001; now surfaced on the type).
+  phone?: string | null;
+  website?: string | null;
+  // Sprint 2G — mall directory truth fields (migration 035). All nullable:
+  // NULL means "not yet verified", never a fabricated value.
+  store_number?: string | null;
+  zone?: string | null;
+  branch_status?: string | null;         // operating | temporarily_closed | former | listed_current | unknown
+  verification_status?: string | null;   // official_directory | retailer_locator | third_party | user_submitted | unverified
+  confidence_score?: number | null;      // 0..1, or NULL when not scored
+  observed_at?: string | null;
+  last_verified_at?: string | null;
+  primary_source_url?: string | null;
+  source_owner?: string | null;
+  contradiction_notes?: string | null;
+  normalized_retailer_name?: string | null;
 };
 
 export type Product = {

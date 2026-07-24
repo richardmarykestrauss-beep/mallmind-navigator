@@ -21,6 +21,15 @@ const steps = [
     cwd: ".",
   },
   {
+    // Sprint 2G — the Mall@Reds tenant-import preview is deterministic and
+    // import-safe (no DB/network). This re-derives the preview from the register
+    // and runs every safety invariant; it never mutates anything.
+    name: "Mall@Reds tenant-import validation",
+    command: "node",
+    args: ["scripts/retail/validate-mallreds-tenant-import.mjs"],
+    cwd: ".",
+  },
+  {
     name: "Backend TypeScript build",
     command: "npm",
     args: ["run", "build"],

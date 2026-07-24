@@ -1,7 +1,17 @@
 {
   "artifact": "mallreds-verified-tenant-register",
-  "sprint": "2F",
+  "sprint": "2F (re-verified and completeness-confirmed in 2G)",
   "generated_by": "live official-directory research (read-only); no DB mutation",
+  "recapture_2g": {
+    "date": "2026-07-24",
+    "method": "deterministic live-DOM capture (not model summarisation) via headless browser; row elements counted directly from the rendered directory, not a small-model summary",
+    "canonical_directory_url": "https://www.mallatreds.co.za/shops-v2/",
+    "also_renders_same_list_at": "https://www.mallatreds.co.za/shops/",
+    "note_on_shops-v2": "The mall site's own primary-nav 'Store Directory' link points to /shops-v2/. Both /shops/ and /shops-v2/ render the byte-identical 113-row directory (same first row Absa #96, same last row Woolworths #111).",
+    "pagination_or_lazy_load": "none — no pagination, 'load more', or infinite-scroll controls exist; all 113 rows are present in the initial DOM; the A–Z index and category list are client-side filters over the same rows.",
+    "diff_vs_2f_register": { "captured": 113, "new_tenants": 0, "missing_tenants": 0, "store_number_mismatches": 0, "phone_mismatches": 0 },
+    "conclusion": "The complete current official directory is EXACTLY 113 tenants. The earlier '~140' figure is NOT substantiated by any official Mall@Reds page (homepage, /about/, or the directory itself) — it was an unverified assumption. The 2F capture was therefore already COMPLETE, not a subset."
+  },
   "mall": {
     "name": "Mall@Reds",
     "slug": "mallreds",
@@ -25,7 +35,7 @@
     "with_trading_hours": 0,
     "high_confidence_ge_0_9": 113
   },
-  "capture_caveat": "The automated fetch of the official directory returned this set of rows; the page's own claimed total is ~140. This register is therefore a VERIFIED SUBSET pending a complete directory capture. No tenant here is invented; any missing tenants are simply not yet captured.",
+  "capture_caveat": "COMPLETENESS CONFIRMED (Sprint 2G): a deterministic live-DOM re-capture of the official directory (/shops-v2/ and /shops/) yields EXACTLY these 113 rows and no more — no pagination or lazy-loaded rows exist. The '~140' figure carried into 2F is NOT stated on any official Mall@Reds page and is treated as an unverified assumption, now retired. This register is the COMPLETE current official directory, not a subset. No tenant is invented.",
   "excluded_pending": [
     {
       "retailer_name": "Game",
