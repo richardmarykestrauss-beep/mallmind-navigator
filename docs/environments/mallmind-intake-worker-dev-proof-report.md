@@ -80,11 +80,31 @@ Across all Gate 7/8 runs: **0** occurrences of Supabase service-role value, JWT/
 - Clean-rerun job `153c35c7…` and object — retained.
 - `mallmind-backend-dev` unmodified; `INTAKE_WORKER_URL` never set on it; no production Supabase/secret used; no migration; no frontend connection; Gate 4B not executed.
 
-## Proof-caller teardown (recommendation — NOT executed)
-After sign-off, tear down the throwaway proof caller and leave only the backend SA authorized:
+## Proof-caller teardown — ✅ EXECUTED (post-proof security cleanup)
+
+The throwaway proof caller has been fully removed; only the backend service account
+remains authorized to invoke the worker.
+
+Commands run (in order):
 ```
 gcloud run services update mallmind-intake-worker-dev --region=africa-south1 --update-env-vars=INTAKE_ALLOWED_INVOKERS=1017902775578-compute@developer.gserviceaccount.com
 gcloud run services remove-iam-policy-binding mallmind-intake-worker-dev --region=africa-south1 --member="serviceAccount:intake-proof-caller-dev@mallmind.iam.gserviceaccount.com" --role="roles/run.invoker"
 gcloud iam service-accounts remove-iam-policy-binding intake-proof-caller-dev@mallmind.iam.gserviceaccount.com --member="user:sovereign.systems.sa@gmail.com" --role="roles/iam.serviceAccountTokenCreator"
 gcloud iam service-accounts delete intake-proof-caller-dev@mallmind.iam.gserviceaccount.com
 ```
+
+Post-cleanup state (verified):
+- Worker revision **`00010-vbb`** @ 100%, image digest `sha256:8dde6436…ab69b` (unchanged),
+  runtime SA `intake-worker-dev@mallmind…` (preserved), ingress `all`, `fixtureOnlyMode=true`,
+  crash hook absent.
+- Worker `run.invoker` = **only** `1017902775578-compute@developer.gserviceaccount.com`.
+- `INTAKE_ALLOWED_INVOKERS` = **only** the backend SA.
+- `intake-proof-caller-dev@mallmind…` **deleted**; its Token Creator binding gone.
+- Anonymous `/health` = 403 (private + operational). Authenticated `/health` can no longer be
+  exercised from this workstation by design — the sole authorized invoker is now the backend SA,
+  which is deliberately not impersonated.
+- Preserved and untouched: the worker service, `mallmind-intake-dev` bucket + all three proof
+  fixture objects, the two dev secrets, the worker runtime SA, the three proof jobs, and this
+  documentation.
+- `mallmind-backend-dev` unchanged (`INTAKE_WORKER_URL` never set → Gate 4B still not executed);
+  production and its Supabase project/secrets untouched.
