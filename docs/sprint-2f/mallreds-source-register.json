@@ -1,8 +1,9 @@
 {
   "artifact": "mallreds-source-register",
-  "sprint": "2F",
+  "sprint": "2F (re-verified in 2G)",
   "generated_by": "live internet research (read-only); sources opened and inspected, not judged from snippets",
   "access_date": "2026-07-24",
+  "recapture_2g_note": "2026-07-24: the site's primary-nav 'Store Directory' link resolves to /shops-v2/ (added as a source below). A deterministic live-DOM capture of /shops-v2/ AND /shops/ each returns the identical 113-row directory. No official page (homepage, /about/, or the directory) states '~140'; that figure is retired as an unverified assumption. 113 is the complete current official directory.",
   "mall": "Mall@Reds, Centurion, Gauteng, South Africa",
   "source_hierarchy": [
     "1 official Mall@Reds directory or floor plan",
@@ -15,20 +16,38 @@
   ],
   "sources": [
     {
-      "url": "https://www.mallatreds.co.za/shops/",
+      "url": "https://www.mallatreds.co.za/shops-v2/",
       "source_owner": "Mall@Reds / Anaprop Property Management",
-      "source_class": "official mall store directory",
+      "source_class": "official mall store directory (canonical — the primary-nav 'Store Directory' target)",
       "hierarchy_tier": 1,
       "official": true,
       "access_date": "2026-07-24",
       "fields_present": ["tenant_name", "store_number", "phone"],
-      "fields_absent": ["floor", "zone", "category_per_store (page filters by category but per-store category not captured this pass)", "trading_hours_per_store", "coordinates", "website_per_store"],
+      "fields_absent": ["floor", "zone", "category_per_store", "trading_hours_per_store", "coordinates", "website_per_store"],
       "tenant_count_captured": 113,
-      "tenant_count_claimed_by_page": "~140 (fetch was incomplete — see conflicts)",
+      "capture_method": "deterministic live-DOM row count (not model summarisation)",
+      "completeness": "COMPLETE — 113 rows, no pagination/lazy-load; identical to /shops/.",
+      "confidence": "high (canonical primary source of truth for current tenancy + store numbers)",
+      "freshness": "current (live official page)",
+      "licensing_or_reuse_concern": "Directory FACTS (tenant names, shop numbers, phones) are low-risk to record with attribution; do NOT copy page styling/markup or any floor-plan artwork. Permission for redistribution requested separately (see management-contact-draft).",
+      "contradictions": "Does NOT list Game. Does NOT list Incredible Connection (no Shop 61 in the official directory) — third-party sources do."
+    },
+    {
+      "url": "https://www.mallatreds.co.za/shops/",
+      "source_owner": "Mall@Reds / Anaprop Property Management",
+      "source_class": "official mall store directory (alternate URL, same content)",
+      "hierarchy_tier": 1,
+      "official": true,
+      "access_date": "2026-07-24",
+      "fields_present": ["tenant_name", "store_number", "phone"],
+      "fields_absent": ["floor", "zone", "category_per_store (page filters by category but per-store category not captured)", "trading_hours_per_store", "coordinates", "website_per_store"],
+      "tenant_count_captured": 113,
+      "tenant_count_claimed_by_page": "none — the directory states no total; '~140' appears on NO official page and is retired as unverified (see conflicts #2).",
+      "completeness": "COMPLETE — byte-identical 113-row list to /shops-v2/.",
       "confidence": "high (primary source of truth for current tenancy + store numbers)",
       "freshness": "current (live official page)",
       "licensing_or_reuse_concern": "Directory FACTS (tenant names, shop numbers, phones) are low-risk to record with attribution; do NOT copy page styling/markup or any floor-plan artwork. Permission for redistribution requested separately (see management-contact-draft).",
-      "contradictions": "Does NOT list Game (older marketing calls Game an anchor). Does not list Incredible Connection in this pass's capture (third-party sources do)."
+      "contradictions": "Does NOT list Game (older marketing calls Game an anchor). Does not list Incredible Connection (third-party sources do)."
     },
     {
       "url": "https://www.mallatreds.co.za/",
@@ -128,5 +147,5 @@
     }
   ],
   "coordinates_note": "No GPS coordinates are published on the official Mall@Reds site. The repository's demo value (lat -25.8537, lng 28.1878) is UNVERIFIED against an authoritative source and must not be treated as confirmed. Mall-level coordinates should be sourced from Google Places (tier 4) in a follow-up and stored with that source; per-store coordinates are unavailable and remain null.",
-  "summary": { "sources_investigated": 8, "official_sources": 5, "primary_directory_source": "https://www.mallatreds.co.za/shops/" }
+  "summary": { "sources_investigated": 9, "official_sources": 6, "primary_directory_source": "https://www.mallatreds.co.za/shops-v2/", "official_directory_total": 113, "directory_capture_complete": true, "the_140_claim": "retired — not stated on any official page" }
 }

@@ -3,6 +3,7 @@ import {
   ShieldCheck, AlertCircle, Zap, Star, AlertTriangle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { describeShopFloor } from "@/lib/shopLocation";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -257,7 +258,7 @@ export default function RecommendationCard({
           </span>
           <span className="text-muted-foreground/30 text-[10px]">·</span>
           <span className="text-[11px] text-muted-foreground">
-            Floor {p.floor ?? "?"} · {p.unit_number ?? "—"}
+            {describeShopFloor(p.floor)} · {p.unit_number ?? "—"}
           </span>
           {p.is_open_now === true && (
             <>

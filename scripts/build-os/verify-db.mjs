@@ -49,9 +49,9 @@ begin
     into migration_count
     from supabase_migrations.schema_migrations;
 
-  if migration_count <> 35 then
+  if migration_count <> 36 then
     raise exception
-      'Expected 35 applied migrations (000-034), found %',
+      'Expected 36 applied migrations (000-035), found %',
       migration_count;
   end if;
 
@@ -66,9 +66,9 @@ begin
   if not exists (
     select 1
       from supabase_migrations.schema_migrations
-     where version = '032'
+     where version = '035'
   ) then
-    raise exception 'Latest migration 032 is missing';
+    raise exception 'Latest migration 035 is missing';
   end if;
 
   select count(*)
@@ -141,6 +141,38 @@ begin
        and column_name = 'data_quality_status'
   ) then
     raise exception 'products.data_quality_status is missing';
+  end if;
+
+  -- Sprint 2G (migration 035) — mall directory truth fields on shops.
+  if not exists (
+    select 1 from information_schema.columns
+     where table_schema = 'public' and table_name = 'shops'
+       and column_name in ('store_number','zone','branch_status','verification_status',
+                           'confidence_score','observed_at','last_verified_at',
+                           'primary_source_url','source_owner','contradiction_notes',
+                           'normalized_retailer_name')
+     group by table_name having count(*) = 11
+  ) then
+    raise exception '035 shops directory/provenance columns are missing or incomplete';
+  end if;
+
+  -- The dangerous invented-value defaults must be GONE (no fabricated floor/hours).
+  if exists (
+    select 1 from information_schema.columns
+     where table_schema = 'public' and table_name = 'shops'
+       and column_name in ('floor','opening_time','closing_time')
+       and column_default is not null
+  ) then
+    raise exception '035: shops.floor/opening_time/closing_time still carry a DEFAULT (invented value)';
+  end if;
+
+  -- category must be nullable so "unknown" is representable without inventing.
+  if exists (
+    select 1 from information_schema.columns
+     where table_schema = 'public' and table_name = 'shops'
+       and column_name = 'category' and is_nullable = 'NO'
+  ) then
+    raise exception '035: shops.category is still NOT NULL (cannot represent unknown category)';
   end if;
 
   if not exists (

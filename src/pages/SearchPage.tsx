@@ -15,6 +15,7 @@ import { trackSearch } from "@/lib/analytics";
 import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
 import { isGoogleBackendConfigured, recommendProducts } from "@/lib/googleBackendClient";
+import { describeShopFloor } from "@/lib/shopLocation";
 
 const FLOOR_ORDER: Record<string, number> = { B1: 0, G: 1, L1: 2, L2: 3, L3: 4, L4: 5 };
 
@@ -312,7 +313,7 @@ const SearchPage = () => {
                       <div className="flex-1 min-w-0">
                         <p className="font-semibold text-sm truncate">{m.shop.name}</p>
                         <p className="text-[11px] text-muted-foreground mt-0.5">
-                          Floor {m.shop.floor ?? "?"} · Unit {m.shop.unit_number ?? "—"}
+                          {describeShopFloor(m.shop.floor)} · Unit {m.shop.unit_number ?? "—"}
                         </p>
                       </div>
 

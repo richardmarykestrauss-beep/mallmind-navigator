@@ -4,10 +4,11 @@
 
 **Recipient (from official site):** Anaprop Property Management — `info@anaprop.co.za` · 012 656 8957 (Mall@Reds management, member of the Acsion Limited Group).
 
-**Why contact is needed (gaps public sources cannot close):**
-- The official directory publishes tenant names, shop numbers, and phones, but **no floor/level assignments, no zones, and no per-store trading hours**.
-- The automated capture returned **113** of a claimed **~140** listings — a **complete, authoritative tenant list** should come from management.
+**Why contact is needed (gaps public sources cannot close) — updated after the Sprint 2G complete-capture:**
+- The official directory publishes tenant names, shop numbers, and phones, but **no floor/level assignments, no zones, no per-store trading hours, and no entrance/lift/escalator/accessibility locations**.
+- A **deterministic complete capture** of the official directory (both `/shops/` and the canonical `/shops-v2/`) returns **exactly 113 tenants** — no pagination or hidden rows. The **"~140" figure appears on no official Mall@Reds page** and is treated as unverified; management can **confirm the true current total** (is 113 complete, or are there additional/unlisted units?).
 - **No public/licensed floor plan** is available, which real indoor navigation needs.
+- Two **shared shop numbers** appear on two listings each (**#88** = Dis-Chem + Sunrise Home; **#80A** = Clothing Junction + Homeware & Tech) — we'd value confirmation these are genuine sub-units.
 - **Permission** to reuse the directory and map information (beyond recording facts with attribution) should be confirmed.
 
 ---
@@ -22,10 +23,13 @@ My name is Richard, and I am building **MallMind**, a shopping-navigation and st
 
 Specifically, we would be grateful for:
 
-1. **The current, complete store directory** — the up-to-date list of trading tenants.
-2. **Store numbers and floor/level locations** for each tenant, so shoppers can be guided to the correct unit.
-3. **A public or licensed floor plan / centre map**, if one is available for use, to support in-mall wayfinding.
-4. **Written permission** to display and use the directory and map information within MallMind, with appropriate attribution to Mall@Reds.
+1. **Confirmation of the complete current tenant list.** From your public directory we have recorded **113 trading tenants**; could you confirm whether that is the full current list, or share any additional/unlisted units? (We want to be sure our count matches yours.)
+2. **Store numbers and floor/level locations** for each tenant, so shoppers can be guided to the correct unit. Your directory publishes shop numbers but **no floor/level**, which we need.
+3. **Zone / wing** information, if the centre is divided into named areas.
+4. **A public or licensed floor plan / centre map**, if one is available for use, to support in-mall wayfinding.
+5. **Entrance, lift, escalator and accessibility (ramp / accessible-lift / accessible-toilet) locations**, so routes can be generated for all shoppers.
+6. **Clarification of shared shop numbers** — e.g. **#88** (Dis-Chem & Sunrise Home) and **#80A** (Clothing Junction & Homeware & Tech) each appear on two listings; are these sub-units of one shop number?
+7. **Written permission** to display and use the directory and map information within MallMind, with appropriate attribution to Mall@Reds.
 
 A few points for reassurance:
 
