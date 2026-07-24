@@ -23,6 +23,7 @@ import { InternalAuthenticator } from "./services/intake/authInternal";
 import { SupabaseIntakeGateway } from "./services/intake/supabaseGateway";
 import { RealGcsBackend } from "./services/intake/realGcsBackend";
 import { buildInternalIntakeRouter, buildHealthRouter } from "./routes/internalIntake";
+import { buildWorkerId } from "./services/intake/workerIdentity";
 import { PostgresDurableIntakeStore } from "@/lib/fabric/intake/durable/postgresStore";
 import { GcsInputStore } from "@/lib/fabric/intake/durable/gcsInputStore";
 
@@ -38,10 +39,12 @@ try {
 
 const logger = createLogger(config.logLevel);
 
-// One Cloud Run instance is one worker. K_REVISION + an instance-unique suffix keeps
-// the id stable for this process and distinct across concurrent instances, so leases
-// and reclaim behave correctly when the service scales past one.
-const workerId = `w_${(process.env.K_REVISION ?? "local").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 40)}_${process.pid}`;
+// One Cloud Run instance is one worker. Generated ONCE at startup and reused for the
+// process lifetime. Uniqueness comes from a random UUID (see workerIdentity) — NOT
+// process.pid, which is always 1 in a container and made ids collide across instances
+// of the same revision (the Gate 8 lease-owner defect). Revision is kept for
+// observability. Never regenerate this per request/chunk/heartbeat.
+const workerId = buildWorkerId(process.env.K_REVISION);
 
 // ── Dependencies ─────────────────────────────────────────────────────────────
 const supabase = createClient(config.supabaseUrl, config.supabaseServiceRoleKey, {

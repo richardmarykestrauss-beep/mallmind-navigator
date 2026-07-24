@@ -22,9 +22,13 @@ RUN npm ci
 
 WORKDIR /app
 # Only what the bundle needs: the backend sources + the fabric library.
+# The fabric imports @/lib/ingestion/* (e.g. types.ts → @/lib/ingestion/model), so the
+# ingestion library must be present or `typecheck:worker` fails inside the image. It
+# imports nothing outside itself + fabric, so this single COPY closes the surface.
 COPY google-cloud-backend/tsconfig.json google-cloud-backend/tsconfig.worker.json ./google-cloud-backend/
 COPY google-cloud-backend/src/ ./google-cloud-backend/src/
 COPY src/lib/fabric/ ./src/lib/fabric/
+COPY src/lib/ingestion/ ./src/lib/ingestion/
 
 WORKDIR /app/google-cloud-backend
 # Types are proven before the artifact is produced — a type error fails the build.

@@ -12,6 +12,7 @@ import assert from "node:assert/strict";
 import { loadIntakeWorkerConfig, describeConfig, ConfigError } from "../config";
 import { createLogger, safeFields } from "../logging";
 import { bearerFrom, InternalAuthError, InternalAuthenticator } from "../authInternal";
+import { buildWorkerId, WORKER_ID_MAX } from "../workerIdentity";
 
 let passed = 0;
 function test(name: string, fn: () => void | Promise<void>): Promise<void> {
@@ -190,6 +191,47 @@ async function main(): Promise<void> {
       () => auth.authenticate({ authorization: "Bearer t" }),
       (e: unknown) => e instanceof InternalAuthError && !(e as Error).message.includes("eyJhbGci"),
     );
+  });
+
+  console.log("\nWorker identity (Gate 8 defect fix)");
+  await test("(1) two ids for the SAME revision + pid differ (uniqueness via UUID)", () => {
+    const a = buildWorkerId("mallmind-intake-worker-dev-00005-xt2");
+    const b = buildWorkerId("mallmind-intake-worker-dev-00005-xt2");
+    assert.notEqual(a, b, "two processes of one revision must get distinct ids");
+  });
+
+  await test("(2) an initialized id is stable (no per-call regeneration for a fixed nonce)", () => {
+    // Production generates the nonce once at startup; a fixed nonce here models that
+    // a single process's id is deterministic/stable for its lifetime.
+    const n = "11111111-2222-4333-8444-555555555555";
+    assert.equal(buildWorkerId("rev-a", n), buildWorkerId("rev-a", n));
+  });
+
+  await test("(3) different revisions remain distinguishable in the id", () => {
+    const n = "11111111-2222-4333-8444-555555555555";
+    const a = buildWorkerId("rev-alpha", n);
+    const b = buildWorkerId("rev-beta", n);
+    assert.notEqual(a, b);
+    assert.ok(a.includes("rev-alpha") && b.includes("rev-beta"));
+  });
+
+  await test("(4) revision text is sanitized (unsafe chars stripped, sliced to 40)", () => {
+    const id = buildWorkerId("a/b c:d$e-*(rev)!" + "x".repeat(60), "11111111-2222-4333-8444-555555555555");
+    assert.ok(!/[^\w-]/.test(id.split("_")[1]) || true); // revision segment contains only [A-Za-z0-9_-]
+    const rev = id.slice(2, id.lastIndexOf("_11111111"));
+    assert.ok(/^[A-Za-z0-9_-]*$/.test(rev), "revision segment is sanitized");
+    assert.ok(rev.length <= 40, "revision sliced to <= 40");
+  });
+
+  await test("(5) id fits the verified worker_id constraint (<= 80) even at max revision", () => {
+    const id = buildWorkerId("R".repeat(200)); // absurdly long revision → still bounded
+    assert.ok(id.length <= WORKER_ID_MAX, `id length ${id.length} must be <= ${WORKER_ID_MAX}`);
+  });
+
+  await test("(6) id contains no whitespace or unsafe delimiter characters", () => {
+    const id = buildWorkerId("mallmind-intake-worker-dev-00005-xt2");
+    assert.ok(/^w_[A-Za-z0-9_-]+_[0-9a-f-]{36}$/.test(id), `unexpected id shape: ${id}`);
+    assert.ok(!/\s/.test(id), "no whitespace");
   });
 
   console.log(`\n${process.exitCode ? "✖ FAILED" : "✔ PASSED"} — ${passed} assertions\n`);

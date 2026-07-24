@@ -34,15 +34,23 @@ export function expectedCounts(n: number): Record<ScaleCategory, number> {
   return c;
 }
 
-const RETAILERS = ["Game", "Checkers", "Pick n Pay", "Makro", "HiFi Corp"];
-const MALLS = ["Mall@Reds", "Centurion Mall", "Menlyn Park"];
+// Neutral, deterministic tokens ONLY — the generator must never emit real-looking
+// retailer / mall / brand names (Sprint 2E dev-proof requirement). Array lengths are
+// kept (5 retailers, 3 malls) so the index-derived distribution is byte-stable, and
+// `brand` stays a single constant because it participates in product identity
+// (recordPipeline buildIdentityCandidate) — varying it would change dedup/conflict
+// behaviour. retailer/mall are NOT part of the identity candidate, so renaming them
+// changes nothing but the literal strings.
+const RETAILERS = ["RETAILER_A", "RETAILER_B", "RETAILER_C", "RETAILER_D", "RETAILER_E"];
+const MALLS = ["MALL_X", "MALL_Y", "MALL_Z"];
+const FIXTURE_BRAND = "BRAND_1";
 
 function recordFor(i: number, baseIso: string): RawRecord | null {
   const cat = classifyIndex(i);
   const observed = new Date(Date.parse(baseIso) - (i % 24) * 3_600_000).toISOString();
   const retailer = RETAILERS[i % RETAILERS.length];
   const mall = MALLS[i % MALLS.length];
-  const common = { retailer, mall, brand: "Hisense", currency: "ZAR", source_type: "retailer_product_page", observed_at: observed, availability_status: "inferred", source_url: `https://example.co.za/p/${i}` };
+  const common = { retailer, mall, brand: FIXTURE_BRAND, currency: "ZAR", source_type: "retailer_product_page", observed_at: observed, availability_status: "inferred", source_url: `https://example.co.za/p/${i}` };
 
   switch (cat) {
     case "missing_title": return { ...common, price: "3999" }; // no product_title → rejected
@@ -53,7 +61,7 @@ function recordFor(i: number, baseIso: string): RawRecord | null {
       for (let k = 0; k < 140; k++) junk[`junk_${k}`] = k;
       return junk;
     }
-    case "duplicate": return { retailer: "Game", mall: "Mall@Reds", brand: "Hisense", currency: "ZAR", source_type: "retailer_product_page", observed_at: baseIso, availability_status: "inferred", source_url: "https://example.co.za/dup", product_title: "Duplicate TV", model: "DUP1", price: "2999" };
+    case "duplicate": return { retailer: "RETAILER_A", mall: "MALL_X", brand: FIXTURE_BRAND, currency: "ZAR", source_type: "retailer_product_page", observed_at: baseIso, availability_status: "inferred", source_url: "https://example.co.za/dup", product_title: "Duplicate TV", model: "DUP1", price: "2999" };
     case "conflict": return { ...common, product_title: "Conflict TV", model: "CONF1", price: String(3000 + (i % 500)), source_type: "retailer_product_page" };
     case "expired": return { ...common, product_title: `TV ${i}`, model: `M${i}`, price: "3999", source_type: "retailer_specials_page", expires_at: new Date(Date.parse(baseIso) - 5 * 86_400_000).toISOString(), trust_label: "catalogue_special" };
     case "online_only": return { ...common, product_title: `TV ${i}`, model: `M${i}`, price: String(2500 + (i % 900)), source_type: "retailer_search_page" };
