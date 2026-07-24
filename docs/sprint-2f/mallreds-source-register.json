@@ -1,0 +1,132 @@
+{
+  "artifact": "mallreds-source-register",
+  "sprint": "2F",
+  "generated_by": "live internet research (read-only); sources opened and inspected, not judged from snippets",
+  "access_date": "2026-07-24",
+  "mall": "Mall@Reds, Centurion, Gauteng, South Africa",
+  "source_hierarchy": [
+    "1 official Mall@Reds directory or floor plan",
+    "2 official retailer branch locator",
+    "3 official mall social / newsletter content",
+    "4 Google Places business listing",
+    "5 reputable public directory",
+    "6 historical or cached evidence",
+    "7 unverified mentions"
+  ],
+  "sources": [
+    {
+      "url": "https://www.mallatreds.co.za/shops/",
+      "source_owner": "Mall@Reds / Anaprop Property Management",
+      "source_class": "official mall store directory",
+      "hierarchy_tier": 1,
+      "official": true,
+      "access_date": "2026-07-24",
+      "fields_present": ["tenant_name", "store_number", "phone"],
+      "fields_absent": ["floor", "zone", "category_per_store (page filters by category but per-store category not captured this pass)", "trading_hours_per_store", "coordinates", "website_per_store"],
+      "tenant_count_captured": 113,
+      "tenant_count_claimed_by_page": "~140 (fetch was incomplete — see conflicts)",
+      "confidence": "high (primary source of truth for current tenancy + store numbers)",
+      "freshness": "current (live official page)",
+      "licensing_or_reuse_concern": "Directory FACTS (tenant names, shop numbers, phones) are low-risk to record with attribution; do NOT copy page styling/markup or any floor-plan artwork. Permission for redistribution requested separately (see management-contact-draft).",
+      "contradictions": "Does NOT list Game (older marketing calls Game an anchor). Does not list Incredible Connection in this pass's capture (third-party sources do)."
+    },
+    {
+      "url": "https://www.mallatreds.co.za/",
+      "source_owner": "Mall@Reds / Anaprop Property Management",
+      "source_class": "official mall homepage",
+      "hierarchy_tier": 1,
+      "official": true,
+      "access_date": "2026-07-24",
+      "fields_present": ["mall_trading_hours", "address", "management_contact_phone", "management_email", "management_company"],
+      "captured": {
+        "trading_hours": { "mon_fri": "09:00-19:00", "sat": "08:00-17:00", "sun": "09:00-17:00", "public_holidays": "09:00-16:00" },
+        "address": "cnr Rooihuiskraal Road and Hendrik Verwoerd Drive, Rooihuiskraal X15, Centurion, Gauteng, 0157",
+        "phone": "012 656 8957",
+        "email": "info@anaprop.co.za",
+        "management": "Anaprop Property Management"
+      },
+      "confidence": "high",
+      "freshness": "current",
+      "licensing_or_reuse_concern": "Contact/hours facts low-risk.",
+      "contradictions": "none"
+    },
+    {
+      "url": "https://www.mallatreds.co.za/about/",
+      "source_owner": "Mall@Reds / Anaprop Property Management",
+      "source_class": "official mall about page",
+      "hierarchy_tier": 1,
+      "official": true,
+      "access_date": "2026-07-24",
+      "captured": { "gla": "56 000 m2", "management": "Anaprop Property Management, member of Acsion Limited Group", "address": "cnr Rooihuiskraal Road and Hendrik Verwoerd Drive, Rooihuiskraal X15, Centurion, Gauteng, 0157", "phone": "012 656 8957", "email": "info@anaprop.co.za" },
+      "confidence": "high",
+      "freshness": "current",
+      "licensing_or_reuse_concern": "low",
+      "contradictions": "none"
+    },
+    {
+      "url": "https://anaprop.co.za/mallreds/",
+      "source_owner": "Anaprop Property Management (mall manager)",
+      "source_class": "official mall management / leasing page",
+      "hierarchy_tier": 1,
+      "official": true,
+      "access_date": "2026-07-24",
+      "fields_present": ["mall overview", "leasing/management contact"],
+      "confidence": "high (management site)",
+      "freshness": "current",
+      "licensing_or_reuse_concern": "low",
+      "contradictions": "Search summary attributed anchors incl. Game/Edgars to the centre; treat marketing anchor lists as lower-confidence than the live directory."
+    },
+    {
+      "url": "https://www.incredible.co.za/storelocator/store/index/id/59",
+      "source_owner": "Incredible Connection (JD Group)",
+      "source_class": "official retailer branch locator",
+      "hierarchy_tier": 2,
+      "official": true,
+      "access_date": "2026-07-24",
+      "fetch_result": "HTTP 403 (anti-bot). NOT bypassed. Branch existence corroborated via third-party listings only.",
+      "confidence": "medium (blocked; corroborated indirectly)",
+      "freshness": "unknown",
+      "licensing_or_reuse_concern": "n/a (not fetched)",
+      "contradictions": "Implies an Incredible Connection branch at Mall@Reds (Shop 61) not seen in this pass's official-directory capture."
+    },
+    {
+      "url": "https://www.yep.co.za/biz/store/incredible-connection-mall-reds/653979",
+      "source_owner": "Yep.co.za (third-party directory)",
+      "source_class": "reputable public business directory",
+      "hierarchy_tier": 5,
+      "official": false,
+      "access_date": "2026-07-24",
+      "captured": { "tenant": "Incredible Connection (Mall@Reds)", "store_number": "Shop 61", "address": "Rooihuiskraal Rd, Rooihuiskraal North, Centurion 0157" },
+      "confidence": "medium (third-party; store numbers from aggregators require official confirmation)",
+      "freshness": "unknown",
+      "licensing_or_reuse_concern": "third-party; use only to corroborate existence, not as primary evidence",
+      "contradictions": "Phone listed for many aggregated stores equals the mall main line (012 656 8957) rather than the store's own line — treat aggregator phones as low-confidence."
+    },
+    {
+      "url": "https://getoccupi.com/malls/mall-reds",
+      "source_owner": "Occupi (third-party mall directory)",
+      "source_class": "reputable public directory",
+      "hierarchy_tier": 5,
+      "official": false,
+      "access_date": "2026-07-24",
+      "confidence": "low-medium (third-party aggregation of the mall)",
+      "freshness": "unknown",
+      "licensing_or_reuse_concern": "third-party",
+      "contradictions": "may lag the official directory"
+    },
+    {
+      "url": "https://www.guzzle.co.za/malls/555/",
+      "source_owner": "Guzzle (third-party)",
+      "source_class": "public directory",
+      "hierarchy_tier": 5,
+      "official": false,
+      "access_date": "2026-07-24",
+      "confidence": "low",
+      "freshness": "unknown",
+      "licensing_or_reuse_concern": "third-party",
+      "contradictions": "unverified against official"
+    }
+  ],
+  "coordinates_note": "No GPS coordinates are published on the official Mall@Reds site. The repository's demo value (lat -25.8537, lng 28.1878) is UNVERIFIED against an authoritative source and must not be treated as confirmed. Mall-level coordinates should be sourced from Google Places (tier 4) in a follow-up and stored with that source; per-store coordinates are unavailable and remain null.",
+  "summary": { "sources_investigated": 8, "official_sources": 5, "primary_directory_source": "https://www.mallatreds.co.za/shops/" }
+}
