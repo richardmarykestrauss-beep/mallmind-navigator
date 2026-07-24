@@ -281,3 +281,31 @@ email), a `<dev-source-uuid>` for job attribution, and the two dev secret values
 session, never into chat). This is also where the **real Cloud Run→Supabase (africa-south1 →
 Stockholm) latency** from the region decision gets measured — capture `duration_ms` per
 `intake.chunk_committed` from the structured logs.
+
+---
+
+## Operational corrections (verified during the live dev proof)
+
+The end-to-end proof (see `mallmind-intake-worker-dev-proof-report.md`) surfaced these; fold
+them into any future deploy/runbook:
+
+1. **`INTAKE_WORKER_AUDIENCE` startup ordering.** The worker fails closed without it, but the
+   Cloud Run URL doesn't exist until after first deploy. Deploy with a **controlled placeholder
+   audience** (e.g. `https://pending-first-deploy.invalid`) so the container starts, then
+   **immediately** `gcloud run services update … --update-env-vars=INTAKE_WORKER_AUDIENCE=<real URL>`.
+2. **POST needs an explicit body.** A body-less POST to Cloud Run returns **HTTP 411 (Length
+   Required)** from the Google Front End. Send `-d '{}'` for the no-payload control endpoints
+   (`/run`, `/pause`, `/resume`, `/cancel`).
+3. **Internal proof tokens need `--include-email`.** `authInternal` requires a verified `email`
+   claim; `gcloud auth print-identity-token` omits it by default → `/internal/*` returns
+   **401**. `/health` is unaffected (not behind `authInternal`). Mint with
+   `gcloud auth print-identity-token --impersonate-service-account=<proof-caller> --audiences=<worker-url> --include-email`.
+4. **Crash / reclaim choreography.** Enable `INTAKE_DEV_CRASH_AFTER_CHUNK=<n>` (fixture-only) →
+   invoke → crash after chunk n → run the **premature-reclaim negative test** (expect
+   `409 stale_worker`) **before** lease expiry → **remove** the crash var **before** invoking
+   recovery → invoke recovery only **after** the lease expires. Never clear or rewrite the lease
+   manually.
+5. **Worker identity must be instance-unique.** `process.pid` is always 1 in a Cloud Run
+   container, so it cannot distinguish instances of a revision — worker identity uses a random
+   startup UUID (`services/intake/workerIdentity.ts`), bounded to the RPC's 80-char `worker_id`
+   limit. Fixed in commit `1b0daff`.
