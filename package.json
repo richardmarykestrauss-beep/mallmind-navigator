@@ -17,6 +17,7 @@
     "verify:all": "node scripts/build-os/verify-all.mjs",
     "verify:db": "node scripts/build-os/verify-db.mjs",
     "test:mallreds-import": "node scripts/retail/validate-mallreds-tenant-import.mjs",
+    "test:mallreds-import-sql": "node scripts/retail/generate-mallreds-import-sql.mjs",
     "scope-guard": "node scripts/build-os/scope-guard.mjs",
     "test:scope-guard": "node scripts/build-os/scope-guard.test.mjs",
     "test:issue-form": "node scripts/build-os/issue-form.test.mjs",
