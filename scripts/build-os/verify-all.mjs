@@ -30,6 +30,15 @@ const steps = [
     cwd: ".",
   },
   {
+    // Sprint 2H — the Mall@Reds import SQL is deterministically derived from the
+    // preview and passes its safety scan (1 mall + 113 shops, unknowns NULL, no
+    // products/routes/publication, no prod ref). Generates nothing; asserts parity.
+    name: "Mall@Reds import SQL parity + safety scan",
+    command: "node",
+    args: ["scripts/retail/generate-mallreds-import-sql.mjs"],
+    cwd: ".",
+  },
+  {
     name: "Backend TypeScript build",
     command: "npm",
     args: ["run", "build"],
