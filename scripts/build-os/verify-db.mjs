@@ -49,9 +49,9 @@ begin
     into migration_count
     from supabase_migrations.schema_migrations;
 
-  if migration_count <> 38 then
+  if migration_count <> 39 then
     raise exception
-      'Expected 38 applied migrations (000-037), found %',
+      'Expected 39 applied migrations (000-038), found %',
       migration_count;
   end if;
 
@@ -66,9 +66,9 @@ begin
   if not exists (
     select 1
       from supabase_migrations.schema_migrations
-     where version = '037'
+     where version = '038'
   ) then
-    raise exception 'Latest migration 037 is missing';
+    raise exception 'Latest migration 038 is missing';
   end if;
 
   select count(*)
@@ -235,6 +235,21 @@ begin
        and conname = 'products_price_condition_check'
   ) then
     raise exception '037: products_price_condition_check constraint is missing';
+  end if;
+
+  -- Migration 038 — products.price_scope column + CHECK.
+  if not exists (
+    select 1 from information_schema.columns
+     where table_schema='public' and table_name='products' and column_name='price_scope'
+  ) then
+    raise exception '038: products.price_scope column is missing';
+  end if;
+  if not exists (
+    select 1 from pg_constraint
+     where conrelid = 'public.products'::regclass
+       and conname = 'products_price_scope_check'
+  ) then
+    raise exception '038: products_price_scope_check constraint is missing';
   end if;
 
   if not exists (

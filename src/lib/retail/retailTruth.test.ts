@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
-  canClaimBranchAvailability, describeAvailability, describeProductCategory, describePriceCondition,
+  canClaimBranchAvailability, describeAvailability, describeProductCategory,
+  describePriceCondition, describePriceScope,
 } from "@/lib/retail/retailTruth";
 import {
   FixtureRetailAdapter, FIXTURE_CANDIDATES,
@@ -57,6 +58,20 @@ describe("retailTruth — price-condition badge", () => {
     expect(describePriceCondition("loyalty", null)).toBe("Loyalty price");
     expect(describePriceCondition("standard", null)).toBeNull();
     expect(describePriceCondition("unknown", "")).toBeNull();
+  });
+});
+
+describe("retailTruth — price scope never reads as a branch price", () => {
+  it("labels national/online scopes without implying an in-store price", () => {
+    expect(describePriceScope("online_national")).toBe("National online price");
+    expect(describePriceScope("online_national")).not.toMatch(/in-store|branch/i);
+    expect(describePriceScope("catalogue_national")).toBe("Catalogue price");
+  });
+  it("only branch_specific reads as in-store; unknown/null show no badge", () => {
+    expect(describePriceScope("branch_specific")).toBe("In-store price");
+    expect(describePriceScope("unknown")).toBeNull();
+    expect(describePriceScope(null)).toBeNull();
+    expect(describePriceScope(undefined)).toBeNull();
   });
 });
 

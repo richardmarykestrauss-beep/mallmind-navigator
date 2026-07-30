@@ -8,7 +8,7 @@
  * branch_confirmed — not merely because a product row references a shop.
  */
 
-import type { AvailabilityScope, PriceCondition } from "./retailAdapter";
+import type { AvailabilityScope, PriceCondition, PriceScope } from "./retailAdapter";
 
 /**
  * A branch-stock claim is permitted ONLY when availability is branch_confirmed.
@@ -37,6 +37,21 @@ export function describeAvailability(
     case "unknown":
     default:
       return "Availability not confirmed";
+  }
+}
+
+/**
+ * Truthful PRICE-scope label, or null when there is nothing to disclose (unknown).
+ * Keeps a national/online price from ever reading as "this branch's price".
+ */
+export function describePriceScope(scope: PriceScope | null | undefined): string | null {
+  switch (scope) {
+    case "online_national": return "National online price";
+    case "online_regional": return "Regional online price";
+    case "catalogue_national": return "Catalogue price";
+    case "branch_specific": return "In-store price";
+    case "unknown":
+    default: return null; // unknown / null → no scope badge
   }
 }
 

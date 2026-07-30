@@ -106,15 +106,17 @@ values
   ('f0000000-0000-0000-0000-000000000001','cccccccc-0000-0000-0000-000000000001','Online Widget', null, 100,'live_feed','partner_feed',0.9,'approved', now()+interval '30 days','online','online_national','standard');
 select * from public.publish_verified_observation('f0000000-0000-0000-0000-000000000001','11111111-1111-1111-1111-111111111111','fixture');
 do $$
-declare v_pid uuid; v_shop uuid; v_scope text; v_cat text;
+declare v_pid uuid; v_shop uuid; v_scope text; v_cat text; v_pscope text;
 begin
   select published_product_id into v_pid from public.retail_price_observations where id='f0000000-0000-0000-0000-000000000001';
   if v_pid is null then raise exception 'CASE1 FAIL: online observation was not published'; end if;
-  select shop_id, availability_scope, category into v_shop, v_scope, v_cat from public.products where id=v_pid;
+  select shop_id, availability_scope, category, price_scope into v_shop, v_scope, v_cat, v_pscope from public.products where id=v_pid;
   if v_shop is not null then raise exception 'CASE1 FAIL: online product carries a shop_id (implied branch)'; end if;
   if v_scope <> 'online' then raise exception 'CASE2 FAIL: product availability_scope is % not online', v_scope; end if;
   if v_scope = 'branch_confirmed' then raise exception 'CASE2 FAIL: online became a branch claim'; end if;
   if v_cat is not null then raise exception 'CASE9b FAIL: null category invented on publish'; end if;
+  -- CASE 12 (migration 038): price_scope projected verbatim from the observation
+  if v_pscope <> 'online_national' then raise exception 'CASE12 FAIL: price_scope not projected (got %)', v_pscope; end if;
 end $$;
 
 -- ══ CASE 3: shop_id present but availability unknown ⇒ NOT a branch claim ══════
@@ -210,4 +212,18 @@ begin
   then raise exception 'CASE11 FAIL: valid/NULL price_condition not accepted'; end if;
 end $$;
 
-select 'retail truth-model fixture (036 + 037): ALL 11 CASES PASSED' as result;
+-- ══ CASE 13 (migration 038): products.price_scope CHECK vocabulary ════════════
+do $$
+declare v_raised boolean := false;
+begin
+  begin
+    insert into public.products (name, category, price, price_scope)
+    values ('BogusScope Widget', null, 5, 'not_a_real_scope');
+  exception when check_violation then v_raised := true; end;
+  if not v_raised then raise exception 'CASE13 FAIL: invalid products.price_scope was accepted'; end if;
+  insert into public.products (name, category, price, price_scope) values ('ValidScope Widget', null, 5, 'branch_specific');
+  if (select price_scope from public.products where name='ValidScope Widget') <> 'branch_specific'
+  then raise exception 'CASE13 FAIL: valid price_scope not stored'; end if;
+end $$;
+
+select 'retail truth-model fixture (036 + 037 + 038): ALL 13 CASES PASSED' as result;
