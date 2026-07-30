@@ -49,9 +49,9 @@ begin
     into migration_count
     from supabase_migrations.schema_migrations;
 
-  if migration_count <> 37 then
+  if migration_count <> 38 then
     raise exception
-      'Expected 37 applied migrations (000-036), found %',
+      'Expected 38 applied migrations (000-037), found %',
       migration_count;
   end if;
 
@@ -66,9 +66,9 @@ begin
   if not exists (
     select 1
       from supabase_migrations.schema_migrations
-     where version = '036'
+     where version = '037'
   ) then
-    raise exception 'Latest migration 036 is missing';
+    raise exception 'Latest migration 037 is missing';
   end if;
 
   select count(*)
@@ -226,6 +226,15 @@ begin
        and conname = 'rpo_branch_confirmed_requires_branch_check'
   ) then
     raise exception '036: branch-confirmed CHECK constraint is missing';
+  end if;
+
+  -- Migration 037 — products.price_condition CHECK (matches the observation vocabulary).
+  if not exists (
+    select 1 from pg_constraint
+     where conrelid = 'public.products'::regclass
+       and conname = 'products_price_condition_check'
+  ) then
+    raise exception '037: products_price_condition_check constraint is missing';
   end if;
 
   if not exists (

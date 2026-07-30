@@ -191,4 +191,23 @@ begin
   then raise exception 'CASE10 FAIL: rights-blocked observation was marked published'; end if;
 end $$;
 
-select 'retail-036-fixture: ALL 10 TRUTH-MODEL CASES PASSED' as result;
+-- ══ CASE 11 (migration 037): products.price_condition CHECK vocabulary ════════
+do $$
+declare v_raised boolean;
+begin
+  -- an invalid price_condition must be rejected
+  v_raised := false;
+  begin
+    insert into public.products (name, category, price, price_condition)
+    values ('BogusCond Widget', null, 5, 'not_a_real_condition');
+  exception when check_violation then v_raised := true; end;
+  if not v_raised then raise exception 'CASE11 FAIL: invalid products.price_condition was accepted'; end if;
+
+  -- a valid value and NULL must both be accepted
+  insert into public.products (name, category, price, price_condition) values ('ValidCond Widget', null, 5, 'loyalty');
+  insert into public.products (name, category, price, price_condition) values ('NullCond Widget',  null, 5, null);
+  if (select count(*) from public.products where name in ('ValidCond Widget','NullCond Widget')) <> 2
+  then raise exception 'CASE11 FAIL: valid/NULL price_condition not accepted'; end if;
+end $$;
+
+select 'retail truth-model fixture (036 + 037): ALL 11 CASES PASSED' as result;
