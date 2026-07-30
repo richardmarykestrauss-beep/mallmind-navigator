@@ -388,7 +388,7 @@ export function intakeRetailCsv(csvText: string): IntakeResult {
     } else {
       seenHashes.set(normalized.observation_hash, rowNumber);
       candidates.push(normalized);
-      const catKey = normalized.category || "Uncategorized";
+      const catKey = normalized.category || "Category not yet classified";
       categoryCounts[catKey] = (categoryCounts[catKey] ?? 0) + 1;
     }
 

@@ -162,9 +162,11 @@ export function rankEligible(offers: ProductOffer[], ingestion: IngestionDatabas
   });
 }
 
-const matchesCategory = (productCategory: string, category: string) =>
-  productCategory.trim().toLowerCase() === category.trim().toLowerCase() ||
-  (category.trim().toLowerCase() === "television" && /\btv\b|television/i.test(productCategory));
+const matchesCategory = (productCategory: string | null | undefined, category: string) => {
+  const pc = (productCategory ?? "").trim().toLowerCase();   // null-safe: unknown category matches nothing
+  const q = category.trim().toLowerCase();
+  return pc === q || (q === "television" && /\btv\b|television/i.test(productCategory ?? ""));
+};
 
 // ── Shopper-safe response contract ───────────────────────────────────────────
 

@@ -77,9 +77,11 @@ export interface RankQuery {
   category: string; // e.g. "television"
 }
 
-const matchesCategory = (p: Product, category: string) =>
-  p.category.trim().toLowerCase() === category.trim().toLowerCase() ||
-  (category.trim().toLowerCase() === "television" && /\btv\b|television/i.test(p.category));
+const matchesCategory = (p: Product, category: string) => {
+  const pc = (p.category ?? "").trim().toLowerCase();   // null-safe: unknown category matches nothing
+  const q = category.trim().toLowerCase();
+  return pc === q || (q === "television" && /\btv\b|television/i.test(p.category ?? ""));
+};
 
 /** Deterministic comparator (trust → freshness → branch stock → price). */
 export function compareOffers(a: OfferContext, b: OfferContext): number {

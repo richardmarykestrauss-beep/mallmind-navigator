@@ -133,6 +133,7 @@ import {
   type RetailObservationReviewStatus,
 } from "@/lib/googleBackendClient";
 import { cn } from "@/lib/utils";
+import { describeProductCategory } from "@/lib/retail/retailTruth";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -4452,7 +4453,7 @@ function RetailObservationPublishPreviewPanel({ token }: { token?: string | null
                   <div>
                     <p className="font-medium text-foreground">{item.product_name}</p>
                     <p className="text-xs text-muted-foreground">
-                      {item.shop_name ?? "Unknown shop"} · {item.category ?? "Uncategorised"} · R{Number(item.price).toFixed(2)}
+                      {item.shop_name ?? "Unknown shop"} · {describeProductCategory(item.category)} · R{Number(item.price).toFixed(2)}
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2">
@@ -4534,7 +4535,7 @@ function RetailObservationCard({
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold">{row.product_name}</p>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              {[row.brand, row.model, row.category].filter(Boolean).join(" · ") || "Uncategorised"}
+              {[row.brand, row.model, row.category].filter(Boolean).join(" · ") || "Category not yet classified"}
             </p>
             <p className="mt-1 text-[11px] text-muted-foreground">
               {row.shops?.name ?? "Unknown shop"}
