@@ -49,9 +49,9 @@ begin
     into migration_count
     from supabase_migrations.schema_migrations;
 
-  if migration_count <> 36 then
+  if migration_count <> 37 then
     raise exception
-      'Expected 36 applied migrations (000-035), found %',
+      'Expected 37 applied migrations (000-036), found %',
       migration_count;
   end if;
 
@@ -66,9 +66,9 @@ begin
   if not exists (
     select 1
       from supabase_migrations.schema_migrations
-     where version = '035'
+     where version = '036'
   ) then
-    raise exception 'Latest migration 035 is missing';
+    raise exception 'Latest migration 036 is missing';
   end if;
 
   select count(*)
@@ -173,6 +173,59 @@ begin
        and column_name = 'category' and is_nullable = 'NO'
   ) then
     raise exception '035: shops.category is still NOT NULL (cannot represent unknown category)';
+  end if;
+
+  -- Sprint 2I (migration 036) — retail truth-model.
+  if to_regclass('public.retail_source_listings') is null then
+    raise exception '036: retail_source_listings table is missing';
+  end if;
+  if not exists (
+    select 1 from information_schema.columns
+     where table_schema='public' and table_name='retail_data_sources'
+       and column_name in ('lifecycle_state','rights_review_state','commercial_use_allowed',
+                           'storage_allowed','image_reuse_allowed','description_reuse_allowed')
+     group by table_name having count(*) = 6
+  ) then
+    raise exception '036: retail_data_sources rights/lifecycle columns are missing or incomplete';
+  end if;
+  if not exists (
+    select 1 from information_schema.columns
+     where table_schema='public' and table_name='retail_price_observations'
+       and column_name in ('listing_id','price_scope','availability_scope','price_condition',
+                           'price_condition_label','loyalty_program','minimum_quantity','promotion_text',
+                           'source_product_id','retailer_sku','barcode','source_url','variant','pack_size')
+     group by table_name having count(*) = 14
+  ) then
+    raise exception '036: retail_price_observations truth-model columns are missing or incomplete';
+  end if;
+  if exists (
+    select 1 from information_schema.columns
+     where table_schema='public' and table_name='retail_price_observations'
+       and column_name in ('shop_id','mall_id') and is_nullable = 'NO'
+  ) then
+    raise exception '036: retail_price_observations shop_id/mall_id are still NOT NULL';
+  end if;
+  if exists (
+    select 1 from information_schema.columns
+     where table_schema='public' and table_name='products'
+       and column_name = 'category' and is_nullable = 'NO'
+  ) then
+    raise exception '036: products.category is still NOT NULL';
+  end if;
+  if not exists (
+    select 1 from information_schema.columns
+     where table_schema='public' and table_name='products'
+       and column_name in ('availability_scope','price_condition','price_condition_label')
+     group by table_name having count(*) = 3
+  ) then
+    raise exception '036: products scope/condition columns are missing';
+  end if;
+  if not exists (
+    select 1 from pg_constraint
+     where conrelid = 'public.retail_price_observations'::regclass
+       and conname = 'rpo_branch_confirmed_requires_branch_check'
+  ) then
+    raise exception '036: branch-confirmed CHECK constraint is missing';
   end if;
 
   if not exists (
@@ -290,30 +343,30 @@ run(
 );
 
 run(
-  "Rebuild database from migrations 000-034",
+  "Rebuild database from migrations 000-036",
   "npx",
   ["supabase", "db", "reset"],
 );
 
+const psqlArgs = [
+  "exec", "-i", databaseContainer,
+  "psql", "-U", "postgres", "-d", "postgres", "-v", "ON_ERROR_STOP=1",
+];
+
 run(
   "Assert final database contract",
   "docker",
-  [
-    "exec",
-    "-i",
-    databaseContainer,
-    "psql",
-    "-U",
-    "postgres",
-    "-d",
-    "postgres",
-    "-v",
-    "ON_ERROR_STOP=1",
-  ],
-  {
-    input: assertions,
-    stdio: ["pipe", "inherit", "inherit"],
-  },
+  psqlArgs,
+  { input: assertions, stdio: ["pipe", "inherit", "inherit"] },
+);
+
+// Sprint 2I — prove the retail truth-model end-to-end on throwaway data (the ten
+// hard cases: online/branch scope, rights gate, price conditions, dedup, null category).
+run(
+  "Assert retail truth-model (036) fixture",
+  "docker",
+  psqlArgs,
+  { input: readFileSync("scripts/build-os/retail-036-fixture.sql", "utf8"), stdio: ["pipe", "inherit", "inherit"] },
 );
 
 console.log("\n✔ DATABASE VERIFICATION PASSED");
