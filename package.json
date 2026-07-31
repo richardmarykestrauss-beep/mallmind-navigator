@@ -27,7 +27,12 @@
     "test:diagnostics": "node scripts/build-os/diagnostics.test.mjs",
     "intake:fixture:upload": "npm --prefix google-cloud-backend run intake:fixture:upload --",
     "retail:feed:json:dry-run": "node scripts/retail/feed-json-dry-run.mjs",
-    "retail:mapping:validate": "node scripts/retail/mapping-validate.mjs"
+    "retail:mapping:validate": "node scripts/retail/mapping-validate.mjs",
+    "retail:staging:guard": "node scripts/retail/staging-guard.mjs",
+    "db:test:start": "node scripts/retail/staging-guard.mjs && npx supabase start",
+    "db:test:reset": "node scripts/retail/staging-guard.mjs && npx supabase db reset --local",
+    "db:test:stop": "npx supabase stop --no-backup",
+    "retail:staging:test": "node scripts/retail/staging-guard.mjs && npm run verify:db"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

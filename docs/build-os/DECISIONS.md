@@ -108,3 +108,34 @@ availability into branch availability. This ADR asserts NO retailer permission, 
 production readiness, NO hosted mapping data, NO branch stock, NO hosted DB verification,
 NO staging insertion, NO automated publication, and NO Cloud Run deployment. The
 PostgreSQL staging bridge and a governed hosted mapping table remain Sprint 2L-B.
+
+## ADR-011 — Disposable pending-review staging bridge (local-only)
+
+Status: Accepted
+Date: 2026-07-31
+
+MallMind adds a fail-closed **pending-review staging bridge** that writes canonical
+retailer-feed candidates into the existing truth-model tables
+(`retail_source_listings` + `retail_price_observations`) at `review_status='pending'`, proven
+against a **disposable local PostgreSQL** only. Migration 039 is additive: a governed
+`retail_external_location_mappings` table (unique-approved-per-branch index +
+approved-requires-provenance CHECK + RLS with no client policy), six nullable feed columns on
+`retail_price_observations`, and a `service_role`-only SECURITY DEFINER RPC
+(`stage_retail_feed_observation`) with a locked `search_path`, no dynamic SQL, and no
+caller-supplied verified/approved/published/internal-id parameters. Internal MallMind ids can
+originate only from a unique, human-`approved`, currently-valid, same-retailer mapping; a
+branch-scoped candidate without one fails closed to `mapping_required` and is not staged.
+
+Recorded as a **local, validated capability only**: `npm run verify:db` (full `000..039` chain
+on the throwaway Supabase Docker stack) green **twice** for repeatability —
+`migrations=40 | tables=55 | functions=45 | policies=24` — with the real-Postgres fixture
+`retail-staging-fixture.sql` asserting 20 feed cases + constraint, publication-boundary, and
+security proofs (anon/authenticated/public cannot execute the RPC; `service_role` can; the
+existing `publish_verified_observation` gate still refuses staged pending rows). A hosted-guard
+(`hostedGuard.mjs` + `staging-guard.mjs`, 7/7 tests) refuses any hosted ref/host before DB
+work. This ADR asserts NO retailer permission, NO production readiness, NO hosted connection,
+NO `supabase db push`, NO production/dev-cloud migration, NO hosted credentials or service-role
+key, NO Cloud Run/durable worker, NO scraping, NO shopper-facing publication, NO automatic
+verification/approval, NO scheduled ingestion, and the branch is NOT merged. Hosted application
+of 039 and wiring an authorised feed into the RPC remain future, operator-run, human-approved
+work behind the unchanged publication gate.
