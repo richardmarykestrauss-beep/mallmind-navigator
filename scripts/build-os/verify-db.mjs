@@ -49,9 +49,9 @@ begin
     into migration_count
     from supabase_migrations.schema_migrations;
 
-  if migration_count <> 39 then
+  if migration_count <> 40 then
     raise exception
-      'Expected 39 applied migrations (000-038), found %',
+      'Expected 40 applied migrations (000-039), found %',
       migration_count;
   end if;
 
@@ -66,9 +66,9 @@ begin
   if not exists (
     select 1
       from supabase_migrations.schema_migrations
-     where version = '038'
+     where version = '039'
   ) then
-    raise exception 'Latest migration 038 is missing';
+    raise exception 'Latest migration 039 is missing';
   end if;
 
   select count(*)
@@ -252,6 +252,31 @@ begin
     raise exception '038: products_price_scope_check constraint is missing';
   end if;
 
+  -- Migration 039 — governed mapping table + fail-closed staging RPC.
+  if to_regclass('public.retail_external_location_mappings') is null then
+    raise exception '039: retail_external_location_mappings table is missing';
+  end if;
+  if not exists (
+    select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname = 'public' and p.proname = 'stage_retail_feed_observation'
+  ) then
+    raise exception '039: stage_retail_feed_observation RPC is missing';
+  end if;
+  if not exists (
+    select 1 from information_schema.columns
+     where table_schema='public' and table_name='retail_price_observations'
+       and column_name in ('branch_external_id','feed_content_hash','feed_source_row','feed_file_name','feed_parse_warnings','staged_actor')
+     group by table_name having count(*) = 6
+  ) then
+    raise exception '039: retail_price_observations feed/staging columns are missing or incomplete';
+  end if;
+  -- staging RPC must be execute-revoked from public/anon/authenticated and granted to service_role
+  if has_function_privilege('public','public.stage_retail_feed_observation(uuid,uuid,text,text,text,text,text,text,text,text,text,bigint,bigint,boolean,text,text,text,text,text,text,text,timestamptz,text,integer,text,jsonb)','EXECUTE')
+     or has_function_privilege('anon','public.stage_retail_feed_observation(uuid,uuid,text,text,text,text,text,text,text,text,text,bigint,bigint,boolean,text,text,text,text,text,text,text,timestamptz,text,integer,text,jsonb)','EXECUTE')
+     or has_function_privilege('authenticated','public.stage_retail_feed_observation(uuid,uuid,text,text,text,text,text,text,text,text,text,bigint,bigint,boolean,text,text,text,text,text,text,text,timestamptz,text,integer,text,jsonb)','EXECUTE') then
+    raise exception '039: staging RPC is executable by public/anon/authenticated';
+  end if;
+
   if not exists (
     select 1
       from pg_proc p
@@ -391,6 +416,15 @@ run(
   "docker",
   psqlArgs,
   { input: readFileSync("scripts/build-os/retail-036-fixture.sql", "utf8"), stdio: ["pipe", "inherit", "inherit"] },
+);
+
+// Sprint 2L-B — prove the pending-review staging bridge end-to-end on real Postgres
+// (staging, idempotency, mapping governance, role security, publication boundary).
+run(
+  "Assert retail staging bridge (039) fixture",
+  "docker",
+  psqlArgs,
+  { input: readFileSync("scripts/build-os/retail-staging-fixture.sql", "utf8"), stdio: ["pipe", "inherit", "inherit"] },
 );
 
 console.log("\n✔ DATABASE VERIFICATION PASSED");
