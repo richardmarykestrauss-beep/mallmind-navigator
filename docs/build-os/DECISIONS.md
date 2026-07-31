@@ -84,3 +84,27 @@ Date: 2026-07-30
 MallMind adds a retailer-neutral, permission-ready feed intake contract (`RetailerFeedContractV1`, `src/lib/retail/feed/*`) that maps external retailer product data (CSV now; JSON/API adapters later) into the migration-036 truth model with stable, machine-readable warning/rejection codes, decimal-safe pricing, deterministic observation identity, and an explicit external-branch → mapping boundary.
 
 Recorded as a **local, validated capability only** (`npm run verify:all` green; `feedImporter.test.ts` 31/31; dry-run CLI `retail:feed:dry-run`). It performs no hosted database write, no migration, no Cloud Run worker invocation, and no publication; imported rows never become verified or shopper-visible (the `publish_verified_observation` gate is unchanged and unreachable from import). This ADR asserts NO retailer permission, NO production readiness, and NO hosted verification — only that the contract and its dry-run importer are locally proven. Wiring accepted candidates into staging (`retail_price_observations` at `review_status='pending'`) remains future work behind human review and the publication gate.
+
+## ADR-010 — Feed format neutrality + governed external branch mapping
+
+Status: Accepted
+Date: 2026-07-31
+
+MallMind extends the Sprint 2K feed contract with a deterministic JSON feed reader
+(`src/lib/retail/feed/jsonFeedReader.mjs`), a second structurally-different synthetic
+retailer adapter (`kingdomAdapter.mjs`), CSV↔JSON canonical parity, and a governed
+external-location mapping contract + resolver (`locationMapping.mjs`,
+ExternalRetailLocationMappingV1) with statuses (draft/pending_review/approved/rejected/
+expired/superseded) and stable coded resolution outcomes.
+
+Recorded as a **local, validated capability only** (`npm run verify:all` green;
+`jsonFeed.test.ts` 29/29 covering the 53 required assertions; 2K/2J suites still pass;
+CLIs `retail:feed:json:dry-run` and `retail:mapping:validate`). Truth boundary proven:
+an external branch code/name never yields an internal MallMind id on its own — internal
+ids are set ONLY from a unique, approved, currently-valid, unambiguous, provenance-bearing
+mapping for the same retailer; a mapping proves identity alignment only (never stock,
+price, permission, or publication), and a resolved mapping never converts online
+availability into branch availability. This ADR asserts NO retailer permission, NO
+production readiness, NO hosted mapping data, NO branch stock, NO hosted DB verification,
+NO staging insertion, NO automated publication, and NO Cloud Run deployment. The
+PostgreSQL staging bridge and a governed hosted mapping table remain Sprint 2L-B.

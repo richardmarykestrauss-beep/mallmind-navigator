@@ -131,18 +131,43 @@ export function importFeed(records, opts = {}) {
     if (!promoFlag && looksPromo && (rec.price_condition === "promotional" || originalCents !== null))
       warn(WARNING_CODES.PROMOTION_CONFLICT, "promotion fields present but promotion_indicator is not true");
 
-    // ── Branch-mapping boundary (never assign internal ids here) ──
+    // ── Branch-mapping boundary ──
+    // A feed's external branch code NEVER yields internal MallMind ids on its own.
+    // Internal ids are set ONLY from a unique, approved, currently-valid mapping via the
+    // governed resolver (opts.resolveBranch). Without one, ids stay null and the row is
+    // warned (non-branch) or quarantined (branch claim). A mapping proves identity only —
+    // never stock, price, permission, publication, or online→branch availability.
     const externalBranch = rec.branch_external_id ?? rec.shop_external_id ?? null;
     const intendsBranch = rec.availability_scope === "branch_confirmed" || rec.price_scope === "branch_specific";
     let branch_mapping_status = "not_applicable";
+    let branch_mapping_code = null;
+    let resolvedInternal = { internal_mall_id: null, internal_shop_id: null, internal_branch_id: null };
     if (externalBranch) {
-      const recognised = Object.prototype.hasOwnProperty.call(branchMapping, externalBranch);
-      branch_mapping_status = recognised ? "recognised" : "unrecognised";
-      if (!recognised) {
-        if (intendsBranch)
-          rej(REJECTION_CODES.UNSUPPORTED_SCOPE, `branch_confirmed/branch_specific row references unmapped external branch '${externalBranch}' — cannot substantiate a branch claim`);
-        else
-          warn(WARNING_CODES.UNKNOWN_BRANCH_MAPPING, `external branch '${externalBranch}' has no recognised MallMind mapping; internal ids kept null`);
+      if (typeof opts.resolveBranch === "function") {
+        const res = opts.resolveBranch(rec) ?? { outcome: "unmapped", code: "UNMAPPED" };
+        branch_mapping_status = res.outcome;
+        branch_mapping_code = res.code ?? null;
+        if (res.outcome === "resolved") {
+          resolvedInternal = {
+            internal_mall_id: res.internal_mall_id ?? null,
+            internal_shop_id: res.internal_shop_id ?? null,
+            internal_branch_id: res.internal_shop_id ?? null,
+          };
+        } else if (intendsBranch) {
+          rej(REJECTION_CODES.UNSUPPORTED_SCOPE, `branch claim not substantiated (${res.outcome}): ${res.explanation ?? externalBranch}`);
+        } else {
+          warn(WARNING_CODES.UNKNOWN_BRANCH_MAPPING, `external branch '${externalBranch}' not resolved (${res.outcome}); internal ids kept null`);
+        }
+      } else {
+        // Legacy (Sprint 2K) plain-object branchMapping: recognised = key present.
+        const recognised = Object.prototype.hasOwnProperty.call(branchMapping, externalBranch);
+        branch_mapping_status = recognised ? "recognised" : "unrecognised";
+        if (!recognised) {
+          if (intendsBranch)
+            rej(REJECTION_CODES.UNSUPPORTED_SCOPE, `branch_confirmed/branch_specific row references unmapped external branch '${externalBranch}' — cannot substantiate a branch claim`);
+          else
+            warn(WARNING_CODES.UNKNOWN_BRANCH_MAPPING, `external branch '${externalBranch}' has no recognised MallMind mapping; internal ids kept null`);
+        }
       }
     } else if (intendsBranch) {
       rej(REJECTION_CODES.UNSUPPORTED_SCOPE, "branch_confirmed/branch_specific row carries no external branch identifier");
@@ -184,7 +209,10 @@ export function importFeed(records, opts = {}) {
       shop_external_id: rec.shop_external_id ?? null,
       branch_external_id: rec.branch_external_id ?? null,
       branch_mapping_status,
-      internal_mall_id: null, internal_shop_id: null, internal_branch_id: null,
+      branch_mapping_code,
+      internal_mall_id: resolvedInternal.internal_mall_id,
+      internal_shop_id: resolvedInternal.internal_shop_id,
+      internal_branch_id: resolvedInternal.internal_branch_id,
       stock_status: rec.stock_status ?? null,
       stock_quantity: rec.stock_quantity ?? null,
       stock_observed_at: rec.stock_observed_at ?? null,
