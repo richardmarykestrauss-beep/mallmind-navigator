@@ -75,3 +75,12 @@ Date: 2026-06-28
 MallMind adds a minimal autonomous build loop triggered by applying the `agent:approved` label to a structured build-task issue. The agent implements within an `agent/<issue>-<slug>` branch, runs the deterministic gates, and opens a **draft** pull request targeting `claude-premium-nav-test`. It cannot merge or deploy.
 
 Safety is enforced by the repository boundary, not by agent cleverness: explicit minimal workflow permissions; no Supabase/Google Cloud/deployment secret in the job (only `ANTHROPIC_API_KEY`); branch protection rejecting pushes to protected branches; a deterministic scope guard (`scripts/build-os/scope-guard.mjs`) plus `npm run verify:all` as the authoritative pass/fail. Permitted task types are `docs`, `frontend`, `backend`, `test`; `db`/migration/deploy/infra/secrets/workflow tasks are rejected. Agent behaviour is governed by `docs/build-os/AGENT_CHARTER.md`, which treats issue text and other repository content as untrusted data. Browser QA, database automation, continuous scheduling, auto-merge and deployment are explicitly out of AF-1 scope.
+
+## ADR-009 — RetailerFeedContractV1 (permission-ready feed intake)
+
+Status: Accepted
+Date: 2026-07-30
+
+MallMind adds a retailer-neutral, permission-ready feed intake contract (`RetailerFeedContractV1`, `src/lib/retail/feed/*`) that maps external retailer product data (CSV now; JSON/API adapters later) into the migration-036 truth model with stable, machine-readable warning/rejection codes, decimal-safe pricing, deterministic observation identity, and an explicit external-branch → mapping boundary.
+
+Recorded as a **local, validated capability only** (`npm run verify:all` green; `feedImporter.test.ts` 31/31; dry-run CLI `retail:feed:dry-run`). It performs no hosted database write, no migration, no Cloud Run worker invocation, and no publication; imported rows never become verified or shopper-visible (the `publish_verified_observation` gate is unchanged and unreachable from import). This ADR asserts NO retailer permission, NO production readiness, and NO hosted verification — only that the contract and its dry-run importer are locally proven. Wiring accepted candidates into staging (`retail_price_observations` at `review_status='pending'`) remains future work behind human review and the publication gate.
