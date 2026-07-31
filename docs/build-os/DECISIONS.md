@@ -139,3 +139,30 @@ key, NO Cloud Run/durable worker, NO scraping, NO shopper-facing publication, NO
 verification/approval, NO scheduled ingestion, and the branch is NOT merged. Hosted application
 of 039 and wiring an authorised feed into the RPC remain future, operator-run, human-approved
 work behind the unchanged publication gate.
+
+## ADR-012 — Read-only hosted-readiness audit gate before any hosted migration
+
+Status: Accepted
+Date: 2026-07-31
+
+Before any MallMind migration is applied to a hosted Supabase project, a **strictly read-only
+hosted-readiness audit** must pass and an explicit human go/no-go approval must be recorded. The
+audit must prove, from an environment authenticated and linked to the *intended target project*:
+linked-project identity equals the target ref; local↔remote migration history agree through the
+last-shared migration; the candidate migration is not yet applied remotely; no hosted schema
+drift collides with it; required roles/grants/RLS and the publication gate are intact; and
+backups are human-verified and recent. The audit may run only non-mutating commands
+(`supabase migration list`, `supabase db push --dry-run`, output-only `supabase db diff`,
+`SELECT`-only catalog queries) and must never run push/reset/repair/up, seed, RPC calls, grant/
+role/RLS changes, or relink to a different project.
+
+Established by Sprint 2M-A, whose deliverables are the audit doc set under `docs/sprint-2m-a/`.
+Its recorded outcome is a **local, honest fact only**: the audit for migration 039 against the
+production target `qspsouemjtcdcfnivpnt` returned **NO-GO — blocked at the linked-project
+identity gate**, because this workstation's Supabase CLI is linked to `iivmrlgntspbkpfqoboi`
+(mallmind-dev), not the target, and relinking is prohibited. No hosted command was run, no
+secret was read or printed, no hosted mutation occurred, and no relink was performed — the
+deliberately dev-linked, credential-free state of this environment is the safe default. This ADR
+asserts NO claim that migration 039 is applied remotely, that production staging is active, that
+backups are ready, or that the system is production-ready; hosted application of 039 remains a
+separate, target-linked, human-approved action gated on completing this audit against the target.
