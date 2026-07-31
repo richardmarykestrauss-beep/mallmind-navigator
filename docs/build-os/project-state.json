@@ -70,6 +70,34 @@
       "merge_or_deploy_authority": "none-human-approval-required"
     }
   },
+  "hosted_readiness_audit": {
+    "sprint": "2M-A",
+    "date": "2026-07-31",
+    "branch": "audit/hosted-supabase-readiness-2m-a",
+    "mode": "strictly-read-only-hosted-audit",
+    "target_project_ref": "qspsouemjtcdcfnivpnt",
+    "linked_project_ref_observed": "iivmrlgntspbkpfqoboi",
+    "linked_project_name_observed": "mallmind-dev",
+    "identity_gate": "failed-linked-ref-is-not-target",
+    "remote_inspection_performed": false,
+    "remote_migration_history_status": "unverified-blocked-at-identity-gate",
+    "schema_drift_status": "unverified-blocked-at-identity-gate",
+    "migration_039_remote_state": "unverified-repository-only-and-locally-verified",
+    "migration_039_static_collision_risk": "low-additive-no-rewrite",
+    "publication_boundary_preserved_by_039_design": true,
+    "rollback_readiness": "ready-with-conditions",
+    "backup_readiness": "human-verification-required",
+    "hosted_mutation_occurred": false,
+    "relink_performed": false,
+    "verdict": "NO-GO-audit-blocked-readiness-not-certified",
+    "human_verification_required": [
+      "target-linked supabase migration list (000-038 agreement; 039 unapplied)",
+      "output-only schema diff classification",
+      "db push --dry-run shows only 039 pending",
+      "dashboard backup readiness (latest backup, retention, status)",
+      "explicit go/no-go approval for a migration window"
+    ]
+  },
   "known_gaps": [
     "behavioural RPC integration tests with representative database records",
     "production-safe linked migration workflow for local-only baseline migration 000",
