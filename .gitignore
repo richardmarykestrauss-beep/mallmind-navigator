@@ -34,3 +34,6 @@ reports/dev-agent/
 
 # Supabase CLI local runtime state
 supabase/.temp/
+
+# Sprint 2K local dry-run reports (not committed)
+/artifacts/
