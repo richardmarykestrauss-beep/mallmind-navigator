@@ -98,6 +98,35 @@
       "explicit go/no-go approval for a migration window"
     ]
   },
+  "target_readiness_backup_2m_b": {
+    "sprint": "2M-B",
+    "date": "2026-07-31",
+    "branch": "audit/target-readiness-backup-2m-b",
+    "mode": "target-linked-read-only-plus-manual-logical-backup",
+    "target_project_ref": "qspsouemjtcdcfnivpnt",
+    "target_project_name": "Mallmind",
+    "target_status_dashboard": "healthy",
+    "target_plan": "free",
+    "managed_backups_available": false,
+    "pitr_enabled": false,
+    "agent_authenticated_to_target": false,
+    "credentials_present_in_env": false,
+    "blocked_reason": "agent-prohibited-from-entering-access-token-or-db-password",
+    "dev_link_relinked": false,
+    "remote_inspection_performed": false,
+    "manual_backup_created_by_agent": false,
+    "hosted_mutation_occurred": false,
+    "verdict": "NO-GO-operator-action-required-credential-boundary",
+    "operator_runbook": "docs/sprint-2m-b/operator-runbook.md",
+    "operator_completes": [
+      "supabase login + link separate dir to target",
+      "supabase migration list (000-038 agreement; 039 pending)",
+      "supabase db push --dry-run (only 039 pending)",
+      "read-only schema/collision/boundary checks",
+      "manual logical backup (free plan) + verify",
+      "explicit go/no-go approval"
+    ]
+  },
   "known_gaps": [
     "behavioural RPC integration tests with representative database records",
     "production-safe linked migration workflow for local-only baseline migration 000",

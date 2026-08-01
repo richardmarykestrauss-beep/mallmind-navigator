@@ -166,3 +166,29 @@ deliberately dev-linked, credential-free state of this environment is the safe d
 asserts NO claim that migration 039 is applied remotely, that production staging is active, that
 backups are ready, or that the system is production-ready; hosted application of 039 remains a
 separate, target-linked, human-approved action gated on completing this audit against the target.
+
+## ADR-013 — Credentialed hosted operations are operator-run; the agent never handles hosted secrets
+
+Status: Accepted
+Date: 2026-07-31
+
+Any operation that requires authenticating to, or connecting to, a hosted MallMind Supabase
+project — `supabase login`, `supabase link` to a target ref, `supabase db push --dry-run`,
+`supabase db diff`/`db dump` against the hosted DB, or a direct `psql`/`pg_dump` using the
+production connection string — is performed **by a human operator**, never by the coding agent.
+The agent is prohibited from entering access tokens, database passwords, or service-role keys
+into any field, and this environment intentionally carries no such credential
+(`SUPABASE_ACCESS_TOKEN`/`SUPABASE_DB_PASSWORD`/service-role key unset; CLI unauthenticated).
+For these steps the agent's role is to prepare a turnkey, copy-paste operator runbook, a results
+template, and the verdict framework; the operator runs the credentialed commands from a separate
+directory linked to the target and records the evidence.
+
+Established/confirmed by Sprint 2M-B. Its recorded outcome is a **local, honest fact only**: the
+target-linked readiness completion and the Free-plan manual logical backup for
+`qspsouemjtcdcfnivpnt` were **not** executed by the agent (verdict **NO-GO — operator action
+required**), because no credential was available and the agent may not supply one. The existing
+dev working directory link was left untouched (not relinked). No hosted command was run, no
+secret was read/entered, no hosted mutation occurred. This ADR asserts NO hosted inspection,
+migration, backup, or readiness certification was performed by the agent; those remain
+operator-run, gated by the read-only hosted-readiness audit of ADR-012 and an explicit human
+go/no-go before any separately-approved migration-039 window.
