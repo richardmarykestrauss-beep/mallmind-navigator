@@ -26,6 +26,8 @@ import { buildInternalIntakeRouter, buildHealthRouter } from "./routes/internalI
 import { buildWorkerId } from "./services/intake/workerIdentity";
 import { PostgresDurableIntakeStore } from "@/lib/fabric/intake/durable/postgresStore";
 import { GcsInputStore } from "@/lib/fabric/intake/durable/gcsInputStore";
+import { SupabaseStagingGateway } from "./services/intake/retailStagingPromotion";
+import { SupabaseDraftLedgerGateway } from "./services/intake/durableStagingPromoter";
 
 // ── Config (fail closed before anything is wired) ─────────────────────────────
 let config;
@@ -75,8 +77,19 @@ app.use(helmet());
 // browser. CORS is not authentication, and serving no CORS headers keeps that plain.
 app.use(express.json({ limit: "256kb" }));   // control-plane payloads only; data arrives via GCS
 
+// Canonical-funnel promotion (Sprint 3A.3) is OPT-IN: it only runs when a staging actor
+// (a real system profile id) is configured. Unset → the worker stages durable drafts only,
+// exactly as before. This keeps the local/default posture inert.
+const stagingActorId = process.env.RETAIL_STAGING_ACTOR_ID ?? null;
+const stagingGateway = new SupabaseStagingGateway(supabase);
+const stagingLedger = new SupabaseDraftLedgerGateway(supabase);
+
 app.use("/health", buildHealthRouter(config));
-app.use("/internal/intake", buildInternalIntakeRouter({ config, store, inputStore, auth, logger, workerId, now: () => new Date().toISOString() }));
+app.use("/internal/intake", buildInternalIntakeRouter({
+  config, store, inputStore, auth, logger, workerId,
+  now: () => new Date().toISOString(),
+  stagingGateway, stagingLedger, stagingActorId,
+}));
 
 app.use((_req, res) => res.status(404).json({ error: "not_found" }));
 

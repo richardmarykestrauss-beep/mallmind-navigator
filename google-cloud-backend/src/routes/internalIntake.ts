@@ -21,6 +21,8 @@ import { StaleWorkerError, IntegrityError } from "@/lib/fabric/intake/durable/du
 import { GcsRefError } from "@/lib/fabric/intake/durable/gcsInputStore";
 import type { IntakeInputStore } from "@/lib/fabric/intake/types";
 import { runDurableJob } from "@/lib/fabric/intake/durable/worker";
+import type { StageRpcCaller } from "../services/intake/retailStagingPromotion";
+import { promoteRun, resumePending, type DraftLedgerPort, type DurablePromotionSummary } from "../services/intake/durableStagingPromoter";
 
 export interface InternalIntakeDeps {
   config: IntakeWorkerConfig;
@@ -31,6 +33,13 @@ export interface InternalIntakeDeps {
   /** Stable per-instance worker id (one Cloud Run instance = one worker). */
   workerId: string;
   now: () => string;
+  /** Optional canonical-funnel promotion (Sprint 3A.3/3A.4): when the gateway + ledger + a valid
+   *  actor are set, validated drafts are durably promoted into pending observations via the
+   *  stage_retail_feed_observation RPC (crash-safe: persist candidate → stage → record). When
+   *  unset/invalid, the worker behaves exactly as before (stages durable drafts only). */
+  stagingGateway?: StageRpcCaller;
+  stagingLedger?: DraftLedgerPort;
+  stagingActorId?: string | null;
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -141,7 +150,30 @@ export function buildInternalIntakeRouter(deps: InternalIntakeDeps): Router {
       committed_chunks: reconciliation.committedChunks, reconciles: reconciliation.reconciles,
       chunk_count: reconciliation.committedChunks,
     });
-    return { jobId, status: result.status, reconciliation, sourceId };
+
+    // ── Canonical funnel promotion (Sprint 3A.3/3A.4, crash-safe) ─────────────
+    // Durably promote this run's validated drafts into pending observations via the RPC (the
+    // sole staging authority). Optional + additive. The RPC remains the identity/replay/rights/
+    // lifecycle authority; nothing here writes products or inserts observations directly. A
+    // per-row failure stays retryable; a restart re-promotes persisted candidates (resumePending).
+    let promotion: DurablePromotionSummary | null = null;
+    const actorValid = deps.stagingActorId != null && UUID_RE.test(deps.stagingActorId);
+    if (deps.stagingActorId != null && !actorValid) {
+      // Fail closed: a misconfigured actor never stages (better inert than a bad attribution).
+      jobLog.error("staging actor is misconfigured — promotion skipped", { event_type: "intake.promotion_skipped", error_code: "invalid_actor" });
+    }
+    if (deps.stagingGateway && deps.stagingLedger && actorValid && result.drafts.length > 0) {
+      promotion = await promoteRun(result.drafts, {
+        caller: deps.stagingGateway, ledger: deps.stagingLedger, actorId: deps.stagingActorId!, intakeJobId: jobId,
+      });
+      jobLog.info("canonical staging promotion finished", {
+        event_type: "intake.promotion_finished",
+        promoted_total: promotion.total, promoted_staged: promotion.staged, promoted_replayed: promotion.replayed,
+        promoted_conflict: promotion.conflict, promoted_mapping_required: promotion.mappingRequired,
+        promoted_rejected: promotion.rejected, promoted_errors: promotion.errors,
+      });
+    }
+    return { jobId, status: result.status, reconciliation, sourceId, promotion };
   };
 
   // ── Create ─────────────────────────────────────────────────────────────────
@@ -176,6 +208,19 @@ export function buildInternalIntakeRouter(deps: InternalIntakeDeps): Router {
     const job = await store.getJob(jobId);
     if (!job) return { status: 404, body: { error: "unknown_job" } };
     return { status: 200, body: await runJob(jobId, job.sourceId, job.mode, `trace_${jobId}`) };
+  }));
+
+  // ── Restart recovery: re-promote persisted-but-unpromoted drafts (Sprint 3A.4) ──
+  router.post("/jobs/:jobId/promote-pending", handle("intake.promote_pending", async (req) => {
+    const jobId = jobIdOf(req);
+    const actorValid = deps.stagingActorId != null && UUID_RE.test(deps.stagingActorId);
+    if (!deps.stagingGateway || !deps.stagingLedger || !actorValid) {
+      return { status: 422, body: { error: "promotion_not_configured" } };
+    }
+    const promotion = await resumePending({
+      caller: deps.stagingGateway, ledger: deps.stagingLedger, actorId: deps.stagingActorId!, intakeJobId: jobId,
+    });
+    return { status: 200, body: { jobId, promotion } };
   }));
 
   // ── Control ────────────────────────────────────────────────────────────────
