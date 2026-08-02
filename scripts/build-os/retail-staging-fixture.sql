@@ -185,13 +185,59 @@ begin
   if not v_raised then raise exception 'FAIL: authenticated executed the staging RPC'; end if;
 
   -- public has no EXECUTE grant on the staging RPC
-  if has_function_privilege('public','public.stage_retail_feed_observation(uuid,uuid,text,text,text,text,text,text,text,text,text,bigint,bigint,boolean,text,text,text,text,text,text,text,timestamptz,text,integer,text,jsonb)','EXECUTE') then
+  if has_function_privilege('public','public.stage_retail_feed_observation(uuid,uuid,text,text,text,text,text,text,text,text,text,bigint,bigint,boolean,text,text,text,text,text,text,text,timestamptz,text,integer,text,jsonb,uuid,text)','EXECUTE') then
     raise exception 'FAIL: public has EXECUTE on the staging RPC';
   end if;
   -- service_role does have EXECUTE
-  if not has_function_privilege('service_role','public.stage_retail_feed_observation(uuid,uuid,text,text,text,text,text,text,text,text,text,bigint,bigint,boolean,text,text,text,text,text,text,text,timestamptz,text,integer,text,jsonb)','EXECUTE') then
+  if not has_function_privilege('service_role','public.stage_retail_feed_observation(uuid,uuid,text,text,text,text,text,text,text,text,text,bigint,bigint,boolean,text,text,text,text,text,text,text,timestamptz,text,integer,text,jsonb,uuid,text)','EXECUTE') then
     raise exception 'FAIL: service_role lacks EXECUTE on the staging RPC';
   end if;
 end $$;
 
-select 'retail-staging-fixture: ALL STAGING / IDEMPOTENCY / MAPPING / SECURITY / PUBLICATION-BOUNDARY CASES PASSED' as result;
+-- ══ Sprint 3A.3 / migration 040: lifecycle gate + traceability + arity compat ══
+insert into public.retail_data_sources (id, source_type, name, legal_status, is_active, rights_review_state, commercial_use_allowed, storage_allowed, lifecycle_state)
+values
+  ('dc000000-0000-4000-8000-000000000004','partner_feed','Suspended Source','partner_licensed', true,  'under_review', null, null, 'suspended'),
+  ('dc000000-0000-4000-8000-000000000005','partner_feed','Revoked Source','partner_licensed',   true,  'under_review', null, null, 'revoked'),
+  ('dc000000-0000-4000-8000-000000000006','partner_feed','Inactive Source','partner_licensed',   false, 'under_review', null, null, 'active');
+
+do $$
+declare
+  a  uuid := '11111111-1111-1111-1111-111111111111';
+  s1 uuid := 'dc000000-0000-4000-8000-000000000001';
+  s4 uuid := 'dc000000-0000-4000-8000-000000000004';
+  s5 uuid := 'dc000000-0000-4000-8000-000000000005';
+  s6 uuid := 'dc000000-0000-4000-8000-000000000006';
+  ts timestamptz := '2026-07-31T10:00:00Z';
+  v_job uuid := 'ab000000-0000-4000-8000-0000000000cc';
+  o text; oid uuid; v_jobout uuid; v_draft text;
+begin
+  -- T1 suspended source → rejected (ADR-D lifecycle gate)
+  select outcome into o from public.stage_retail_feed_observation(a,s4,'T-1',null,null,null,'W','B','1L','Home','ZAR',5000,null,false,'standard',null,'online_national','online',null,null,'in_stock',ts,'u',1,'f',null);
+  if o <> 'rejected' then raise exception 'T1 FAIL suspended source staged: %',o; end if;
+  -- T2 revoked source → rejected
+  select outcome into o from public.stage_retail_feed_observation(a,s5,'T-2',null,null,null,'W','B','1L','Home','ZAR',5000,null,false,'standard',null,'online_national','online',null,null,'in_stock',ts,'u',2,'f',null);
+  if o <> 'rejected' then raise exception 'T2 FAIL revoked source staged: %',o; end if;
+  -- T3 inactive source (is_active=false) → rejected
+  select outcome into o from public.stage_retail_feed_observation(a,s6,'T-3',null,null,null,'W','B','1L','Home','ZAR',5000,null,false,'standard',null,'online_national','online',null,null,'in_stock',ts,'u',3,'f',null);
+  if o <> 'rejected' then raise exception 'T3 FAIL inactive source staged: %',o; end if;
+
+  -- T4 stageable source WITH traceability params → staged; job/draft columns populated
+  select outcome,observation_id into o,oid from public.stage_retail_feed_observation(a,s1,'T-4',null,'6001000000900',null,'Trace Widget','BrandX','400ml','Home','ZAR',7999,null,false,'standard',null,'online_national','online',null,null,'in_stock',ts,'https://x/T-4',4,'feed.csv',null,v_job,'draft_T4');
+  if o <> 'staged' then raise exception 'T4 FAIL trace stage outcome=%',o; end if;
+  select intake_job_id, intake_draft_ref into v_jobout, v_draft from public.retail_price_observations where id=oid;
+  if v_jobout is distinct from v_job then raise exception 'T4 FAIL intake_job_id not stored: %',v_jobout; end if;
+  if v_draft <> 'draft_T4' then raise exception 'T4 FAIL intake_draft_ref not stored: %',v_draft; end if;
+
+  -- T5 replay of T4 → replayed (trace params never affect identity/replay authority)
+  select outcome into o from public.stage_retail_feed_observation(a,s1,'T-4',null,'6001000000900',null,'Trace Widget','BrandX','400ml','Home','ZAR',7999,null,false,'standard',null,'online_national','online',null,null,'in_stock',ts,'https://x/T-4',4,'feed.csv',null,v_job,'draft_T4b');
+  if o <> 'replayed' then raise exception 'T5 FAIL trace replay outcome=%',o; end if;
+
+  -- T6 legacy 26-arg call still resolves (new params DEFAULT null) → staged, trace null
+  select outcome,observation_id into o,oid from public.stage_retail_feed_observation(a,s1,'T-6',null,'6001000000901',null,'Legacy Arity','BrandX','400ml','Home','ZAR',8999,null,false,'standard',null,'online_national','online',null,null,'in_stock',ts,'https://x/T-6',6,'feed.csv',null);
+  if o <> 'staged' then raise exception 'T6 FAIL 26-arg call outcome=%',o; end if;
+  select intake_job_id into v_jobout from public.retail_price_observations where id=oid;
+  if v_jobout is not null then raise exception 'T6 FAIL 26-arg call populated trace'; end if;
+end $$;
+
+select 'retail-staging-fixture: ALL STAGING / IDEMPOTENCY / MAPPING / SECURITY / PUBLICATION-BOUNDARY / LIFECYCLE / TRACEABILITY CASES PASSED' as result;

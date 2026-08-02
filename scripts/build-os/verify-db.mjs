@@ -49,9 +49,9 @@ begin
     into migration_count
     from supabase_migrations.schema_migrations;
 
-  if migration_count <> 40 then
+  if migration_count <> 41 then
     raise exception
-      'Expected 40 applied migrations (000-039), found %',
+      'Expected 41 applied migrations (000-040), found %',
       migration_count;
   end if;
 
@@ -66,9 +66,9 @@ begin
   if not exists (
     select 1
       from supabase_migrations.schema_migrations
-     where version = '039'
+     where version = '040'
   ) then
-    raise exception 'Latest migration 039 is missing';
+    raise exception 'Latest migration 040 is missing';
   end if;
 
   select count(*)
@@ -270,11 +270,21 @@ begin
   ) then
     raise exception '039: retail_price_observations feed/staging columns are missing or incomplete';
   end if;
-  -- staging RPC must be execute-revoked from public/anon/authenticated and granted to service_role
-  if has_function_privilege('public','public.stage_retail_feed_observation(uuid,uuid,text,text,text,text,text,text,text,text,text,bigint,bigint,boolean,text,text,text,text,text,text,text,timestamptz,text,integer,text,jsonb)','EXECUTE')
-     or has_function_privilege('anon','public.stage_retail_feed_observation(uuid,uuid,text,text,text,text,text,text,text,text,text,bigint,bigint,boolean,text,text,text,text,text,text,text,timestamptz,text,integer,text,jsonb)','EXECUTE')
-     or has_function_privilege('authenticated','public.stage_retail_feed_observation(uuid,uuid,text,text,text,text,text,text,text,text,text,bigint,bigint,boolean,text,text,text,text,text,text,text,timestamptz,text,integer,text,jsonb)','EXECUTE') then
-    raise exception '039: staging RPC is executable by public/anon/authenticated';
+  -- Migration 040 — canonical-funnel traceability columns on retail_price_observations.
+  if not exists (
+    select 1 from information_schema.columns
+     where table_schema='public' and table_name='retail_price_observations'
+       and column_name in ('intake_job_id','intake_draft_ref')
+     group by table_name having count(*) = 2
+  ) then
+    raise exception '040: retail_price_observations traceability columns (intake_job_id, intake_draft_ref) are missing';
+  end if;
+  -- staging RPC (040 signature: +p_intake_job_id, +p_intake_draft_ref) must be execute-revoked
+  -- from public/anon/authenticated and granted to service_role.
+  if has_function_privilege('public','public.stage_retail_feed_observation(uuid,uuid,text,text,text,text,text,text,text,text,text,bigint,bigint,boolean,text,text,text,text,text,text,text,timestamptz,text,integer,text,jsonb,uuid,text)','EXECUTE')
+     or has_function_privilege('anon','public.stage_retail_feed_observation(uuid,uuid,text,text,text,text,text,text,text,text,text,bigint,bigint,boolean,text,text,text,text,text,text,text,timestamptz,text,integer,text,jsonb,uuid,text)','EXECUTE')
+     or has_function_privilege('authenticated','public.stage_retail_feed_observation(uuid,uuid,text,text,text,text,text,text,text,text,text,bigint,bigint,boolean,text,text,text,text,text,text,text,timestamptz,text,integer,text,jsonb,uuid,text)','EXECUTE') then
+    raise exception '040: staging RPC is executable by public/anon/authenticated';
   end if;
 
   if not exists (

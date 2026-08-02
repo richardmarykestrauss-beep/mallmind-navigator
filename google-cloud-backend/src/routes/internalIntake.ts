@@ -21,6 +21,7 @@ import { StaleWorkerError, IntegrityError } from "@/lib/fabric/intake/durable/du
 import { GcsRefError } from "@/lib/fabric/intake/durable/gcsInputStore";
 import type { IntakeInputStore } from "@/lib/fabric/intake/types";
 import { runDurableJob } from "@/lib/fabric/intake/durable/worker";
+import { promoteDrafts, type StageRpcCaller, type PromotionSummary } from "../services/intake/retailStagingPromotion";
 
 export interface InternalIntakeDeps {
   config: IntakeWorkerConfig;
@@ -31,6 +32,11 @@ export interface InternalIntakeDeps {
   /** Stable per-instance worker id (one Cloud Run instance = one worker). */
   workerId: string;
   now: () => string;
+  /** Optional canonical-funnel promotion (Sprint 3A.3): when BOTH are set, staged drafts are
+   *  promoted into pending observations via the stage_retail_feed_observation RPC. When unset,
+   *  the worker behaves exactly as before (stages durable drafts only). */
+  stagingGateway?: StageRpcCaller;
+  stagingActorId?: string | null;
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -141,7 +147,25 @@ export function buildInternalIntakeRouter(deps: InternalIntakeDeps): Router {
       committed_chunks: reconciliation.committedChunks, reconciles: reconciliation.reconciles,
       chunk_count: reconciliation.committedChunks,
     });
-    return { jobId, status: result.status, reconciliation, sourceId };
+
+    // ── Canonical funnel promotion (Sprint 3A.3) ──────────────────────────────
+    // Promote this run's validated drafts into pending observations via the RPC (the sole
+    // row-level staging authority). Optional + additive: only runs when configured. The RPC
+    // remains the identity/replay/rights/lifecycle authority; nothing here writes products or
+    // inserts observations directly. A per-row failure stays retryable and never aborts.
+    let promotion: PromotionSummary | null = null;
+    if (deps.stagingGateway && deps.stagingActorId && result.drafts.length > 0) {
+      promotion = await promoteDrafts(result.drafts, deps.stagingGateway, {
+        actorId: deps.stagingActorId, intakeJobId: jobId, sourceFileName: null,
+      });
+      jobLog.info("canonical staging promotion finished", {
+        event_type: "intake.promotion_finished",
+        promoted_total: promotion.total, promoted_staged: promotion.staged, promoted_replayed: promotion.replayed,
+        promoted_conflict: promotion.conflict, promoted_mapping_required: promotion.mappingRequired,
+        promoted_rejected: promotion.rejected, promoted_errors: promotion.errors,
+      });
+    }
+    return { jobId, status: result.status, reconciliation, sourceId, promotion };
   };
 
   // ── Create ─────────────────────────────────────────────────────────────────
