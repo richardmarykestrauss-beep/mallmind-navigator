@@ -240,4 +240,69 @@ begin
   if v_jobout is not null then raise exception 'T6 FAIL 26-arg call populated trace'; end if;
 end $$;
 
-select 'retail-staging-fixture: ALL STAGING / IDEMPOTENCY / MAPPING / SECURITY / PUBLICATION-BOUNDARY / LIFECYCLE / TRACEABILITY CASES PASSED' as result;
+-- ══ Sprint 3A.4 / migration 041: promotion ledger, crash recovery, lifecycle, actor ══
+insert into public.retail_data_sources (id, source_type, name, legal_status, is_active, rights_review_state, commercial_use_allowed, storage_allowed, lifecycle_state)
+values
+  ('dc000000-0000-4000-8000-000000000007','partner_feed','Retired Source','partner_licensed', true, 'under_review', null, null, 'retired'),
+  ('dc000000-0000-4000-8000-000000000008','partner_feed','Rights-Expired Source','partner_licensed', true, 'expired', null, null, 'active'),
+  ('dc000000-0000-4000-8000-000000000009','partner_feed','Unreviewed Source','partner_licensed', true, 'unreviewed', null, null, 'active');
+
+insert into public.retail_intake_jobs (id, source_id, input_ref, input_hash, input_content_type, mode, requested_by, status)
+values ('ab000000-0000-4000-8000-0000000000cc','dc000000-0000-4000-8000-000000000001','gs://fixture/in.csv','hash12345','text/csv','csv','fixture@test.local','queued');
+insert into public.retail_intake_job_drafts (job_id, chunk_index, draft_ref, record_hash, conflict_state)
+values ('ab000000-0000-4000-8000-0000000000cc',0,'d1','rh1','none'),
+       ('ab000000-0000-4000-8000-0000000000cc',0,'d2','rh2','none');
+
+do $$
+declare
+  a  uuid := '11111111-1111-1111-1111-111111111111';
+  s1 uuid := 'dc000000-0000-4000-8000-000000000001';
+  s7 uuid := 'dc000000-0000-4000-8000-000000000007';
+  s8 uuid := 'dc000000-0000-4000-8000-000000000008';
+  s9 uuid := 'dc000000-0000-4000-8000-000000000009';
+  j  uuid := 'ab000000-0000-4000-8000-0000000000cc';
+  ts timestamptz := '2026-07-31T10:00:00Z';
+  o text; oid uuid; cand jsonb; n int; v_state text; v_raised boolean;
+begin
+  -- L1 retired → rejected (040 lifecycle gate)
+  select outcome into o from public.stage_retail_feed_observation(a,s7,'L-1',null,null,null,'W','B','1L','Home','ZAR',5000,null,false,'standard',null,'online_national','online',null,null,'in_stock',ts,'u',1,'f',null);
+  if o <> 'rejected' then raise exception 'L1 FAIL retired staged: %',o; end if;
+  -- L2 rights-expired (rights_review_state='expired', NOT a lifecycle_state) → rejected (039 rights gate)
+  select outcome into o from public.stage_retail_feed_observation(a,s8,'L-2',null,null,null,'W','B','1L','Home','ZAR',5000,null,false,'standard',null,'online_national','online',null,null,'in_stock',ts,'u',2,'f',null);
+  if o <> 'rejected' then raise exception 'L2 FAIL rights-expired staged: %',o; end if;
+  -- L3 unreviewed/unapproved → STAGED pending (quarantine; publication still blocked) — NOT rejected
+  select outcome,review_status into o,v_state from public.stage_retail_feed_observation(a,s9,'L-3',null,'6001000000L3',null,'Unrev','B','1L','Home','ZAR',5000,null,false,'standard',null,'online_national','online',null,null,'in_stock',ts,'u',3,'f',null);
+  if o <> 'staged' or v_state <> 'pending' then raise exception 'L3 FAIL unreviewed not quarantined-pending: o=% rev=%',o,v_state; end if;
+
+  -- P1 ledger happy path: persist candidate → promotable → stage → record → no longer promotable
+  cand := jsonb_build_object('p_source_id',s1,'p_intake_draft_ref','d1');   -- opaque audit/recovery copy
+  perform public.persist_draft_staging_candidate(j,'d1',cand,'stage_retail_feed_observation.v1');
+  select count(*) into n from public.list_promotable_drafts(j) where draft_ref='d1';
+  if n <> 1 then raise exception 'P1 FAIL d1 not promotable after persist'; end if;
+  select observation_id into oid from public.stage_retail_feed_observation(a,s1,'LP-1',null,'6001000000LP1',null,'Ledger Widget','B','1L','Home','ZAR',7999,null,false,'standard',null,'online_national','online',null,null,'in_stock',ts,'https://x/LP1',1,'feed.csv',null,j,'d1');
+  perform public.record_draft_promotion(j,'d1','promoted',oid,'staged');
+  select count(*) into n from public.list_promotable_drafts(j) where draft_ref='d1';
+  if n <> 0 then raise exception 'P1 FAIL promoted draft still promotable'; end if;
+  select promotion_state into v_state from public.retail_intake_job_drafts where job_id=j and draft_ref='d1';
+  if v_state <> 'promoted' then raise exception 'P1 FAIL ledger state=%',v_state; end if;
+
+  -- P2 crash-after-RPC: stage once, DO NOT record → still promotable; re-stage → replayed; one observation only
+  perform public.persist_draft_staging_candidate(j,'d2',cand,'stage_retail_feed_observation.v1');
+  select outcome into o from public.stage_retail_feed_observation(a,s1,'LP-2',null,'6001000000LP2',null,'Crash Widget','B','1L','Home','ZAR',8999,null,false,'standard',null,'online_national','online',null,null,'in_stock',ts,'https://x/LP2',2,'feed.csv',null,j,'d2');
+  if o <> 'staged' then raise exception 'P2 FAIL first stage=%',o; end if;
+  select count(*) into n from public.list_promotable_drafts(j) where draft_ref='d2';
+  if n <> 1 then raise exception 'P2 FAIL d2 not re-promotable after crash'; end if;
+  select outcome into o from public.stage_retail_feed_observation(a,s1,'LP-2',null,'6001000000LP2',null,'Crash Widget','B','1L','Home','ZAR',8999,null,false,'standard',null,'online_national','online',null,null,'in_stock',ts,'https://x/LP2',2,'feed.csv',null,j,'d2');
+  if o <> 'replayed' then raise exception 'P2 FAIL restart not replayed: %',o; end if;
+  select count(*) into n from public.retail_price_observations where source_product_id='LP-2';
+  if n <> 1 then raise exception 'P2 FAIL duplicate observation after restart: %',n; end if;
+
+  -- A1 invalid actor (valid uuid, no profile) → fails closed (admin_audit_log FK → profiles raises)
+  v_raised := false;
+  begin
+    perform public.stage_retail_feed_observation('22222222-2222-4222-8222-222222222222',s1,'A-1',null,'6001000000A1',null,'W','B','1L','Home','ZAR',5000,null,false,'standard',null,'online_national','online',null,null,'in_stock',ts,'u',1,'f',null);
+  exception when others then v_raised := true; end;
+  if not v_raised then raise exception 'A1 FAIL invalid actor did not fail closed'; end if;
+end $$;
+
+select 'retail-staging-fixture: ALL STAGING / IDEMPOTENCY / MAPPING / SECURITY / PUBLICATION-BOUNDARY / LIFECYCLE / TRACEABILITY / CRASH-RECOVERY CASES PASSED' as result;

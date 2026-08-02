@@ -49,9 +49,9 @@ begin
     into migration_count
     from supabase_migrations.schema_migrations;
 
-  if migration_count <> 41 then
+  if migration_count <> 42 then
     raise exception
-      'Expected 41 applied migrations (000-040), found %',
+      'Expected 42 applied migrations (000-041), found %',
       migration_count;
   end if;
 
@@ -66,9 +66,9 @@ begin
   if not exists (
     select 1
       from supabase_migrations.schema_migrations
-     where version = '040'
+     where version = '041'
   ) then
-    raise exception 'Latest migration 040 is missing';
+    raise exception 'Latest migration 041 is missing';
   end if;
 
   select count(*)
@@ -285,6 +285,25 @@ begin
      or has_function_privilege('anon','public.stage_retail_feed_observation(uuid,uuid,text,text,text,text,text,text,text,text,text,bigint,bigint,boolean,text,text,text,text,text,text,text,timestamptz,text,integer,text,jsonb,uuid,text)','EXECUTE')
      or has_function_privilege('authenticated','public.stage_retail_feed_observation(uuid,uuid,text,text,text,text,text,text,text,text,text,bigint,bigint,boolean,text,text,text,text,text,text,text,timestamptz,text,integer,text,jsonb,uuid,text)','EXECUTE') then
     raise exception '040: staging RPC is executable by public/anon/authenticated';
+  end if;
+
+  -- Migration 041 — durable promotion ledger on retail_intake_job_drafts + ledger RPCs.
+  if not exists (
+    select 1 from information_schema.columns
+     where table_schema='public' and table_name='retail_intake_job_drafts'
+       and column_name in ('staging_candidate','candidate_version','promotion_state','promotion_outcome','observation_id','promotion_attempts','promoted_at')
+     group by table_name having count(*) = 7
+  ) then
+    raise exception '041: retail_intake_job_drafts promotion-ledger columns are missing or incomplete';
+  end if;
+  if not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='persist_draft_staging_candidate')
+     or not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='record_draft_promotion')
+     or not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='list_promotable_drafts') then
+    raise exception '041: promotion-ledger RPCs are missing';
+  end if;
+  if has_function_privilege('anon','public.record_draft_promotion(uuid,text,text,uuid,text)','EXECUTE')
+     or has_function_privilege('authenticated','public.record_draft_promotion(uuid,text,text,uuid,text)','EXECUTE') then
+    raise exception '041: ledger RPC executable by anon/authenticated';
   end if;
 
   if not exists (

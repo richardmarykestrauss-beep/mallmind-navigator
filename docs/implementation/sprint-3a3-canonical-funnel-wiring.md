@@ -113,6 +113,8 @@ Edge Function/scrapers were not called, copied, or imported. RLS + service-role-
 - Promotion consumes the **in-memory** `OfferDraft[]` returned by the current run; drafts committed in a
   prior crashed run (durable drafts carry no candidate payload) are not re-promoted automatically. The
   RPC's idempotency makes re-promotion safe, but durable-payload-backed re-promotion is follow-up work.
+  **RESOLVED in Sprint 3A.4** (migration 041 promotion ledger persists the candidate + a promotion
+  state; see [sprint-3a4-crash-safe-funnel-proof.md](sprint-3a4-crash-safe-funnel-proof.md)).
 - `RETAIL_STAGING_ACTOR_ID` must be a real `profiles` id (admin_audit_log FK); documented, not seeded for
   hosted use here.
 - `products` projection lock-down + `published_observation_id` + `price_scope` shopper surfacing are
