@@ -65,5 +65,41 @@ jobs:
       - name: Install database tooling
         run: npm ci
 
+      - name: Start database stack (edge-runtime excluded to avoid CI Bus error)
+        run: |
+          set -uo pipefail
+          # The full `supabase start` launches supabase_edge_runtime_mallmind-navigator, which
+          # crashes with a Bus error on the CI runner. verify:db only needs Postgres + the applied
+          # migrations, so pre-start the stack WITHOUT edge-runtime (and other non-database
+          # services). The `supabase start` inside verify:db then finds the stack already running
+          # and no-ops — it does NOT re-add edge-runtime (verified locally: an idempotent start
+          # never launches an excluded service). Uses the repository-pinned Supabase CLI (no v1.61.3).
+          EXCLUDE="edge-runtime,functions,imgproxy,inbucket,realtime,storage,studio,vector,analytics"
+          attempt=1
+          max=3
+          while true; do
+            if npx supabase start -x "$EXCLUDE"; then
+              echo "Database stack started on attempt $attempt (edge-runtime excluded)."
+              break
+            fi
+            code=$?
+            echo "::warning::supabase start attempt $attempt failed (exit $code)."
+            if [ "$attempt" -ge "$max" ]; then
+              echo "::error::supabase database stack failed to start after $attempt attempts."
+              echo "===== docker ps -a ====="; docker ps -a || true
+              echo "===== supabase status ====="; npx supabase status || true
+              echo "===== logs from exited supabase containers ====="
+              for c in $(docker ps -a --filter name=supabase --filter status=exited --format '{{.Names}}'); do
+                echo "----- $c -----"; docker logs --tail 200 "$c" || true
+              done
+              exit "$code"
+            fi
+            npx supabase stop --no-backup || true
+            sleep "$((attempt * 15))"
+            attempt="$((attempt + 1))"
+          done
+
+      # verify:db runs its own `supabase start` (a no-op now that the stack is up without
+      # edge-runtime) + `supabase db reset`, then applies the SQL assertions. NOT retried.
       - name: Run authoritative database verification
         run: npm run verify:db
