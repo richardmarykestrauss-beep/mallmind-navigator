@@ -158,17 +158,21 @@ random variation.** (This directly prohibits the `supabase/functions/scrape-pric
 - Corollary for adapters (ADR-A/§3A.2): a Takealot adapter may emit **`online_national`** observations
   only; it must **never** assert a branch/competitor in-store price.
 
-## Final gate — Sprint 3A.3 remains CONDITIONAL-GO
+## Final gate — Sprint 3A.3 external-caller gate SATISFIED → FULL GO
 
-3A.3 (runtime funnel wiring + any writer quarantine) stays **CONDITIONAL-GO** until **all** hold:
+The external-caller verification is **complete** and all six gate conditions are **satisfied** (full
+evidence + founder confirmation + the completed Google Cloud inventory in
+[../operations/sprint-3a-external-caller-verification-results.md](../operations/sprint-3a-external-caller-verification-results.md)):
 
-1. Supabase Edge Function `scrape-prices` **deployment/scheduling verified read-only** (runbook A).
-2. GitHub `SUPABASE_SERVICE_KEY` secret + workflow references **verified read-only** (runbook B).
-3. Google Cloud scheduler/service/trigger inventory **completed read-only** (runbook C).
-4. **ADR-A/B/C/D recorded** (this document ✓) and promoted after migration/security review.
-5. Evidence that **no active process will be silently broken** by quarantine.
-6. The fabricated-price Edge Function has a **documented disposition**, one of:
-   **not deployed / deployed-but-unscheduled / deployed-and-scheduled / state-unknown.**
+1. Supabase Edge Function `scrape-prices` deployment/scheduling — **met** (not deployed; no cron; no `scrape_logs`).
+2. GitHub `SUPABASE_SERVICE_KEY` secret + workflow references — **met** (secret absent; scrapers manual-only, quarantined, ack-gated; no reusable/dispatch path).
+3. Google Cloud scheduler/service/trigger inventory — **met** (completed by authenticated operator; no scraper/scheduler/Eventarc/Pub-Sub/Run-Job in either project).
+4. **ADR-A/B/C/D recorded** (this document ✓) — to be promoted after migration/security review.
+5. No active process silently broken by quarantine — **met** (no active writer found anywhere).
+6. Fabricated-price Edge Function disposition — **met: NOT DEPLOYED / NOT SCHEDULED / NOT ACTIVE.**
 
-**The fabricated-price function must not be disabled during this task.** Design and decisions may
-proceed; irreversible steps wait on the runbook results.
+**Sprint 3A.3 is now FULL GO** for runtime funnel wiring under the approved ADR directions above,
+subject to the standing migration + security review of the implementation itself. This gate closure
+does **not** alter the substance of ADR-A/B/C/D. The fabricated-price function must never be deployed
+or run (fabricated-price hard rule); its dormant code is to be **retired/converted** during the
+direct-writer quarantine, never activated.

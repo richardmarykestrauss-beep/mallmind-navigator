@@ -68,60 +68,83 @@ Scoped sweep (excluding `node_modules`, `dist`, `.claude/worktrees`):
 
 **"No repository evidence of an active external caller was found."**
 
-## 4. Google Cloud findings / authenticated-access blocker
+## 4. Google Cloud findings (completed — authenticated operator inventory)
 
-**Track C is BLOCKED for the agent.** The `gcloud` CLI is installed but has **no authenticated
-account** available to this session (`gcloud auth list` returned no account, exit 49). I therefore
-**cannot** perform the read-only GCP inventory (Cloud Scheduler / Run / Run Jobs / Eventarc /
-Pub/Sub / Secret Manager names / service accounts). No GCP API was contacted.
+Track C is now **complete**, performed by an authenticated operator (not the agent; the agent's
+`gcloud` session had no authenticated account). Read-only inventory:
 
-**Residual risk is low but not formally closed:** the repository contains **no** path that deploys or
-invokes a scraper via GCP, **no** scheduler definitions, and the only GCP runtime surfaces are the
-backend Cloud Run service + intake worker (not scrapers). Formal closure requires an
-already-authenticated operator or Gemini to run the read-only inventory in
-[the runbook, Track C](sprint-3a-external-caller-verification-runbook.md).
+**Project `mallmind`:**
+- Cloud Run services: `mallmind-backend-dev`, `mallmind-intake-worker-dev`.
+- Cloud Run jobs: **none**.
+- Cloud Scheduler: **API disabled; no Scheduler jobs**.
+- Eventarc triggers: **none**. Pub/Sub topics: **none**. Pub/Sub subscriptions: **none**.
+- **No scraper, pricecheck, Takealot, or retail-publisher workload found.**
 
-## 5. Remaining founder confirmations (reduced to the minimum)
+**Project `mallmind-495518`:**
+- Cloud Run services: **none**. Cloud Run jobs: **none**.
+- Cloud Scheduler: **API disabled**. Eventarc triggers: **none**. Pub/Sub topics/subscriptions:
+  **none**.
 
-Repository + operator evidence has closed most questions. Still worth a one-line founder answer:
+**Conclusion:** the only GCP runtime surfaces are the backend Cloud Run service and the intake
+worker (dev) — **neither is a scraper or a fabricated-price writer**. No Cloud Scheduler, Eventarc,
+Pub/Sub, Run Job, or retail-publisher workload exists in either project. **No active external caller
+exists in Google Cloud.**
 
-- **(material)** Was the **fabricated in-store price behaviour** ("store premium above online") ever
-  **intentionally used** to populate shopper-facing prices? — determines whether existing `products`
-  rows need trust remediation, independent of the (now-dormant) code.
-- **(material)** Is there **any external automation outside GitHub / Supabase / GCP** (a personal
-  cron, a laptop task, a third-party scheduler) that writes MallMind retail/product data?
-- **(low-risk formality)** Was the **19C.1 publish** a one-off manual event? (The planner is unwired;
-  low risk.)
-- **(low-risk formality)** Does anyone **manually run** the scraper workflows? (Gated by the
-  `QUARANTINED` ack **and** blocked by the absent `SUPABASE_SERVICE_KEY`; effectively moot.)
+### Audit note — unintended API enablement during the first inventory attempt
+
+Honesty record: during the **first** GCP inventory attempt, four APIs were **enabled unintentionally**
+while responding to interactive `gcloud` prompts:
+- `run.googleapis.com` on `mallmind-495518`
+- `eventarc.googleapis.com` on `mallmind-495518`
+- `secretmanager.googleapis.com` on `mallmind-495518`
+- `eventarc.googleapis.com` on `mallmind`
+
+**No Cloud Run service, job, Scheduler job, Eventarc trigger, Pub/Sub resource, secret, or
+deployment was created.** Only the API *enablement flags* changed. Per instruction these APIs are
+**not** being disabled in this task; this note records the configuration change transparently for
+later review.
+
+## 5. Founder confirmations (received)
+
+Richard confirmed:
+- All MallMind work was performed as part of the guided build process; he **did not independently
+  configure external automation**.
+- To his knowledge, the **fabricated 2–6% "in-store premium" logic was never deliberately run** to
+  populate MallMind shopper prices.
+- **No** Make.com, Zapier, n8n, external server, webhook, or other automation was created outside
+  GitHub, Supabase, and the two inspected Google Cloud projects.
+
+This closes the two material questions (no external automation; fabricated pricing not deliberately
+run) and the two formalities (manual-only, guided-process operation).
 
 ## 6. Final disposition of `scrape-prices`
 
-**NOT DEPLOYED.** Confirmed not deployed in either Supabase project; no cron; `scrape_logs` table
-absent; no repository path can deploy or schedule it; the service-role secret it would need is
-absent. The fabricated-price capability exists **only as un-deployed repository code** and is not
-running or scheduled anywhere verified.
+**NOT DEPLOYED / NOT SCHEDULED / NOT ACTIVE.** Confirmed not deployed in either Supabase project; no
+`cron.job`; `scrape_logs` table absent; no Cloud Scheduler / Eventarc / Pub/Sub / Run Job in either
+GCP project; no repository path can deploy or schedule it; the service-role secret it would need is
+absent from GitHub. The fabricated-price capability exists **only as un-deployed repository code** and
+is not running, scheduled, or active anywhere across the inspected GitHub, Supabase, and Google Cloud
+surfaces.
 
-## 7. Final recommendation for Sprint 3A.3
+## 7. Final external direct-writer verdict & Sprint 3A.3 gate
 
-**CONDITIONAL-GO (narrow).** The active-caller risk is effectively cleared: no active external caller
-was found; the fabricated-price Edge Function is **not deployed**; the scrapers are quarantined,
-manual-only, and cannot write (no service-role secret); no scheduler exists in repo, Supabase (cron
-absent), or any evidence trail; CI/build workflows cannot deploy/invoke/write.
+**External-caller verdict: NO ACTIVE AUTOMATED EXTERNAL CALLER FOUND.** Every surface was inspected —
+repository, GitHub Actions + secrets, both Supabase projects, and both Google Cloud projects — plus
+founder confirmation. No scheduler, no deployed edge function, no cloud workload, and no external
+automation writes MallMind retail/product data.
 
-Of the six gate conditions (per the Sprint 3A decisions doc):
-1. Supabase edge-fn deployment/scheduling — **met** (not deployed).
-2. GitHub secret + workflow references — **met** (secret absent; workflows manual-only quarantined).
-3. GCP scheduler/service/trigger inventory — **NOT formally completed** (Track C unavailable to the
-   agent; low residual risk). ← the single remaining formal gate.
+All six gate conditions (per the Sprint 3A decisions doc) are now satisfied:
+1. Supabase edge-fn deployment/scheduling — **met** (not deployed; no cron; no `scrape_logs`).
+2. GitHub secret + workflow references — **met** (`SUPABASE_SERVICE_KEY` absent; scrapers manual-only,
+   quarantined, ack-gated; no reusable/dispatch path).
+3. GCP scheduler/service/trigger inventory — **met** (completed; no scraper/scheduler/eventarc/pubsub
+   workload in either project).
 4. ADR-A/B/C/D — **recorded** (pending post-migration promotion).
-5. No active process silently broken by quarantine — **strongly supported** (no active writer found).
-6. `scrape-prices` disposition documented — **met** (NOT DEPLOYED).
+5. No active process silently broken by quarantine — **met** (no active writer exists anywhere).
+6. `scrape-prices` disposition documented — **met** (NOT DEPLOYED / NOT SCHEDULED / NOT ACTIVE).
 
-**Recommendation:** proceed to *design and prepare* Sprint 3A.3, and **lift to full GO once the
-Track C GCP read-only inventory is completed by an authenticated operator/Gemini** and the two
-material founder questions (§5) are answered. This remains CONDITIONAL-GO only because of the
-formally-incomplete GCP track — not because any active caller was found.
-
-The fabricated-price function must not be disabled or deployed during this task; ADR implementation
-details are not written here.
+**Sprint 3A.3 verdict: FULL GO.** The external-caller gate is closed. 3A.3 (canonical funnel runtime
+wiring) may proceed under the approved ADR directions, still subject to the standing migration +
+security review of the implementation itself. Note (unchanged by this gate): the fabricated-price
+function must never be deployed or run (fabricated-price hard rule); its dormant code should be
+retired/converted as part of the direct-writer quarantine, not activated.
