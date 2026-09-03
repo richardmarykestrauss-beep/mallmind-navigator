@@ -1,0 +1,164 @@
+{
+  "_status": "RESEARCH CANDIDATE — NOT PRODUCTION. Source-backed TOPOLOGY only. No metres. Not loaded by the app.",
+  "asset_id": "menlyn-park-lf-proof-route-v1",
+  "dataset_version": "1.0.0-research",
+  "dataset_status": "source-backed",
+  "evidence_status": "source-backed",
+  "reality_label": "menlyn-lf-entrance13-to-clicks-lf72-topology-source-backed-unscaled",
+  "source_policy": "Every node and edge is traced from the official Menlyn Park Lower First Level map (first-party). Coordinates are measured on that image and expressed as scale-invariant percentages. No distance in metres is claimed because the map carries no scale bar. The exact Clicks storefront door is not depicted at usable resolution and requires field verification.",
+  "mall_id": "menlyn-park",
+  "mall_name": "Menlyn Park Shopping Centre",
+  "coordinate_system": "percent-based MallMind node coordinates (0..100) on the PREPARED plan image (source image padded symmetrically in width to the 1000:620 plane). Canonical measurements are also given on the unpadded source image as *_source fields.",
+  "viewBox": "0 0 1000 620",
+  "evidence_levels": ["schematic", "source-backed", "on-site-verified"],
+
+  "source_image": {
+    "url": "https://www.menlynpark.co.za/wp-content/uploads/2023/07/Lower-First-Level-Map.jpg",
+    "title_on_image": "LOWER FIRST LEVEL",
+    "measured_on": "conversation-rendered copy of the official JPG (uploaded by mission owner 2026-09-03)",
+    "rendered_width_px": 1280,
+    "rendered_height_px": 853,
+    "native_dimensions_verified": false,
+    "aspect_ratio_source": 1.5006,
+    "origin": "top-left, x rightwards, y downwards",
+    "measurement_precision_note": "Positions read from the rendered image, not from native pixels: estimated ±8 px of the 1280-wide rendering (≈ ±0.6 % x, ±1.0 % y). Re-measure on the native file before on-site use; percentages are scale-invariant so the values below remain valid if the native aspect is 1.50.",
+    "scale_bar_present": false,
+    "north_arrow_present": false
+  },
+
+  "distance_unit": "px",
+  "_distance_unit_note": "NOT in the current MallMind contract (which requires distance_meters > 0). Edges carry length_px_source (pixels on the 1280-wide rendering) and length_pct (percent of source width, scale-invariant). distance_meters is deliberately null: no calibration exists. See README for the smallest contract change.",
+
+  "floors": [
+    {
+      "id": "LF",
+      "label": "Lower First Level",
+      "plan_image": {
+        "url": null,
+        "width_px": null,
+        "height_px": null,
+        "evidence": "source-backed",
+        "source": "To be PREPARED from the source_image: pad width symmetrically to aspect 1000:620 (for a 1280×853 source: 1376×853, 48 px each side). url stays null until reproduction rights are confirmed with Pareto / centre management.",
+        "licence": null
+      },
+      "plane_padding": {
+        "target_aspect": 1.6129,
+        "pad_fraction_of_source_width_each_side": 0.03743,
+        "formula": "x_percent = (x_percent_source + 3.743) / 1.07486 ; y_percent = y_percent_source"
+      }
+    }
+  ],
+
+  "nodes": [
+    {
+      "node_id": "menlyn-lf-entrance-13",
+      "name": "Entrance 13",
+      "type": "entrance",
+      "floor": "LF",
+      "x_px_source": 636, "y_px_source": 196,
+      "x_percent_source": 49.69, "y_percent_source": 22.98,
+      "x_percent": 49.71, "y_percent": 22.98,
+      "evidence": "source-backed",
+      "evidence_level_detail": "FIRST_PARTY_VISUAL — circled '13' marker on the official LF map, on the mall boundary directly below the orange P5 parking, at the head of a vertical public corridor",
+      "source": "https://www.menlynpark.co.za/wp-content/uploads/2023/07/Lower-First-Level-Map.jpg",
+      "notes": "The marker sits on the LOWER FIRST LEVEL sheet, so Entrance 13 opens onto LF (no floor transition needed). Consistent with the Clicks tenant page: Nearest Entrance 13, Orange Parking."
+    },
+    {
+      "node_id": "menlyn-lf-spine-x-upper",
+      "name": "Corridor junction (cross corridor)",
+      "type": "corridor",
+      "floor": "LF",
+      "x_px_source": 636, "y_px_source": 355,
+      "x_percent_source": 49.69, "y_percent_source": 41.62,
+      "x_percent": 49.71, "y_percent": 41.62,
+      "evidence": "source-backed",
+      "evidence_level_detail": "FIRST_PARTY_VISUAL — the north–south corridor from Entrance 13 crosses an east–west public corridor here (tan circulation band running roughly x 505→700 at this height)",
+      "source": "https://www.menlynpark.co.za/wp-content/uploads/2023/07/Lower-First-Level-Map.jpg",
+      "notes": "Only junction between Entrance 13 and Clicks. The route continues straight through it."
+    },
+    {
+      "node_id": "menlyn-lf-clicks-lf72-arrival",
+      "name": "Clicks (LF 72) — corridor arrival point",
+      "type": "shop",
+      "floor": "LF",
+      "linked_shop_id": "menlyn-clicks-lf72",
+      "x_px_source": 636, "y_px_source": 415,
+      "x_percent_source": 49.69, "y_percent_source": 48.65,
+      "x_percent": 49.71, "y_percent": 48.65,
+      "evidence": "source-backed",
+      "evidence_level_detail": "FIRST_PARTY_VISUAL for the corridor point; the Clicks store block (logo centroid ≈ x 590, y 415 source px; 46.1 %, 48.7 %) sits immediately WEST of the corridor at this height. The storefront door is NOT identifiable — UNKNOWN / FIELD_VERIFICATION_REQUIRED.",
+      "source": "https://www.menlynpark.co.za/wp-content/uploads/2023/07/Lower-First-Level-Map.jpg",
+      "notes": "Arrival point = corridor centreline abreast of the Clicks frontage. Walking south from Entrance 13, Clicks is on the shopper's RIGHT (west). Whether the door faces this corridor (east side) or the cross corridor (north side) must be confirmed on site.",
+      "tenant": {
+        "shop_number": "LF 72",
+        "identity_evidence": "source-backed",
+        "identity_source": "https://www.menlynpark.co.za/stores/clicks/ (Store Code LF 72, Nearest Entrance 13, Orange Parking, Atterbury Road, 012 348 6161) — FIRST_PARTY_EXPLICIT, re-verified by mission owner 2026-09-03"
+      },
+      "store_polygon_centroid_source": { "x_px": 590, "y_px": 415, "x_percent_source": 46.09, "y_percent_source": 48.65, "evidence": "source-backed", "note": "logo position on the map; informational, not a route node" }
+    }
+  ],
+
+  "edges": [
+    {
+      "edge_id": "menlyn-lf-e13-to-x-upper",
+      "from": "menlyn-lf-entrance-13",
+      "to": "menlyn-lf-spine-x-upper",
+      "distance_meters": null,
+      "length_px_source": 159,
+      "length_pct": 12.42,
+      "bearing": "south (straight along the corridor)",
+      "floor_change": false,
+      "evidence": "source-backed",
+      "evidence_level_detail": "FIRST_PARTY_VISUAL — lies entirely inside the tan public corridor between the mr price home block (west) and the Ackermans block (east); vertical, no diagonal, crosses no wall or store",
+      "source": "https://www.menlynpark.co.za/wp-content/uploads/2023/07/Lower-First-Level-Map.jpg"
+    },
+    {
+      "edge_id": "menlyn-lf-x-upper-to-clicks",
+      "from": "menlyn-lf-spine-x-upper",
+      "to": "menlyn-lf-clicks-lf72-arrival",
+      "distance_meters": null,
+      "length_px_source": 60,
+      "length_pct": 4.69,
+      "bearing": "south (continue straight through the junction)",
+      "floor_change": false,
+      "evidence": "source-backed",
+      "evidence_level_detail": "FIRST_PARTY_VISUAL — same corridor continuing south of the cross corridor; Clicks block on the west side; vertical, inside circulation",
+      "source": "https://www.menlynpark.co.za/wp-content/uploads/2023/07/Lower-First-Level-Map.jpg"
+    }
+  ],
+
+  "route_sequence": [
+    "Start at Entrance 13 (Orange Parking / Atterbury Road side).",
+    "Walk straight into the mall along the corridor (south).",
+    "Continue straight across the cross corridor.",
+    "Clicks (LF 72) is on your right, just past the crossing. Arrival point: corridor abreast of Clicks."
+  ],
+
+  "wall_corridor_validation": {
+    "pass_1": "All three nodes lie on the same vertical tan corridor band (x ≈ 636 source px). Edge 1 is bounded by mr price home (west) and Ackermans (east) store blocks and never enters either. Edge 2 is bounded by the Clicks block (west) and an unlabelled block (east). No diagonal, no wall crossing, one junction included, no junction skipped (no other cross corridor between y 205 and y 355).",
+    "pass_2": "Re-read from the entrance downward: marker 13 → corridor mouth → uninterrupted band → circular junction at the east–west corridor → band continues → Clicks logo abreast to the west → band continues to the lower east–west corridor (not part of the route). Consistent with pass 1. Rejected alternative: routing via the upper cross corridor westward — unnecessary, Clicks is reached without turning.",
+    "rejected_edges": [],
+    "result": "PASS (topology). Precision caveat: measured on a 1280-px rendering, not native pixels."
+  },
+
+  "context_landmarks_first_party_visual": [
+    { "name": "Entrance 15", "x_px_source": 457, "y_px_source": 210 },
+    { "name": "Entrance 7", "x_px_source": 354, "y_px_source": 578 },
+    { "name": "Entrance 14", "x_px_source": 514, "y_px_source": 632 },
+    { "name": "Entrance 5", "x_px_source": 725, "y_px_source": 624 },
+    { "name": "Menlyn Sky (round court)", "x_px_source": 430, "y_px_source": 440 },
+    { "name": "Information desk (i) west", "x_px_source": 372, "y_px_source": 470 },
+    { "name": "Information desk (i) central", "x_px_source": 723, "y_px_source": 490 },
+    { "name": "mr price home", "x_px_source": 560, "y_px_source": 240 },
+    { "name": "Ackermans", "x_px_source": 683, "y_px_source": 280 },
+    { "name": "Orange P5 parking (Entrance 13 side)", "x_px_source": 640, "y_px_source": 120 }
+  ],
+
+  "unverified": [
+    "Exact Clicks storefront door position and which corridor it faces.",
+    "Real-world distance of either edge (no scale bar; no calibration source).",
+    "Native pixel dimensions of the official JPG (rendered 1280×853 assumed to share its aspect).",
+    "Whether the cross corridor junction has step-free continuity (assumed, not verified).",
+    "Reproduction rights for the map image (plan_image.url left null)."
+  ]
+}
