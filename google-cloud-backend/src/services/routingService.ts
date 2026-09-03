@@ -1,149 +1,28 @@
-import { getSupabaseClient } from "../lib/supabase.js";
-import type { MallNode, MallEdge, RouteStep } from "../lib/types.js";
-
-// ── Dijkstra ──────────────────────────────────────────────────────────────────
-
-interface DijkstraResult {
-  path: string[];
-  edges: MallEdge[];
-  totalDistance: number;
-}
-
-function dijkstra(
-  nodes: MallNode[],
-  edges: MallEdge[],
-  startId: string,
-  endId: string
-): DijkstraResult | null {
-  const dist: Record<string, number> = {};
-  const prev: Record<string, { from: string; edge: MallEdge } | null> = {};
-  const unvisited = new Set<string>();
-
-  for (const n of nodes) {
-    dist[n.id] = Infinity;
-    prev[n.id] = null;
-    unvisited.add(n.id);
-  }
-  dist[startId] = 0;
-
-  while (unvisited.size > 0) {
-    let u: string | null = null;
-    for (const id of unvisited) {
-      if (u === null || dist[id] < dist[u]) u = id;
-    }
-    if (!u || dist[u] === Infinity) break;
-    if (u === endId) break;
-    unvisited.delete(u);
-
-    // Edges are undirected
-    const neighbours = edges.filter(
-      (e) => e.from_node_id === u || e.to_node_id === u
-    );
-    for (const e of neighbours) {
-      const v = e.from_node_id === u ? e.to_node_id : e.from_node_id;
-      if (!unvisited.has(v)) continue;
-      const alt = dist[u] + e.distance_meters;
-      if (alt < dist[v]) {
-        dist[v] = alt;
-        prev[v] = { from: u, edge: e };
-      }
-    }
-  }
-
-  if (dist[endId] === Infinity) return null;
-
-  const path: string[] = [];
-  const traversedEdges: MallEdge[] = [];
-  let cur = endId;
-  while (prev[cur]) {
-    const { from, edge } = prev[cur]!;
-    path.unshift(cur);
-    traversedEdges.unshift(edge);
-    cur = from;
-  }
-  path.unshift(startId);
-
-  return { path, edges: traversedEdges, totalDistance: dist[endId] };
-}
-
-function formatFloorLabel(floor: string | null | undefined): string {
-  if (!floor) return "the mall";
-
-  const trimmed = String(floor).trim();
-  if (trimmed === "G") return "Ground Floor";
-
-  const levelMatch = trimmed.match(/^L(\d+)$/i);
-  if (levelMatch) return `Level ${levelMatch[1]}`;
-
-  return trimmed;
-}
-
-function isInternalNavigationNode(node: MallNode | undefined): boolean {
-  if (!node) return false;
-  if (node.linked_shop_id) return false;
-
-  const name = (node.name ?? "").toLowerCase();
-
-  const nodeType = String(node.type ?? "");
-
-  return (
-    nodeType === "corridor" ||
-    name.includes("spine") ||
-    name.includes("corridor") ||
-    name.includes("junction") ||
-    /\bnode\s*\d+\b/i.test(name)
-  );
-}
-
-function buildInstruction(
-  fromNode: MallNode,
-  toNode: MallNode,
-  edge: MallEdge,
-  isFirst: boolean
-): string {
-  const floorLabel = formatFloorLabel(toNode.floor ?? fromNode.floor);
-
-  if (isFirst) {
-    const startName = isInternalNavigationNode(fromNode) ? null : fromNode.name;
-    if (startName) return `Start at ${startName} and head into ${floorLabel}.`;
-    return `Start in ${floorLabel} and head into the main corridor.`;
-  }
-
-  if (edge.floor_change) {
-    return `Take the escalator or lift to ${floorLabel}.`;
-  }
-
-  if (isInternalNavigationNode(toNode)) {
-    return `Continue along the ${floorLabel} corridor.`;
-  }
-
-  return `Walk toward ${toNode.name}.`;
-}
-
-// ── Main function ─────────────────────────────────────────────────────────────
-
-export interface BuildRouteResult {
-  route_id: string | null;
-  steps: RouteStep[];
-  total_distance_meters: number;
-  estimated_minutes: number;
-  stop_count: number;
-  fallback: boolean;
-}
-
 /**
- * Builds a step-by-step indoor route using Dijkstra over mall_nodes/mall_edges.
- * Does NOT require a session — uses mall_id directly.
- * Returns steps but does not persist the route (route_id is always null).
+ * routingService.ts — I/O wrapper around the pure planner in routingCore.ts.
  *
- * Use this when the assistant has route intent but no active session_id.
+ * Loads mall_nodes / mall_edges (and the shopping session) from Supabase,
+ * plans the route, and persists ONLY real routes. Unroutable results are
+ * returned explicitly (fallback + reason) and never written to shopping_routes.
  */
-export async function buildRouteNoSession(
-  mall_id: string,
-  destination_shop_ids: string[]
-): Promise<BuildRouteResult> {
-  const supabase = getSupabaseClient();
 
+import { getSupabaseClient } from "../lib/supabase.js";
+import type { MallNode, MallEdge } from "../lib/types.js";
+import {
+  buildRouteResultFromGraph,
+  type BuildRouteResult,
+  type MallGraph,
+} from "./routingCore.js";
+
+export type {
+  BuildRouteResult, RouteFallbackReason, GraphRoutePlan, MallGraph,
+} from "./routingCore.js";
+export {
+  planGraphRoute, pickStartNode, resolveDestinationNodes, buildRouteResultFromGraph,
+} from "./routingCore.js";
+
+async function loadMallGraph(mall_id: string): Promise<MallGraph> {
+  const supabase = getSupabaseClient();
   const [
     { data: allNodes, error: nodesError },
     { data: allEdges, error: edgesError },
@@ -155,132 +34,40 @@ export async function buildRouteNoSession(
   if (nodesError) throw new Error(`Failed to load mall nodes: ${nodesError.message}`);
   if (edgesError) throw new Error(`Failed to load mall edges: ${edgesError.message}`);
 
-  const nodes = (allNodes ?? []) as MallNode[];
-  const edges = (allEdges ?? []) as MallEdge[];
-  const nodeMap = Object.fromEntries(nodes.map((n) => [n.id, n]));
+  return { nodes: (allNodes ?? []) as MallNode[], edges: (allEdges ?? []) as MallEdge[] };
+}
 
-  if (!nodes.length) {
-    return {
-      route_id: null,
-      steps: [],
-      total_distance_meters: 0,
-      estimated_minutes: 0,
-      stop_count: destination_shop_ids.length,
-      fallback: true,
-    };
-  }
+export interface RouteBuildDeps {
+  /** Injectable graph loader (tests); defaults to Supabase mall_nodes / mall_edges. */
+  loadGraph?: (mall_id: string) => Promise<MallGraph>;
+}
 
-  // Pick start: entrance > ground-floor shop > first node
-  const entrance = nodes.find((n) => n.type === "entrance");
-  const groundShop = nodes.find((n) => n.floor === "G" && n.type === "shop");
-  const startNodeId = entrance?.id ?? groundShop?.id ?? nodes[0].id;
-
-  const destNodeIds: string[] = [];
-  for (const shopId of destination_shop_ids) {
-    const node = nodes.find((n) => n.linked_shop_id === shopId);
-    if (node) destNodeIds.push(node.id);
-  }
-
-  if (!destNodeIds.length) {
-    return {
-      route_id: null,
-      steps: [],
-      total_distance_meters: 0,
-      estimated_minutes: 0,
-      stop_count: destination_shop_ids.length,
-      fallback: true,
-    };
-  }
-
-  const allSteps: RouteStep[] = [];
-  let totalDistance = 0;
-  let stepNum = 1;
-  let currentStart = startNodeId;
-
-  for (const destNodeId of destNodeIds) {
-    if (currentStart === destNodeId) continue;
-
-    const result = dijkstra(nodes, edges, currentStart, destNodeId);
-
-    if (!result || result.path.length < 2) {
-      const destNode = nodeMap[destNodeId];
-      allSteps.push({
-        step: stepNum++,
-        instruction: `Head to ${destNode?.name ?? "the store"} on Floor ${destNode?.floor ?? "?"}`,
-        node_id: destNodeId,
-        node_name: destNode?.name ?? "Store",
-        floor: destNode?.floor ?? null,
-        distance_meters: 100,
-        floor_change: false,
-        cumulative_meters: totalDistance + 100,
-        x_coordinate: destNode?.x_coordinate ?? null,
-        y_coordinate: destNode?.y_coordinate ?? null,
-      });
-      totalDistance += 100;
-      currentStart = destNodeId;
-      continue;
-    }
-
-    for (let i = 0; i < result.path.length - 1; i++) {
-      const fromId = result.path[i];
-      const toId = result.path[i + 1];
-      const fromNode = nodeMap[fromId];
-      const toNode = nodeMap[toId];
-      const edge = result.edges[i];
-      const instruction = buildInstruction(fromNode, toNode, edge, stepNum === 1);
-      totalDistance += edge.distance_meters;
-
-      allSteps.push({
-        step: stepNum++,
-        instruction,
-        node_id: toId,
-        node_name: toNode?.name ?? "—",
-        floor: toNode?.floor ?? null,
-        distance_meters: edge.distance_meters,
-        floor_change: edge.floor_change,
-        cumulative_meters: totalDistance,
-        x_coordinate: toNode?.x_coordinate ?? null,
-        y_coordinate: toNode?.y_coordinate ?? null,
-      });
-    }
-
-    currentStart = destNodeId;
-  }
-
-  const lastNode = nodeMap[destNodeIds[destNodeIds.length - 1]];
-  if (allSteps.length) {
-    allSteps.push({
-      step: stepNum,
-      instruction: `You've arrived at ${lastNode?.name ?? "your destination"}`,
-      node_id: destNodeIds[destNodeIds.length - 1],
-      node_name: lastNode?.name ?? "Destination",
-      floor: lastNode?.floor ?? null,
-      distance_meters: 0,
-      floor_change: false,
-      cumulative_meters: totalDistance,
-      x_coordinate: lastNode?.x_coordinate ?? null,
-      y_coordinate: lastNode?.y_coordinate ?? null,
-    });
-  }
-
-  return {
-    route_id: null,
-    steps: allSteps,
-    total_distance_meters: totalDistance,
-    estimated_minutes: Math.max(1, Math.round(totalDistance / 72)),
-    stop_count: destNodeIds.length,
-    fallback: false,
-  };
+/**
+ * Builds a step-by-step indoor route using Dijkstra over mall_nodes/mall_edges.
+ * Does NOT require a session — uses mall_id directly.
+ * Returns steps but does not persist the route (route_id is always null).
+ *
+ * Use this when the assistant has route intent but no active session_id.
+ */
+export async function buildRouteNoSession(
+  mall_id: string,
+  destination_shop_ids: string[],
+  deps: RouteBuildDeps = {}
+): Promise<BuildRouteResult> {
+  const graph = await (deps.loadGraph ?? loadMallGraph)(mall_id);
+  return buildRouteResultFromGraph(graph, destination_shop_ids);
 }
 
 /**
  * Builds a step-by-step indoor route using Dijkstra over mall_nodes/mall_edges.
  * Saves the result to shopping_routes and updates shopping_sessions.active_route_id.
+ * A route that cannot be built honestly is never persisted.
  */
 export async function buildRoute(
   session_id: string,
   destination_shop_ids: string[],
-  user_id: string | null
+  user_id: string | null,
+  deps: RouteBuildDeps = {}
 ): Promise<BuildRouteResult> {
   const supabase = getSupabaseClient();
 
@@ -298,139 +85,18 @@ export async function buildRoute(
 
   const mallId = session.mall_id as string;
 
-  // 2. Load graph
-  const [
-    { data: allNodes, error: nodesError },
-    { data: allEdges, error: edgesError },
-  ] = await Promise.all([
-    supabase.from("mall_nodes").select("*").eq("mall_id", mallId),
-    supabase.from("mall_edges").select("*").eq("mall_id", mallId),
-  ]);
+  // 2. Load graph + plan (start = session anchor > entrance > ground shop > first node)
+  const graph = await (deps.loadGraph ?? loadMallGraph)(mallId);
+  const result = buildRouteResultFromGraph(
+    graph,
+    destination_shop_ids,
+    (session.current_anchor_node_id as string | null) ?? null
+  );
 
-  if (nodesError) throw new Error(`Failed to load mall nodes: ${nodesError.message}`);
-  if (edgesError) throw new Error(`Failed to load mall edges: ${edgesError.message}`);
+  // Unroutable → explicit, truthful, and never persisted
+  if (result.fallback) return result;
 
-  const nodes = (allNodes ?? []) as MallNode[];
-  const edges = (allEdges ?? []) as MallEdge[];
-  const nodeMap = Object.fromEntries(nodes.map((n) => [n.id, n]));
-
-  // No graph data — return fallback flag
-  if (!nodes.length) {
-    return {
-      route_id: null,
-      steps: [],
-      total_distance_meters: 0,
-      estimated_minutes: 0,
-      stop_count: destination_shop_ids.length,
-      fallback: true,
-    };
-  }
-
-  // 3. Determine start node
-  let startNodeId: string;
-  if (session.current_anchor_node_id) {
-    startNodeId = session.current_anchor_node_id as string;
-  } else {
-    const entrance = nodes.find((n) => n.type === "entrance");
-    const groundShop = nodes.find((n) => n.floor === "G" && n.type === "shop");
-    startNodeId = entrance?.id ?? groundShop?.id ?? nodes[0].id;
-  }
-
-  // 4. Find destination nodes
-  const destNodeIds: string[] = [];
-  for (const shopId of destination_shop_ids) {
-    const node = nodes.find((n) => n.linked_shop_id === shopId);
-    if (node) destNodeIds.push(node.id);
-  }
-
-  if (!destNodeIds.length) {
-    return {
-      route_id: null,
-      steps: [],
-      total_distance_meters: 0,
-      estimated_minutes: 0,
-      stop_count: destination_shop_ids.length,
-      fallback: true,
-    };
-  }
-
-  // 5. Build sequential path: start → dest1 → dest2 → …
-  const allSteps: RouteStep[] = [];
-  let totalDistance = 0;
-  let stepNum = 1;
-  let currentStart = startNodeId;
-
-  for (const destNodeId of destNodeIds) {
-    if (currentStart === destNodeId) continue;
-
-    const result = dijkstra(nodes, edges, currentStart, destNodeId);
-
-    if (!result || result.path.length < 2) {
-      // No graph path — insert a direct step
-      const destNode = nodeMap[destNodeId];
-      allSteps.push({
-        step: stepNum++,
-        instruction: `Head to ${destNode?.name ?? "the store"} on Floor ${destNode?.floor ?? "?"}`,
-        node_id: destNodeId,
-        node_name: destNode?.name ?? "Store",
-        floor: destNode?.floor ?? null,
-        distance_meters: 100,
-        floor_change: false,
-        cumulative_meters: totalDistance + 100,
-        x_coordinate: destNode?.x_coordinate ?? null,
-        y_coordinate: destNode?.y_coordinate ?? null,
-      });
-      totalDistance += 100;
-      currentStart = destNodeId;
-      continue;
-    }
-
-    for (let i = 0; i < result.path.length - 1; i++) {
-      const fromId = result.path[i];
-      const toId = result.path[i + 1];
-      const fromNode = nodeMap[fromId];
-      const toNode = nodeMap[toId];
-      const edge = result.edges[i];
-      const instruction = buildInstruction(fromNode, toNode, edge, stepNum === 1);
-      totalDistance += edge.distance_meters;
-
-      allSteps.push({
-        step: stepNum++,
-        instruction,
-        node_id: toId,
-        node_name: toNode?.name ?? "—",
-        floor: toNode?.floor ?? null,
-        distance_meters: edge.distance_meters,
-        floor_change: edge.floor_change,
-        cumulative_meters: totalDistance,
-        x_coordinate: toNode?.x_coordinate ?? null,
-        y_coordinate: toNode?.y_coordinate ?? null,
-      });
-    }
-
-    currentStart = destNodeId;
-  }
-
-  // Final arrival step
-  const lastNode = nodeMap[destNodeIds[destNodeIds.length - 1]];
-  if (allSteps.length) {
-    allSteps.push({
-      step: stepNum,
-      instruction: `You've arrived at ${lastNode?.name ?? "your destination"}`,
-      node_id: destNodeIds[destNodeIds.length - 1],
-      node_name: lastNode?.name ?? "Destination",
-      floor: lastNode?.floor ?? null,
-      distance_meters: 0,
-      floor_change: false,
-      cumulative_meters: totalDistance,
-      x_coordinate: lastNode?.x_coordinate ?? null,
-      y_coordinate: lastNode?.y_coordinate ?? null,
-    });
-  }
-
-  const estimated_minutes = Math.max(1, Math.round(totalDistance / 72));
-
-  // 6. Persist route
+  // 3. Persist the real route
   const { data: savedRoute, error: routeInsertError } = await supabase
     .from("shopping_routes")
     .insert({
@@ -439,9 +105,9 @@ export async function buildRoute(
       mall_id: mallId,
       // JSONB columns should receive native JS arrays/objects, not JSON.stringify strings.
       destination_shop_ids,
-      route_steps: allSteps,
-      total_distance_meters: totalDistance,
-      estimated_minutes,
+      route_steps: result.steps,
+      total_distance_meters: result.total_distance_meters,
+      estimated_minutes: result.estimated_minutes,
       status: "active",
     })
     .select("id")
@@ -460,12 +126,5 @@ export async function buildRoute(
       .eq("id", session_id);
   }
 
-  return {
-    route_id,
-    steps: allSteps,
-    total_distance_meters: totalDistance,
-    estimated_minutes,
-    stop_count: destNodeIds.length,
-    fallback: false,
-  };
+  return { ...result, route_id };
 }

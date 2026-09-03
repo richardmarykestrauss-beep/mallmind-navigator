@@ -17,6 +17,8 @@
     "test:retail-csv-intake": "ts-node --transpile-only src/services/retail/__tests__/retailCsvIntakeHarness.ts",
     "test:shopping-assistant": "ts-node --transpile-only src/services/assistant/__tests__/shoppingAssistantHarness.ts",
     "test:cors": "ts-node --transpile-only src/tests/corsHarness.ts",
+    "test:routing": "ts-node --transpile-only src/services/__tests__/routingServiceHarness.ts",
+    "test:rate-limit": "ts-node --transpile-only src/tests/rateLimitHarness.ts",
     "test:health": "curl -s http://localhost:8080/health | jq .",
     "typecheck:worker": "tsc -p tsconfig.worker.json --noEmit",
     "build:worker": "esbuild src/worker.ts --bundle --platform=node --target=node22 --format=cjs --outfile=dist-worker/worker.js --tsconfig=tsconfig.worker.json --packages=external",
