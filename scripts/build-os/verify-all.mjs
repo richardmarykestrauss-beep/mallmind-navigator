@@ -9,6 +9,14 @@ const steps = [
     cwd: ".",
   },
   {
+    // The Vite build does not type-check (SWC strips types), so a red `tsc`
+    // used to ship green. This is the real frontend type gate.
+    name: "Frontend TypeScript typecheck",
+    command: "npm",
+    args: ["run", "typecheck"],
+    cwd: ".",
+  },
+  {
     name: "Frontend production build",
     command: "npm",
     args: ["run", "build"],
@@ -72,6 +80,21 @@ const steps = [
     name: "CORS allowlist harness",
     command: "npm",
     args: ["run", "test:cors"],
+    cwd: "google-cloud-backend",
+  },
+  {
+    // Route truthfulness: an unreachable destination can never yield a
+    // fabricated step, distance or time (regression guard for the old 100 m
+    // "Head to X on Floor ?" fallback).
+    name: "Routing truthfulness harness",
+    command: "npm",
+    args: ["run", "test:routing"],
+    cwd: "google-cloud-backend",
+  },
+  {
+    name: "Public-endpoint rate limit harness",
+    command: "npm",
+    args: ["run", "test:rate-limit"],
     cwd: "google-cloud-backend",
   },
   {

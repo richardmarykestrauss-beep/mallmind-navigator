@@ -676,7 +676,7 @@ function SetupPipelinePanel({
 
           {/* Health summary */}
           {result.health_report && (() => {
-            const h = result.health_report as Record<string, unknown>;
+            const h = result.health_report as unknown as Record<string, unknown>;
             const status = h.readiness_status as string;
             const statusCls =
               status === "ready"   ? "text-green-700 bg-green-50 border-green-200" :

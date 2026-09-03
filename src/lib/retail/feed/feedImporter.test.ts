@@ -2,13 +2,9 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
-// @ts-expect-error — ESM .mjs (JSDoc-typed), runnable by both node CLI and vitest
 import { parseCsv } from "./csvParse.mjs";
-// @ts-expect-error
 import { mapRows, unrecognisedColumns, EXAMPLE_FEED_META } from "./exampleRetailerAdapter.mjs";
-// @ts-expect-error
 import { importFeed, observationIdentity, djb2 } from "./feedImporter.mjs";
-// @ts-expect-error
 import { FEED_CONTRACT_VERSION, PRICE_SCOPES, AVAILABILITY_SCOPES, PRICE_CONDITIONS, OUTCOMES } from "./feedContract.mjs";
 import { validateCandidate, contentHash, type RawRetailCandidate } from "@/lib/retail/retailAdapter";
 import { canClaimBranchAvailability } from "@/lib/retail/retailTruth";

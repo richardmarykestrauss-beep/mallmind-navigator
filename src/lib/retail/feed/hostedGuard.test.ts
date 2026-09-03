@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
 /* eslint-disable @typescript-eslint/no-explicit-any */
-// @ts-expect-error ESM .mjs
 import { isHostedTarget, isLocalTarget, assertLocalDatabaseTarget, HOSTED_PROJECT_REFS } from "./hostedGuard.mjs";
 
 describe("Sprint 2L-B hosted-environment guard", () => {
