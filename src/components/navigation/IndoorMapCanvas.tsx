@@ -33,7 +33,7 @@ export interface IndoorMapCanvasProps {
 }
 
 const CAMERA_PAD = 150;
-const HONEST_LIVE = "Simulated route preview · not live GPS";
+const HONEST_LIVE = "Route preview · not live GPS";
 const HONEST_SCHEMATIC = "Schematic floorplan generated from MallMind route graph";
 
 function r1(n: number): number {

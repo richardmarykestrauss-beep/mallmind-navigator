@@ -3,19 +3,12 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 /* eslint-disable @typescript-eslint/no-explicit-any */
-// @ts-expect-error ESM .mjs
 import { readJsonFeed, validateFeedEnvelope } from "./jsonFeedReader.mjs";
-// @ts-expect-error
 import { mapKingdomFeed } from "./kingdomAdapter.mjs";
-// @ts-expect-error
 import { importFeed, observationIdentity } from "./feedImporter.mjs";
-// @ts-expect-error
 import { parseCsv } from "./csvParse.mjs";
-// @ts-expect-error
 import { mapRows, unrecognisedColumns } from "./exampleRetailerAdapter.mjs";
-// @ts-expect-error
 import { createLocationResolver, makeResolveBranch, validateMapping, RESOLUTION_CODES, MAPPING_STATUSES } from "./locationMapping.mjs";
-// @ts-expect-error
 import { OUTCOMES, FEED_CONTRACT_VERSION } from "./feedContract.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));

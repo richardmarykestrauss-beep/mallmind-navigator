@@ -111,16 +111,17 @@ describe("fixtureRetailAdapter — contract + hard cases", () => {
     // valid cases (the fixture) all pass
     for (const c of FIXTURE_CANDIDATES) expect(validateCandidate(c)).toEqual([]);
     // bulk without minimumQuantity → rejected
-    expect(validateCandidate({ productName: "x", price: 1, priceCondition: "bulk" }))
+    const at = "2026-07-30T08:00:00Z";
+    expect(validateCandidate({ productName: "x", price: 1, priceCondition: "bulk", observedAt: at }))
       .toContain("bulk price requires minimumQuantity");
     // loyalty without program/label → rejected
-    expect(validateCandidate({ productName: "x", price: 1, priceCondition: "loyalty" }))
+    expect(validateCandidate({ productName: "x", price: 1, priceCondition: "loyalty", observedAt: at }))
       .toContain("loyalty price requires loyaltyProgram or priceConditionLabel");
     // standard with minimumQuantity → rejected
-    expect(validateCandidate({ productName: "x", price: 1, priceCondition: "standard", minimumQuantity: 2 }))
+    expect(validateCandidate({ productName: "x", price: 1, priceCondition: "standard", minimumQuantity: 2, observedAt: at }))
       .toContain("standard price must not carry minimumQuantity");
     // minimumQuantity <= 0 → rejected
-    expect(validateCandidate({ productName: "x", price: 1, priceCondition: "bulk", minimumQuantity: 0 }))
+    expect(validateCandidate({ productName: "x", price: 1, priceCondition: "bulk", minimumQuantity: 0, observedAt: at }))
       .toContain("minimumQuantity must be > 0");
   });
 

@@ -1,5 +1,6 @@
 import { Router, Request, Response } from "express";
 import { getSupabaseClient } from "../lib/supabase.js";
+import { requireAdmin } from "../lib/adminAuth.js";
 
 const router = Router();
 
@@ -198,13 +199,15 @@ async function fetchAnalyticsSummary(supabase: ReturnType<typeof getSupabaseClie
  * GET /admin-stats
  * Returns aggregated platform metrics + founder analytics from analytics_events.
  *
- * In production this route must be protected by an auth middleware
- * that verifies the caller has is_admin = true in their profile.
- *
- * DEV_ONLY: Auth check is not enforced until Firebase Auth / Identity
- * Platform is integrated (Phase 7 of migration plan).
+ * Admin-only. Uses the same model as every other /admin route:
+ * Bearer <Supabase access token> → auth.getUser → profiles.is_admin = true.
+ * (Before Sept 2026 this route was unauthenticated and returned raw search
+ * queries and user ids through the service role.)
  */
-router.get("/", async (_req: Request, res: Response): Promise<void> => {
+router.get("/", async (req: Request, res: Response): Promise<void> => {
+  const admin = await requireAdmin(req, res);
+  if (!admin) return;
+
   const supabase = getSupabaseClient();
 
   try {
@@ -262,8 +265,6 @@ router.get("/", async (_req: Request, res: Response): Promise<void> => {
       recent_events:   recentEvents ?? [],
       analytics,
       generated_at: new Date().toISOString(),
-      // DEV_ONLY: remove this flag and add auth middleware before exposing publicly
-      _note: "DEV_ONLY: auth enforcement pending Firebase Auth integration (Phase 7)",
     });
   } catch (err) {
     console.error("[admin-stats]", err);

@@ -1,17 +1,29 @@
 /**
  * MallMind Service Worker
- * - Caches the app shell on install for offline resilience
- * - Serves cached assets when network is unavailable
- * - Handles Web Push notifications for price drop alerts
+ * - App shell: NETWORK-FIRST for navigations (index.html) with an offline
+ *   fallback to the cached shell, so a deploy reaches installed users on the
+ *   next open instead of being pinned to a stale shell forever.
+ * - Hashed build assets (/assets/*): cache-first (content-addressed, immutable).
+ * - Other same-origin GETs (manifest, icons, sw-adjacent files): stale-while-revalidate.
+ * - Cross-origin requests (Supabase, Cloud Run API, fonts): never intercepted.
+ * - Handles Web Push notifications for price drop alerts.
+ *
+ * CACHE_VERSION must change whenever caching behaviour changes; the activate
+ * step deletes every cache that does not match the current version.
  */
 
-const CACHE_NAME = "mallmind-v1";
+const CACHE_VERSION = "mallmind-v3-2026-09-03";
+const SHELL_CACHE = `${CACHE_VERSION}-shell`;
+const ASSET_CACHE = `${CACHE_VERSION}-assets`;
+const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
+const KNOWN_CACHES = new Set([SHELL_CACHE, ASSET_CACHE, RUNTIME_CACHE]);
 
-const PRECACHE_URLS = ["/", "/index.html", "/manifest.json"];
+const OFFLINE_SHELL = "/index.html";
+const PRECACHE_URLS = ["/", OFFLINE_SHELL, "/manifest.json", "/icons/icon-192.png", "/icons/icon-512.png"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(PRECACHE_URLS))
+    caches.open(SHELL_CACHE).then((cache) => cache.addAll(PRECACHE_URLS)).catch(() => {})
   );
   self.skipWaiting();
 });
@@ -19,29 +31,72 @@ self.addEventListener("install", (event) => {
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
-    )
+      Promise.all(keys.filter((k) => !KNOWN_CACHES.has(k)).map((k) => caches.delete(k)))
+    ).then(() => self.clients.claim())
   );
-  self.clients.claim();
 });
 
-self.addEventListener("fetch", (event) => {
-  if (event.request.method !== "GET") return;
-  const url = new URL(event.request.url);
-  if (url.hostname.includes("supabase.co")) return;
+function isNavigation(request) {
+  return request.mode === "navigate" ||
+    (request.method === "GET" && (request.headers.get("accept") || "").includes("text/html"));
+}
 
-  event.respondWith(
-    caches.match(event.request).then((cached) => {
-      if (cached) return cached;
-      return fetch(event.request).then((response) => {
-        if (response.ok && url.origin === self.location.origin) {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-        }
-        return response;
-      });
-    })
-  );
+async function networkFirstShell(request) {
+  try {
+    const response = await fetch(request);
+    if (response && response.ok) {
+      const cache = await caches.open(SHELL_CACHE);
+      cache.put(OFFLINE_SHELL, response.clone());
+    }
+    return response;
+  } catch {
+    const cached = await caches.match(OFFLINE_SHELL);
+    if (cached) return cached;
+    return new Response("You are offline and MallMind has not been cached yet.", {
+      status: 503, headers: { "Content-Type": "text/plain" },
+    });
+  }
+}
+
+async function cacheFirst(request, cacheName) {
+  const cached = await caches.match(request);
+  if (cached) return cached;
+  const response = await fetch(request);
+  if (response && response.ok) {
+    const cache = await caches.open(cacheName);
+    cache.put(request, response.clone());
+  }
+  return response;
+}
+
+async function staleWhileRevalidate(request, cacheName) {
+  const cache = await caches.open(cacheName);
+  const cached = await cache.match(request);
+  const refresh = fetch(request).then((response) => {
+    if (response && response.ok) cache.put(request, response.clone());
+    return response;
+  }).catch(() => undefined);
+  return cached || (await refresh) || new Response("", { status: 504 });
+}
+
+self.addEventListener("fetch", (event) => {
+  const { request } = event;
+  if (request.method !== "GET") return;
+
+  const url = new URL(request.url);
+  // Never intercept cross-origin traffic (Supabase, the Cloud Run API, fonts).
+  if (url.origin !== self.location.origin) return;
+
+  if (isNavigation(request)) {
+    event.respondWith(networkFirstShell(request));
+    return;
+  }
+  if (url.pathname.startsWith("/assets/")) {
+    event.respondWith(cacheFirst(request, ASSET_CACHE));
+    return;
+  }
+  if (url.pathname === "/sw.js") return; // the browser manages the worker itself
+  event.respondWith(staleWhileRevalidate(request, RUNTIME_CACHE));
 });
 
 // ── Web Push ──────────────────────────────────────────────────────────────────

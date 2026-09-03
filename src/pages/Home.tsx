@@ -30,7 +30,7 @@ const ACTION_CARDS = [
   },
   {
     label: "Explore Malls",
-    desc: "8 SA malls, verified data",
+    desc: "8 SA malls · store directories",
     Icon: MapPin,
     iconClass: "text-secondary",
     iconBg: "bg-secondary/10 border-secondary/20",
@@ -39,7 +39,7 @@ const ACTION_CARDS = [
   },
   {
     label: "Today's Deals",
-    desc: "Specials and verified picks",
+    desc: "Specials · sample data",
     Icon: Tag,
     iconClass: "text-primary",
     iconBg: "bg-primary/10 border-primary/20",
@@ -122,17 +122,18 @@ const Home = () => {
             </h1>
             {/* Trust strip */}
             <div className="mt-3 flex items-center gap-2 flex-wrap">
-              <span className="flex items-center gap-1 rounded-full border border-border/60 bg-background/40 px-2.5 py-1 text-[10px] text-muted-foreground">
-                <ShieldCheck className="h-3 w-3 text-primary/70" />
-                Verified prices
-              </span>
-              <span className="flex items-center gap-1 rounded-full border border-border/60 bg-background/40 px-2.5 py-1 text-[10px] text-muted-foreground">
+              {/* Honest capability strip: only claims the current build supports. */}
+              <span className="flex items-center gap-1 rounded-full border border-border/60 bg-background/40 px-2.5 py-1 text-[11px] text-muted-foreground">
                 <Navigation className="h-3 w-3 text-primary/70" />
-                Smart routes
+                Store finder
               </span>
-              <span className="flex items-center gap-1 rounded-full border border-border/60 bg-background/40 px-2.5 py-1 text-[10px] text-muted-foreground">
+              <span className="flex items-center gap-1 rounded-full border border-border/60 bg-background/40 px-2.5 py-1 text-[11px] text-muted-foreground">
+                <ShieldCheck className="h-3 w-3 text-primary/70" />
+                Route preview
+              </span>
+              <span className="flex items-center gap-1 rounded-full border border-border/60 bg-background/40 px-2.5 py-1 text-[11px] text-muted-foreground">
                 <Sparkles className="h-3 w-3 text-primary/70" />
-                AI powered
+                AI assistant
               </span>
             </div>
           </div>

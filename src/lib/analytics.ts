@@ -16,17 +16,19 @@ export function trackSearch(
   userId?: string | null
 ) {
   if (!query.trim()) return;
-  supabase
-    .from("search_events")
-    .insert({
-      query: query.trim().toLowerCase(),
-      result_count: resultCount,
-      mall_id: mallId ? String(mallId) : null,
-      mall_name: mallName ?? null,
-      user_id: userId ?? null,
-    })
-    .then(() => {}) // fire and forget
-    .catch(() => {});
+  // Fire and forget. The Supabase query builder is PromiseLike (no .catch), so
+  // await it inside a swallowed async block — errors must never reach the UI.
+  void (async () => {
+    try {
+      await supabase.from("search_events").insert({
+        query: query.trim().toLowerCase(),
+        result_count: resultCount,
+        mall_id: mallId ? String(mallId) : null,
+        mall_name: mallName ?? null,
+        user_id: userId ?? null,
+      });
+    } catch { /* best-effort analytics */ }
+  })();
 }
 
 // ── Generic app events ────────────────────────────────────────────────────────
@@ -55,15 +57,15 @@ export function trackEvent(
     metadata?: Record<string, unknown>;
   }
 ) {
-  supabase
-    .from("app_events")
-    .insert({
-      event_type: eventType,
-      user_id: options?.userId ?? null,
-      mall_id: options?.mallId ? String(options.mallId) : null,
-      mall_name: options?.mallName ?? null,
-      metadata: options?.metadata ?? null,
-    })
-    .then(() => {})
-    .catch(() => {});
+  void (async () => {
+    try {
+      await supabase.from("app_events").insert({
+        event_type: eventType,
+        user_id: options?.userId ?? null,
+        mall_id: options?.mallId ? String(options.mallId) : null,
+        mall_name: options?.mallName ?? null,
+        metadata: options?.metadata ?? null,
+      });
+    } catch { /* best-effort analytics */ }
+  })();
 }

@@ -49,9 +49,9 @@ begin
     into migration_count
     from supabase_migrations.schema_migrations;
 
-  if migration_count <> 42 then
+  if migration_count <> 43 then
     raise exception
-      'Expected 42 applied migrations (000-041), found %',
+      'Expected 43 applied migrations (000-042), found %',
       migration_count;
   end if;
 
@@ -92,6 +92,77 @@ begin
     raise exception
       'Expected at least 35 public functions, found %',
       public_function_count;
+  end if;
+
+  -- Migration 042 — shopper-table RLS hardening (3 Sept 2026 audit blockers).
+  -- Assert row security is ENABLED on every table the audit found open, that
+  -- the PUBLIC shopping_routes policy is gone, and that the navigation graph
+  -- is readable by shoppers but not writable by them.
+  if exists (
+    select 1
+      from pg_class c
+      join pg_namespace n on n.oid = c.relnamespace
+     where n.nspname = 'public'
+       and c.relname in (
+         'shopping_routes', 'search_events', 'app_events', 'mall_nodes',
+         'mall_edges', 'import_jobs', 'admin_audit_log', 'achievements'
+       )
+       and c.relrowsecurity = false
+  ) then
+    raise exception 'Migration 042: row level security must be enabled on shopper/graph/admin tables';
+  end if;
+
+  if exists (
+    select 1 from pg_policies
+     where schemaname = 'public'
+       and tablename = 'shopping_routes'
+       and policyname = 'Service role full access routes'
+  ) then
+    raise exception 'Migration 042: PUBLIC USING(true) policy on shopping_routes must be dropped';
+  end if;
+
+  if not exists (
+    select 1 from pg_policies
+     where schemaname = 'public' and tablename = 'mall_nodes'
+       and policyname = 'mall_nodes_public_read' and cmd = 'SELECT'
+  ) or not exists (
+    select 1 from pg_policies
+     where schemaname = 'public' and tablename = 'mall_edges'
+       and policyname = 'mall_edges_public_read' and cmd = 'SELECT'
+  ) then
+    raise exception 'Migration 042: navigation graph public-read policies are missing';
+  end if;
+
+  if exists (
+    select 1 from pg_policies
+     where schemaname = 'public'
+       and tablename in ('mall_nodes', 'mall_edges', 'achievements', 'import_jobs', 'admin_audit_log')
+       and cmd in ('INSERT', 'UPDATE', 'DELETE', 'ALL')
+  ) then
+    raise exception 'Migration 042: no client write policy may exist on graph/admin/catalogue tables';
+  end if;
+
+  if exists (
+    select 1
+      from unnest(array['mall_nodes', 'mall_edges', 'achievements', 'import_jobs', 'admin_audit_log']) as t(name)
+     cross join unnest(array['anon', 'authenticated']) as r(role)
+     where has_table_privilege(r.role, 'public.' || t.name, 'INSERT')
+        or has_table_privilege(r.role, 'public.' || t.name, 'UPDATE')
+        or has_table_privilege(r.role, 'public.' || t.name, 'DELETE')
+  ) then
+    raise exception 'Migration 042: anon/authenticated must hold no write privilege on graph/admin/catalogue tables';
+  end if;
+
+  if not exists (
+    select 1 from pg_policies
+     where schemaname = 'public' and tablename = 'search_events'
+       and policyname = 'search_events_client_insert' and cmd = 'INSERT'
+  ) or not exists (
+    select 1 from pg_policies
+     where schemaname = 'public' and tablename = 'app_events'
+       and policyname = 'app_events_client_insert' and cmd = 'INSERT'
+  ) then
+    raise exception 'Migration 042: analytics client-insert policies are missing (frontend analytics would break)';
   end if;
 
   select count(*)
@@ -421,7 +492,7 @@ run(
 );
 
 run(
-  "Rebuild database from migrations 000-036",
+  "Rebuild database from migrations 000-042",
   "npx",
   ["supabase", "db", "reset"],
 );

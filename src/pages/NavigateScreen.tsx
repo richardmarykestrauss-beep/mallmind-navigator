@@ -1,21 +1,20 @@
 import { useState, useEffect, useRef, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   Clock, Footprints, MapPin,
-  CheckCircle2, Store, ArrowRight, RotateCcw, Search,
-  Zap, Layers, ArrowUp, ArrowDown, Navigation, Play, Pause,
+  CheckCircle2, Store, ArrowRight, RotateCcw,
+  Zap, Layers, ArrowUp, ArrowDown, Navigation,
 } from "lucide-react";
 import MobileShell from "@/components/MobileShell";
 import ScreenHeader from "@/components/ScreenHeader";
 import { Button } from "@/components/ui/button";
 import IndoorMapCanvas from "@/components/navigation/IndoorMapCanvas";
-import { computeRouteWalk } from "@/components/navigation/routeWalk";
-import { reachedNodeCount, walkCompletedSteps } from "@/components/navigation/routeWalkProgress";
+import WayfindingPilot from "@/components/navigation/WayfindingPilot";
+import { parseWayfindingAnchor } from "@/components/navigation/wayfindingAnchor";
 import {
-  toFloorplanModel, schematicModelFromRoute, buildRoutePolyline, polylineToWalkNodes,
+  toFloorplanModel, schematicModelFromRoute, buildRoutePolyline,
   routeFloors, normalizeFloorLabel, floorChip, type FloorplanModel,
 } from "@/components/navigation/floorplanModel";
-import { MALL_REDS_GAME_FLOORPLAN, buildDemoRoutePolyline } from "@/components/navigation/demoFloorplan";
 import { useShoppingSession } from "@/context/ShoppingSessionContext";
 import { useAuth } from "@/context/AuthContext";
 import { awardXP, XP_REWARDS } from "@/lib/xp";
@@ -23,6 +22,20 @@ import { trackEvent } from "@/lib/analytics";
 import { cn } from "@/lib/utils";
 import { describeShopFloor, describeEntrance } from "@/lib/shopLocation";
 import { getIndoorMapModel, type IndoorMapModel } from "@/lib/googleBackendClient";
+
+/**
+ * NavigateScreen — the shopper "Navigate" tab.
+ *
+ * 1. No active route (or an incoming ?mall=&start= link): the shared
+ *    destination-first wayfinding experience (WayfindingPilot) — "Where do
+ *    you want to go?" → destination → start → route preview.
+ * 2. An active route built by the assistant / build-route: the route preview
+ *    with a floor map, next-instruction card and a manual step checklist.
+ *
+ * Neither mode tracks or simulates the shopper's position. The old
+ * simulated walk-through was removed from the shopper build (Sept 2026) so a
+ * moving marker can never be mistaken for live positioning.
+ */
 
 /** Truncate a step instruction for the compact "then …" next-action hint. */
 function shortStepLabel(s: string): string {
@@ -46,6 +59,8 @@ function estimateRoute(stops: { floor: string | null }[]): { meters: number; min
 
 const NavigateScreen = () => {
   const navigate = useNavigate();
+  const { search } = useLocation();
+  const linkAnchor = useMemo(() => parseWayfindingAnchor(search), [search]);
 
   const {
     selectedMall,
@@ -69,29 +84,8 @@ const NavigateScreen = () => {
 
   const xpAwardedRef = useRef(false);
 
-  // ── Route-walk simulation (not live GPS) ──────────────────────────────────
-  const SEGMENT_MS = 1800;
-  const [isWalking, setIsWalking] = useState(false);
-  const [elapsedMs, setElapsedMs] = useState(0);
-
-  // Route geometry (floor-unit polyline) derived from the route steps. The
-  // simulated marker travels along THIS polyline, so its motion follows the real
-  // floorplan geometry — not arbitrary progress.
+  // Route geometry (floor-unit polyline) derived from the route steps.
   const routePolyline = useMemo(() => buildRoutePolyline(activeRouteSteps), [activeRouteSteps]);
-  const walkNodes = useMemo(() => polylineToWalkNodes(routePolyline), [routePolyline]);
-
-  const walk = useMemo(
-    () => computeRouteWalk(walkNodes, elapsedMs, SEGMENT_MS),
-    [walkNodes, elapsedMs],
-  );
-
-  // Nodes the simulated marker has reached — one route step per crossed node.
-  const walkReachedCount = useMemo(
-    () => reachedNodeCount(walk, walkNodes.length),
-    [walk, walkNodes.length],
-  );
-
-  const simEngaged = elapsedMs > 0 || isWalking;
 
   useEffect(() => {
     if (activeRouteSteps.length > 0 && activeRouteSteps[0].floor) {
@@ -99,42 +93,13 @@ const NavigateScreen = () => {
     }
   }, [activeRouteSteps]);
 
-  // Animation loop — advances elapsed time while playing. Cleans up on pause,
-  // route change and unmount (the effect re-runs / tears down on every dep change).
+  // A new route clears all progress so the checklist, percentage, arrival state
+  // and one-shot XP guard start fresh.
   useEffect(() => {
-    if (!isWalking) return;
-
-    let raf = 0;
-    let last: number | null = null;
-    const tick = (ts: number) => {
-      if (last !== null) setElapsedMs((prev) => prev + (ts - last!));
-      last = ts;
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-
-    return () => cancelAnimationFrame(raf);
-  }, [isWalking]);
-
-  // Stop the loop once the simulated walk reaches the final node.
-  useEffect(() => {
-    if (walk.done && isWalking) setIsWalking(false);
-  }, [walk.done, isWalking]);
-
-  // A new route resets and stops the simulation, and clears all progress so the
-  // checklist, percentage, arrival state and one-shot XP guard start fresh.
-  useEffect(() => {
-    setIsWalking(false);
-    setElapsedMs(0);
     setCompletedStepIndices(new Set());
     setCompletedStopIndices(new Set());
     xpAwardedRef.current = false;
   }, [activeRouteId]);
-
-  // Follow the simulated marker across floor transitions.
-  useEffect(() => {
-    if (simEngaged && walk.floor) setActiveFloor(walk.floor);
-  }, [walk.floor, simEngaged]);
 
   useEffect(() => {
     const mallId = selectedMall?.id;
@@ -186,16 +151,6 @@ const NavigateScreen = () => {
     return schematicModelFromRoute(activeRouteSteps, meta);
   }, [indoorMapModel, activeRouteSteps, selectedMall?.id, selectedMall?.name]);
 
-  // Synchronise route progress with the simulated marker: mark each route node
-  // complete as the marker reaches it. Additive and monotonic (a set union), so
-  // progress never moves backwards, never double-counts a node, reaches 100% when
-  // the marker arrives, and composes with manual "Done" presses.
-  useEffect(() => {
-    setCompletedStepIndices((prev) =>
-      walkCompletedSteps(prev, walkReachedCount, simEngaged && hasRealRoute),
-    );
-  }, [walkReachedCount, simEngaged, hasRealRoute]);
-
   const totalMeters = hasRealRoute
     ? activeRouteSteps.at(-1)?.cumulative_meters ?? 0
     : estimateRoute(routeStops).meters;
@@ -242,7 +197,7 @@ const NavigateScreen = () => {
         });
 
         setTimeout(() => setXpToast(null), 5000);
-      });
+      }).catch(() => { /* XP is non-critical */ });
 
       trackEvent("route_completed", {
         userId: user.id,
@@ -286,91 +241,49 @@ const NavigateScreen = () => {
   function handleReset() {
     resetSession();
     clearRoute();
-    navigate("/search");
+    navigate("/navigate", { replace: true });
   }
 
-  function startWalk() {
-    if (walk.done) {
-      // Restart a finished walk from the top — clear progress so the marker and
-      // checklist advance together from the route start (no stale 100% state).
-      setElapsedMs(0);
-      setCompletedStepIndices(new Set());
-    }
-    setIsWalking(true);
-  }
+  // ── Mode 1: destination-first wayfinding ────────────────────────────────────
+  // Shown when there is no active route, or when the shopper arrived through a
+  // /navigate?mall=&start= link (e.g. QR signage) — that link always means
+  // "start a new search from here", even if an older route is still stored.
+  const showWayfinding = linkAnchor.status !== "none" || (!hasRealRoute && !routeStops.length);
 
-  function pauseWalk() {
-    // Pause only stops the clock; elapsed time and completed steps are preserved.
-    setIsWalking(false);
-  }
-
-  function resetWalk() {
-    setIsWalking(false);
-    setElapsedMs(0);
-    setCompletedStepIndices(new Set());
-    if (activeRouteSteps[0]?.floor) setActiveFloor(normalizeFloorLabel(activeRouteSteps[0].floor));
-  }
-
-  if (!hasRealRoute && !routeStops.length) {
+  if (showWayfinding) {
     return (
       <MobileShell>
-        <ScreenHeader title="Mall Map" subtitle="No active route" />
-
-        {/* Demo of the indoor map engine — a real floorplan coordinate model. */}
-        <div className="mx-4 mb-4 mt-1 animate-fade-in">
-          <div className="mb-2 flex items-center justify-between px-0.5">
-            <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-primary">Indoor map engine · demo</span>
-            <span className="text-[10px] text-muted-foreground/70">Mall@Reds → Game</span>
-          </div>
-          <div
-            className="relative overflow-hidden rounded-2xl border border-primary/25 shadow-[0_10px_44px_-14px_hsl(190_100%_50%/0.35)]"
-            style={{ height: 220, background: "hsl(240 24% 4%)" }}
-          >
-            <IndoorMapCanvas
-              floorplan={MALL_REDS_GAME_FLOORPLAN}
-              activeFloor="Ground Floor"
-              routePolyline={buildDemoRoutePolyline()}
-              completedStepIndices={new Set()}
-              currentStepIndex={0}
-              isDemo
-            />
-          </div>
-          <p className="mt-2 px-0.5 text-[10px] leading-relaxed text-muted-foreground">
-            Schematic floorplan generated from the MallMind route graph — a simulated preview, not live GPS.
-          </p>
-        </div>
-
-        <div className="flex flex-col items-center gap-5 px-5 pt-2 text-center animate-fade-in">
-          <div>
-            <p className="font-display font-semibold text-lg">No Route Yet</p>
-            <p className="text-sm text-muted-foreground mt-1 max-w-[240px] leading-relaxed">
-              Ask the AI to find products and guide you — it'll build your route automatically.
-            </p>
-          </div>
-
-          <Button variant="neon" size="lg" className="w-full max-w-xs" onClick={() => navigate("/assistant")}>
-            <Navigation className="h-5 w-5" />
-            Ask MallMind AI
-          </Button>
-
-          <Button variant="glass" size="sm" onClick={() => navigate("/search")}>
-            <Search className="h-4 w-4" />
-            Search Products
-          </Button>
-
-          <Button variant="glass" size="sm" onClick={() => navigate("/malls")}>
-            <MapPin className="h-4 w-4" />
-            Choose a Mall
-          </Button>
-        </div>
+        <ScreenHeader
+          title="Navigate"
+          subtitle="Mall@Reds · pilot"
+          back={false}
+          right={
+            (hasRealRoute || routeStops.length > 0) ? (
+              <button
+                onClick={() => navigate("/navigate", { replace: true })}
+                className="mt-1 mr-1 flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+              >
+                <Navigation className="h-3.5 w-3.5" />
+                Current route
+              </button>
+            ) : undefined
+          }
+        />
+        <WayfindingPilot
+          embedded
+          initialAnchor={linkAnchor.status === "ok" ? linkAnchor.anchor : null}
+          anchorNotice={linkAnchor.status === "invalid" ? linkAnchor.reason : null}
+          onOpenAssistant={() => navigate("/assistant")}
+        />
       </MobileShell>
     );
   }
 
+  // ── Mode 2: an active route (assistant / build-route) ──────────────────────
   return (
     <MobileShell>
       <ScreenHeader
-        title="Mall Map"
+        title="Route preview"
         subtitle={selectedMall?.name ?? "Navigation"}
         right={
           <button
@@ -385,16 +298,12 @@ const NavigateScreen = () => {
 
       <div className="mx-4 mb-3">
         <div className="flex items-center justify-between mb-2 px-0.5">
-          <div className="flex items-center gap-1.5">
-            <div className="h-1.5 w-1.5 rounded-full bg-secondary animate-pulse" />
-            <span className="text-[10px] font-bold tracking-widest text-secondary uppercase">
-              {hasRealRoute ? "AI-Assisted Route" : "Prototype route preview"}
-            </span>
-          </div>
+          <span className="text-[11px] font-bold tracking-widest text-secondary uppercase">
+            {hasRealRoute ? "Route preview" : "Stop list"}
+          </span>
 
-          <span className="text-[10px] text-muted-foreground/70">
-            2.5D schematic · Map Factory
-            {indoorMapModelStatus === "ready" ? " · live graph" : indoorMapModelStatus === "loading" ? " · loading" : " · route fallback"}
+          <span className="text-[11px] text-muted-foreground/80">
+            {indoorMapModelStatus === "ready" ? "Map: mall graph" : indoorMapModelStatus === "loading" ? "Map: loading" : "Map: schematic"}
           </span>
         </div>
 
@@ -402,12 +311,9 @@ const NavigateScreen = () => {
           className="relative rounded-2xl border border-primary/25 overflow-hidden shadow-[0_10px_44px_-14px_hsl(190_100%_50%/0.35)]"
           style={{ height: 268, background: "hsl(240 24% 4%)" }}
         >
-          {/* Honest badge — this is a prototype simulation, NOT live GPS positioning */}
-          <div className="absolute left-3 top-3 z-10 flex items-center gap-1.5 rounded-full border border-primary/30 bg-background/70 px-2.5 py-1 backdrop-blur-md shadow-[0_0_14px_hsl(190_100%_50%/0.18)]">
-            <span className={cn("h-1.5 w-1.5 rounded-full bg-primary", isWalking ? "animate-ping" : "animate-pulse")} />
-            <span className="text-[9px] font-bold text-primary uppercase tracking-[0.16em]">
-              {isWalking ? "Simulating" : "Prototype preview"}
-            </span>
+          {/* One honest status badge: this is a preview, position is not tracked. */}
+          <div className="absolute left-3 top-3 z-10 flex items-center gap-1.5 rounded-full border border-primary/30 bg-background/70 px-2.5 py-1 backdrop-blur-md">
+            <span className="text-[11px] font-semibold text-primary">Preview · position not tracked</span>
           </div>
 
           <div className="absolute right-3 top-3 z-10 flex flex-col gap-1 rounded-xl border border-border/50 bg-background/75 p-1 backdrop-blur-md">
@@ -417,7 +323,7 @@ const NavigateScreen = () => {
                 onClick={() => setActiveFloor(f)}
                 title={`Floor ${floorChip(f)}`}
                 className={cn(
-                  "h-8 w-8 rounded-lg text-[10px] font-bold leading-none transition-all",
+                  "h-9 w-9 rounded-lg text-[11px] font-bold leading-none transition-all",
                   normalizeFloorLabel(activeFloor) === f
                     ? "bg-primary text-primary-foreground shadow-[0_0_14px_hsl(190_100%_50%/0.5)]"
                     : "text-muted-foreground hover:bg-muted hover:text-foreground",
@@ -434,43 +340,9 @@ const NavigateScreen = () => {
             routePolyline={routePolyline}
             completedStepIndices={completedStepIndices}
             currentStepIndex={currentStepNum}
-            simulatedPosition={hasRealRoute && simEngaged ? walk.point : null}
+            simulatedPosition={null}
           />
         </div>
-
-        {/* Simulated-walk controls — move the marker without pressing Done each step. */}
-        {hasRealRoute && walkNodes.length > 1 && (
-          <div className="mt-2 flex items-center gap-2">
-            {isWalking ? (
-              <Button variant="glass" size="sm" className="flex-1" onClick={pauseWalk}>
-                <Pause className="h-3.5 w-3.5" />
-                Pause
-              </Button>
-            ) : (
-              <Button variant="neon" size="sm" className="flex-1" onClick={startWalk}>
-                <Play className="h-3.5 w-3.5" />
-                {elapsedMs > 0 && !walk.done ? "Resume walk" : "Start walk"}
-              </Button>
-            )}
-
-            <Button
-              variant="glass"
-              size="sm"
-              className="flex-1"
-              onClick={resetWalk}
-              disabled={elapsedMs === 0 && !isWalking}
-            >
-              <RotateCcw className="h-3.5 w-3.5" />
-              Reset
-            </Button>
-          </div>
-        )}
-
-        {/* Demo honesty line — explicit that the moving marker is a simulation. */}
-        <p className="mt-2 px-0.5 text-[10px] text-muted-foreground leading-relaxed">
-          This is a simulated walk-through that animates along your route — not live
-          GPS or indoor positioning.
-        </p>
       </div>
 
       <div className="mx-4 mb-3 flex items-center justify-between rounded-xl border border-primary/12 bg-primary/5 px-4 py-2">
@@ -499,20 +371,18 @@ const NavigateScreen = () => {
       {allDone && (
         <div className="mx-4 mb-3 rounded-2xl border border-secondary/40 bg-secondary/10 p-4 text-center animate-fade-in">
           <p className="font-display font-bold text-secondary text-base">🎉 Route complete!</p>
-          <p className="text-xs text-muted-foreground mt-1">All stops visited. Head to your car.</p>
+          <p className="text-xs text-muted-foreground mt-1">All stops visited.</p>
         </div>
       )}
 
       {hasRealRoute && !allDone && currentStep && (
         <div className="mx-4 mb-3">
           <div className="rounded-2xl border border-primary/35 bg-gradient-to-b from-primary/12 to-primary/5 p-3.5 shadow-[0_6px_28px_-14px_hsl(190_100%_50%/0.5)]">
-            {/* HUD header — live navigation status + progress percent */}
             <div className="flex items-center justify-between mb-2.5">
-              <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.16em] text-primary">
-                <span className={cn("h-1.5 w-1.5 rounded-full bg-primary", isWalking && "animate-ping")} />
-                {isWalking ? "Navigating" : "Next stop"}
+              <span className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.16em] text-primary">
+                Next
               </span>
-              <span className="text-[10px] font-semibold text-muted-foreground">
+              <span className="text-[11px] font-semibold text-muted-foreground">
                 Step {Math.min(doneCount + 1, stopCount)} of {stopCount} · <span className="text-primary">{routePct}%</span>
               </span>
             </div>
@@ -538,25 +408,25 @@ const NavigateScreen = () => {
 
                 <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
                   {currentStep.floor && (
-                    <span className="flex items-center gap-0.5 rounded-md bg-background/60 px-1.5 py-0.5 text-[10px] text-muted-foreground border border-border/50">
+                    <span className="flex items-center gap-0.5 rounded-md bg-background/60 px-1.5 py-0.5 text-[11px] text-muted-foreground border border-border/50">
                       <Layers className="h-3 w-3" />
                       {currentStep.floor}
                     </span>
                   )}
 
                   {currentStep.distance_meters > 0 && (
-                    <span className="flex items-center gap-0.5 rounded-md bg-background/60 px-1.5 py-0.5 text-[10px] text-muted-foreground border border-border/50">
+                    <span className="flex items-center gap-0.5 rounded-md bg-background/60 px-1.5 py-0.5 text-[11px] text-muted-foreground border border-border/50">
                       <Footprints className="h-3 w-3" />
                       ~{Math.round(currentStep.distance_meters)}m
                     </span>
                   )}
 
                   {currentStep.floor_change && (
-                    <span className="rounded-md bg-secondary/15 px-1.5 py-0.5 text-[10px] text-secondary font-semibold border border-secondary/30">Floor change</span>
+                    <span className="rounded-md bg-secondary/15 px-1.5 py-0.5 text-[11px] text-secondary font-semibold border border-secondary/30">Floor change</span>
                   )}
 
                   {nextStep && (
-                    <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground/70">
+                    <span className="flex items-center gap-0.5 text-[11px] text-muted-foreground/70">
                       <ArrowRight className="h-3 w-3" />
                       then {shortStepLabel(nextStep.instruction)}
                     </span>
@@ -566,7 +436,7 @@ const NavigateScreen = () => {
 
               <button
                 onClick={() => markStepDone(currentStepNum)}
-                className="shrink-0 flex items-center gap-1 rounded-xl bg-primary text-primary-foreground text-xs font-semibold px-3.5 py-2 hover:bg-primary/90 transition-all mt-0.5 shadow-[0_0_16px_hsl(190_100%_50%/0.35)]"
+                className="shrink-0 flex items-center gap-1 rounded-xl bg-primary text-primary-foreground text-xs font-semibold px-3.5 py-2.5 hover:bg-primary/90 transition-all mt-0.5 shadow-[0_0_16px_hsl(190_100%_50%/0.35)]"
               >
                 Done <ArrowRight className="h-3 w-3" />
               </button>
@@ -584,7 +454,7 @@ const NavigateScreen = () => {
 
       {hasRealRoute && (
         <div className="mx-4 space-y-1.5 pb-4">
-          <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground px-0.5 flex items-center gap-1.5 mb-2">
+          <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground px-0.5 flex items-center gap-1.5 mb-2">
             <Navigation className="h-3 w-3" />
             All steps
           </p>
@@ -640,7 +510,7 @@ const NavigateScreen = () => {
                       {step.instruction}
                     </p>
                     {isDestination && !isDone && (
-                      <span className="rounded-full bg-secondary/15 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-[0.12em] text-secondary border border-secondary/30">
+                      <span className="rounded-full bg-secondary/15 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-secondary border border-secondary/30">
                         Destination
                       </span>
                     )}
@@ -648,11 +518,11 @@ const NavigateScreen = () => {
 
                   <div className="flex items-center gap-2 mt-0.5">
                     {step.floor && (
-                      <span className="text-[9px] text-muted-foreground/70">{step.floor}</span>
+                      <span className="text-[11px] text-muted-foreground/70">{step.floor}</span>
                     )}
 
                     {step.distance_meters > 0 && (
-                      <span className="text-[9px] text-muted-foreground/70">
+                      <span className="text-[11px] text-muted-foreground/70">
                         ~{Math.round(step.distance_meters)}m
                       </span>
                     )}
@@ -663,9 +533,10 @@ const NavigateScreen = () => {
                   <button
                     onClick={() => markStepDone(idx)}
                     title="Mark as done"
-                    className="shrink-0 flex items-center justify-center h-7 w-7 rounded-lg border border-border text-muted-foreground hover:border-primary/40 hover:text-primary transition-all mt-0.5"
+                    aria-label="Mark step as done"
+                    className="shrink-0 flex items-center justify-center h-9 w-9 rounded-lg border border-border text-muted-foreground hover:border-primary/40 hover:text-primary transition-all"
                   >
-                    <Store className="h-3 w-3" />
+                    <Store className="h-3.5 w-3.5" />
                   </button>
                 )}
               </div>
@@ -678,20 +549,20 @@ const NavigateScreen = () => {
         <>
           {routeStops[currentStopIndex] && (
             <div className="mx-4 mb-3 flex items-center gap-2 rounded-xl border border-secondary/30 bg-secondary/8 px-3 py-2">
-              <div className="h-2 w-2 rounded-full bg-secondary animate-pulse shrink-0" />
+              <div className="h-2 w-2 rounded-full bg-secondary shrink-0" />
 
               <p className="text-xs font-medium text-secondary">
                 {completedStopIndices.size === 0
                   ? `Enter via ${describeEntrance(routeStops[currentStopIndex].floor)} · Start at ${routeStops[currentStopIndex].name}`
                   : allDone
-                  ? "All stops complete! Head to your car."
+                  ? "All stops complete."
                   : `Next: ${describeShopFloor(routeStops[currentStopIndex].floor)} · ${routeStops[currentStopIndex].name}`}
               </p>
             </div>
           )}
 
           <div className="mx-4 space-y-2 pb-4">
-            <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground px-0.5">Stops in order</p>
+            <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground px-0.5">Stops in order · walking directions not available</p>
 
             {routeStops.map((stop, idx) => {
               const isDone = completedStopIndices.has(idx);
@@ -738,7 +609,7 @@ const NavigateScreen = () => {
                     <button
                       onClick={() => markStopDone(idx)}
                       className={cn(
-                        "shrink-0 flex items-center gap-1 rounded-xl px-3 py-1.5 text-xs font-medium transition-all",
+                        "shrink-0 flex items-center gap-1 rounded-xl px-3 py-2 text-xs font-medium transition-all",
                         isCurrent
                           ? "bg-primary text-primary-foreground hover:bg-primary/90"
                           : "border border-border text-muted-foreground hover:border-primary/50 hover:text-primary",
@@ -767,7 +638,7 @@ const NavigateScreen = () => {
 
           <div>
             <p className="text-sm font-bold text-secondary">+{xpToast.xp} XP — Route Complete!</p>
-            {xpToast.leveledUp && <p className="text-xs text-primary font-medium animate-pulse">🎉 Level up!</p>}
+            {xpToast.leveledUp && <p className="text-xs text-primary font-medium">🎉 Level up!</p>}
             {xpToast.badges.map((b) => (
               <p key={b} className="text-xs text-secondary font-medium">🏆 Badge: {b}</p>
             ))}
@@ -777,14 +648,12 @@ const NavigateScreen = () => {
 
       {allDone && (
         <div className="px-4 pb-6 animate-slide-up">
-          <Button variant="neonGreen" size="lg" className="w-full" onClick={() => navigate("/parking")}>
-            <MapPin className="h-5 w-5" />
-            Return to My Car
+          <Button variant="neonGreen" size="lg" className="w-full" onClick={handleReset}>
+            <Navigation className="h-5 w-5" />
+            Find another shop
           </Button>
         </div>
       )}
-
-      {activeRouteId && null}
     </MobileShell>
   );
 };

@@ -475,9 +475,12 @@ function buildRecommendationWhy(p: ScoredProduct, budget: number | null | undefi
 }
 
 // ── Route fallback step builder ───────────────────────────────────────────────
-// Used when mall_nodes/mall_edges are empty for a given mall.
-// Generates a minimal human-readable step list from the ScoredProduct data
-// that is already in scope — no extra DB query needed.
+// Used when the mall has no usable navigation graph. Produces a STORE LIST from
+// the ScoredProduct data already in scope — not a route. It states only facts
+// the directory knows (shop name, unit number, floor when recorded) and never
+// invents a distance, a floor, a direction or a walking time: distances are 0
+// and an unknown floor stays null. (Before Sept 2026 every stop was given a
+// fabricated 100 m and a default "Floor G".)
 
 function buildFallbackRouteSteps(
   products: ScoredProduct[],
@@ -486,33 +489,21 @@ function buildFallbackRouteSteps(
   const steps: RouteStep[] = [];
   let stepNum = 1;
 
-  steps.push({
-    step: stepNum++,
-    instruction: "Start at the main mall entrance.",
-    node_id: "",
-    node_name: "Main Entrance",
-    floor: "G",
-    distance_meters: 0,
-    floor_change: false,
-    cumulative_meters: 0,
-  });
-
-  let cumulative = 0;
   for (const shopId of shopIds) {
     const p = products.find((x) => x.shop_id === shopId);
     if (!p) continue;
-    const unit = p.unit_number ? ` at unit ${p.unit_number}` : "";
-    const floor = p.floor ?? "G";
-    cumulative += 100;
+    const unit = p.unit_number ? ` (unit ${p.unit_number})` : "";
+    const floor = p.floor ?? null;
+    const where = floor ? ` on ${floor}` : "";
     steps.push({
       step: stepNum++,
-      instruction: `Go to ${p.shop_name}${unit} on Floor ${floor}.`,
+      instruction: `Find ${p.shop_name}${unit}${where}. Walking directions are not available for this mall yet.`,
       node_id: "",
       node_name: p.shop_name,
       floor,
-      distance_meters: 100,
+      distance_meters: 0,
       floor_change: false,
-      cumulative_meters: cumulative,
+      cumulative_meters: 0,
     });
   }
 
@@ -819,8 +810,10 @@ export async function runAssistant(
               ? r.steps
               : buildFallbackRouteSteps(allProducts, routeShopIds);
             routeId = r.route_id;
-            routeSummary = routeSummary ||
-              `${r.stop_count} stop${r.stop_count !== 1 ? "s" : ""} · ~${r.estimated_minutes} min walk`;
+            // Only a real route carries a walking time; an unroutable result is a store list.
+            routeSummary = routeSummary || (r.fallback
+              ? `${routeShopIds.length} stop${routeShopIds.length !== 1 ? "s" : ""} · directions unavailable`
+              : `${r.stop_count} stop${r.stop_count !== 1 ? "s" : ""} · ~${r.estimated_minutes} min walk`);
           } else if (ctx.mall_id) {
             // No session — build from mall graph directly (not persisted)
             const r = await buildRouteNoSession(ctx.mall_id, routeShopIds);
@@ -938,9 +931,11 @@ export async function runAssistant(
                 ? r.steps
                 : buildFallbackRouteSteps(allProducts, routeShopIds);
               routeId = r.route_id;
-              routeSummary = routeSummary ||
-                `${r.stop_count} stop${r.stop_count !== 1 ? "s" : ""} · ~${r.estimated_minutes} min walk`;
-              toolResult = JSON.stringify({ built: true, steps: routeSteps.length, estimated_minutes: r.estimated_minutes });
+              // Only a real route carries a walking time; an unroutable result is a store list.
+              routeSummary = routeSummary || (r.fallback
+                ? `${routeShopIds.length} stop${routeShopIds.length !== 1 ? "s" : ""} · directions unavailable`
+                : `${r.stop_count} stop${r.stop_count !== 1 ? "s" : ""} · ~${r.estimated_minutes} min walk`);
+              toolResult = JSON.stringify({ built: !r.fallback, fallback: r.fallback, fallback_reason: r.fallback_reason, steps: routeSteps.length, estimated_minutes: r.estimated_minutes });
             } else if (ctx.mall_id && routeShopIds.length) {
               // ── No-session path: mall graph, not persisted ─────────────────
               const r = await buildRouteNoSession(ctx.mall_id, routeShopIds);
@@ -949,13 +944,13 @@ export async function runAssistant(
                 routeSummary = routeSummary ||
                   `${r.stop_count} stop${r.stop_count !== 1 ? "s" : ""} · ~${r.estimated_minutes} min walk`;
               } else {
-                // No graph data — synthesise from product info already in scope
+                // No usable graph / no path — a store list, never a synthesised route
                 routeSteps = buildFallbackRouteSteps(allProducts, routeShopIds);
                 routeSummary = routeSummary ||
-                  `${routeShopIds.length} stop${routeShopIds.length !== 1 ? "s" : ""}`;
+                  `${routeShopIds.length} stop${routeShopIds.length !== 1 ? "s" : ""} · directions unavailable`;
               }
               routeId = null;
-              toolResult = JSON.stringify({ built: true, fallback: r.fallback, steps: routeSteps.length });
+              toolResult = JSON.stringify({ built: !r.fallback, fallback: r.fallback, fallback_reason: r.fallback_reason, steps: routeSteps.length });
             } else {
               // ── No session and no mall — synthesise if products available ──
               if (allProducts.length > 0) {

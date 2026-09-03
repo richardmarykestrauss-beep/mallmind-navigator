@@ -12,6 +12,8 @@ export interface ProductResult {
   shop_id: string;
   name: string;
   brand: string | null;
+  /** From products.category (nullable: never invented). */
+  category?: string | null;
   price: number;
   original_price: number | null;
   is_on_special: boolean;
