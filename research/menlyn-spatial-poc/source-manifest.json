@@ -1,0 +1,32 @@
+{
+  "manifest_id": "menlyn-spatial-poc-sources-v1",
+  "generated_at": "2026-09-03",
+  "access_policy_note": "Hosts marked blocked were refused by the session's organisation egress policy (proxy 403 on CONNECT / EGRESS_BLOCKED). Per proxy rules no retry, mirror, cache or archive was used to route around the denial.",
+  "sources": [
+    { "url": "https://www.menlynpark.co.za/", "role": "official mall site (home)", "party": "first-party", "attempted_via": ["curl", "harness fetch"], "outcome": "blocked", "content_captured": false },
+    { "url": "https://www.menlynpark.co.za/mall-map/", "role": "official mall map (LG/G/LF/UF)", "party": "first-party", "attempted_via": ["curl", "harness fetch"], "outcome": "blocked", "content_captured": false },
+    { "url": "https://www.menlynpark.co.za/site-maps-access/", "role": "official site maps / entrances / parking", "party": "first-party", "attempted_via": ["curl", "harness fetch"], "outcome": "blocked", "content_captured": false },
+    { "url": "https://www.menlynpark.co.za/stores/clicks/", "role": "official Clicks tenant page (LF 72, Entrance 13, Orange Parking)", "party": "first-party", "attempted_via": ["curl", "harness fetch"], "outcome": "blocked", "content_captured": false },
+    { "url": "https://www.menlynpark.co.za/terms/", "role": "official terms page", "party": "first-party", "attempted_via": ["search only"], "outcome": "url-known-not-fetched", "content_captured": false },
+    { "url": "https://www.menlynpark.co.za/stores/home-affairs/", "role": "tenant page also citing Entrance 13", "party": "first-party", "attempted_via": ["search only"], "outcome": "url-known-not-fetched", "content_captured": false },
+    { "url": "https://www.menlynpark.co.za/location/", "role": "official location page", "party": "first-party", "attempted_via": ["search only"], "outcome": "url-known-not-fetched", "content_captured": false },
+    { "url": "https://www.pareto.co.za/", "role": "owner site (rights research)", "party": "owner", "attempted_via": ["harness fetch"], "outcome": "blocked", "content_captured": false },
+    { "url": "https://www.pareto.co.za/portfolio/menlyn-park-shopping-center/", "role": "owner portfolio page for Menlyn Park", "party": "owner", "attempted_via": ["search only"], "outcome": "url-known-not-fetched", "content_captured": false },
+    { "url": "https://clicks.co.za/store-locator", "role": "retailer store finder (corroboration)", "party": "secondary", "attempted_via": ["harness fetch"], "outcome": "blocked", "content_captured": false },
+    { "url": "https://clicks.co.za/store/Menlyn-Park/365", "role": "retailer store page (corroborates LF72)", "party": "secondary", "attempted_via": ["search only"], "outcome": "url-known-not-fetched", "content_captured": false },
+    { "url": "https://maps.mapsted.com/770", "role": "third-party indoor map listing 'Menlyn Park' (possible official map vendor)", "party": "vendor", "attempted_via": ["harness fetch"], "outcome": "blocked", "content_captured": false },
+    { "url": "https://en.wikipedia.org/wiki/Menlyn_Park", "role": "secondary background (ownership, levels)", "party": "secondary", "attempted_via": ["harness fetch"], "outcome": "blocked", "content_captured": false },
+    { "url": "https://www.gauteng.net/whats-on-g/menlyn-park-shopping-centre/", "role": "secondary store guide", "party": "secondary", "attempted_via": ["harness fetch"], "outcome": "blocked", "content_captured": false }
+  ],
+  "search_queries_run": [
+    "Menlyn Park Shopping Centre Clicks \"LF 72\" OR \"LF72\" entrance 13 Orange parking",
+    "menlynpark.co.za mall map LG G LF UF levels floor map terms of use copyright Pareto",
+    "\"Menlyn Park\" \"Entrance 13\" Atterbury Road parking",
+    "site:menlynpark.co.za terms conditions copyright privacy \"Pareto\"",
+    "Menlyn Park mall map image LF \"Lower Floor\" stores near Clicks LF 71 LF 73 level",
+    "Mapsted \"Menlyn Park\" indoor navigation wayfinding app",
+    "\"menlynpark.co.za\" mall map interactive \"Entrance\" \"LF\" Clicks level Lower Floor entrance numbers list"
+  ],
+  "map_imagery_in_repo": false,
+  "map_imagery_note": "No Menlyn imagery was obtained or committed. If a local copy is ever used for analysis it must stay outside the committed package until reuse rights are confirmed."
+}

@@ -1,0 +1,145 @@
+{
+  "ledger_id": "menlyn-spatial-poc-evidence-v1",
+  "mall": "Menlyn Park Shopping Centre, Pretoria, South Africa",
+  "generated_at": "2026-09-03",
+  "generated_by": "MallMind research session (read-only web + repository)",
+  "evidence_levels": ["FIRST_PARTY_EXPLICIT", "FIRST_PARTY_VISUAL", "SECONDARY_CORROBORATION", "INFERRED", "UNKNOWN"],
+  "rules": [
+    "INFERRED facts must never silently become verified geometry.",
+    "SECONDARY_CORROBORATION here means a web-search snippet quoting a first-party page; the first-party page itself was NOT retrievable from this session.",
+    "No fact in this ledger is FIRST_PARTY_* because every first-party host was blocked by the session egress policy."
+  ],
+  "session_access_note": "All requests to menlynpark.co.za, pareto.co.za, clicks.co.za, maps.mapsted.com, en.wikipedia.org and gauteng.net were refused (HTTP 403 CONNECT / EGRESS_BLOCKED). Only a web-search endpoint answered.",
+  "facts": [
+    {
+      "id": "F01",
+      "fact": "Clicks at Menlyn Park has store code LF 72.",
+      "source_url": "https://www.menlynpark.co.za/stores/clicks/",
+      "source_type": "first-party tenant page (quoted via search snippet)",
+      "retrieval_date": "2026-09-03",
+      "evidence_level": "SECONDARY_CORROBORATION",
+      "confidence": 0.7,
+      "notes": "Matches the mission brief and the clicks.co.za store listing snippet ('Shop LF72'). Page not fetched directly (blocked)."
+    },
+    {
+      "id": "F02",
+      "fact": "Clicks' nearest entrance is Entrance 13; parking area Orange Parking; road Atterbury Road; phone 012 348 6161.",
+      "source_url": "https://www.menlynpark.co.za/stores/clicks/",
+      "source_type": "first-party tenant page (quoted via search snippet)",
+      "retrieval_date": "2026-09-03",
+      "evidence_level": "SECONDARY_CORROBORATION",
+      "confidence": 0.7,
+      "notes": "'Nearest entrance' is a directory attribute, not a statement that Entrance 13 opens onto level LF. Floor of Entrance 13 remains UNKNOWN (F09)."
+    },
+    {
+      "id": "F03",
+      "fact": "The official mall map exposes four levels: LG, G, LF, UF.",
+      "source_url": "https://www.menlynpark.co.za/mall-map/",
+      "source_type": "first-party map page (quoted via search snippet)",
+      "retrieval_date": "2026-09-03",
+      "evidence_level": "SECONDARY_CORROBORATION",
+      "confidence": 0.7,
+      "notes": "Level expansions (Lower Ground / Ground / Lower Floor / Upper Floor) come from the search summary, not from the page."
+    },
+    {
+      "id": "F04",
+      "fact": "Entrance 13 is accessed from Atterbury Road and serves Orange Parking; Home Affairs is also listed near Entrance 13.",
+      "source_url": "https://www.menlynpark.co.za/stores/home-affairs/",
+      "source_type": "first-party tenant page (quoted via search snippet)",
+      "retrieval_date": "2026-09-03",
+      "evidence_level": "SECONDARY_CORROBORATION",
+      "confidence": 0.6,
+      "notes": "Useful as a second tenant sharing Entrance 13; does not establish adjacency to Clicks (adjacency must never be inferred from store codes)."
+    },
+    {
+      "id": "F05",
+      "fact": "Menlyn Park is owned by Pareto Limited.",
+      "source_url": "https://www.pareto.co.za/portfolio/menlyn-park-shopping-center/",
+      "source_type": "owner portfolio page (URL from search; not fetched)",
+      "retrieval_date": "2026-09-03",
+      "evidence_level": "SECONDARY_CORROBORATION",
+      "confidence": 0.8,
+      "notes": "Also stated by the Wikipedia snippet. Relevant to rights holder identification only."
+    },
+    {
+      "id": "F06",
+      "fact": "A Terms and Conditions page exists at menlynpark.co.za/terms/; the snippet describes a Pareto Group personal-information (POPIA) policy, not a map licence.",
+      "source_url": "https://www.menlynpark.co.za/terms/",
+      "source_type": "first-party legal page (quoted via search snippet)",
+      "retrieval_date": "2026-09-03",
+      "evidence_level": "SECONDARY_CORROBORATION",
+      "confidence": 0.5,
+      "notes": "Whether any copyright / map-reuse terms exist is UNKNOWN. Public accessibility of the map is not permission."
+    },
+    {
+      "id": "F07",
+      "fact": "Mapsted hosts a venue listing named 'Menlyn Park' (venue 770) and Mapsted marketing names 'Menlyn Mall' as a client.",
+      "source_url": "https://maps.mapsted.com/770",
+      "source_type": "third-party indoor-map vendor listing (URL from search; not fetched)",
+      "retrieval_date": "2026-09-03",
+      "evidence_level": "SECONDARY_CORROBORATION",
+      "confidence": 0.5,
+      "notes": "If the official interactive map is a Mapsted embed, the level assets are vector data licensed through Mapsted and existing turn-by-turn exists. This changes tracing method and rights. Must be verified on /mall-map/ HTML (iframe/script src)."
+    },
+    {
+      "id": "F08",
+      "fact": "Native LF map asset URL, format and pixel dimensions.",
+      "source_url": "https://www.menlynpark.co.za/mall-map/",
+      "source_type": "first-party map asset",
+      "retrieval_date": "2026-09-03",
+      "evidence_level": "UNKNOWN",
+      "confidence": 0.0,
+      "notes": "Not retrievable from this session. Required for any coordinate plane."
+    },
+    {
+      "id": "F09",
+      "fact": "Level onto which Entrance 13 opens (LF or other).",
+      "source_url": "https://www.menlynpark.co.za/site-maps-access/",
+      "source_type": "first-party access page",
+      "retrieval_date": "2026-09-03",
+      "evidence_level": "UNKNOWN",
+      "confidence": 0.0,
+      "notes": "Determines whether the proof route needs a floor transition. Never assume."
+    },
+    {
+      "id": "F10",
+      "fact": "Public corridor topology and junctions between Entrance 13 and LF 72; location of Clicks' public frontage/door.",
+      "source_url": "https://www.menlynpark.co.za/mall-map/",
+      "source_type": "first-party map (visual)",
+      "retrieval_date": "2026-09-03",
+      "evidence_level": "UNKNOWN",
+      "confidence": 0.0,
+      "notes": "No image obtained; no node or edge may be drawn."
+    },
+    {
+      "id": "F11",
+      "fact": "Presence of a scale bar or any metre calibration on the LF map.",
+      "source_url": "https://www.menlynpark.co.za/mall-map/",
+      "source_type": "first-party map (visual)",
+      "retrieval_date": "2026-09-03",
+      "evidence_level": "UNKNOWN",
+      "confidence": 0.0,
+      "notes": "Without it, distances may only be expressed in pixels/relative units and no metres or minutes may be claimed."
+    },
+    {
+      "id": "F12",
+      "fact": "Clicks Menlyn Park store listing exists on clicks.co.za (store 365) with address 'Shop LF72, Menlyn Park Shopping Centre, Lois Rd, Menlyn, Pretoria, 0181'.",
+      "source_url": "https://clicks.co.za/store/Menlyn-Park/365",
+      "source_type": "retailer store page (quoted via search snippet)",
+      "retrieval_date": "2026-09-03",
+      "evidence_level": "SECONDARY_CORROBORATION",
+      "confidence": 0.6,
+      "notes": "Corroborates LF72. The postal road (Lois Rd) differs from the tenant page's entrance road (Atterbury Road); these are different facts (centre address vs nearest-entrance road), recorded, not treated as a conflict."
+    },
+    {
+      "id": "F13",
+      "fact": "A topological route Entrance 13 -> public corridor -> Clicks LF 72 arrival point is plausible.",
+      "source_url": null,
+      "source_type": "inference from F02 ('nearest entrance')",
+      "retrieval_date": "2026-09-03",
+      "evidence_level": "INFERRED",
+      "confidence": 0.4,
+      "notes": "Directory proximity only. Carries no geometry. Must never be promoted without F08-F11 resolved."
+    }
+  ]
+}
