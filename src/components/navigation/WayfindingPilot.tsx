@@ -5,14 +5,18 @@
  *   • /navigate (NavigateScreen) — embedded inside MobileShell for shoppers.
  *   • /pilot (MallRedsPilot)     — standalone, for controlled testing.
  *
- * Flow: "Where do you want to go?" → pick a real tenant or amenity → "Starting
- * from …" (changeable, re-routes instantly) → route summary + first instruction
- * + schematic map + step-by-step viewer. Reuses pilotBuildRoute + IndoorMapCanvas.
+ * Flow: "Where do you want to go?" → pick a real tenant or amenity → "Starting from …" (changeable,
+ * re-routes instantly) → route summary + first instruction + map + step-by-step viewer. Reuses
+ * pilotBuildRoute + IndoorMapCanvas over whichever mall dataset `mallId` selects (mallDatasets.ts).
  *
- * The route depends ONLY on a start ANCHOR (PilotAnchor). Today it comes from
- * manual selection or a /navigate?mall=&start= link (what QR signage encodes);
- * a future positioning provider fills the same seam. NO live positioning, NO
- * official-floorplan claim, NO product/price dependency, NO simulated movement.
+ * The route depends ONLY on a start ANCHOR (PilotAnchor). Today it comes from manual selection or a
+ * /navigate?mall=&start= link (what QR signage encodes); a future positioning provider fills the
+ * same seam. NO live positioning, NO official-floorplan claim, NO product/price dependency, NO
+ * simulated movement.
+ *
+ * DISTANCE TRUTH: metres and minutes are rendered only when the route reports `metric: true`
+ * (every traversed edge measured). An unscaled, source-backed dataset shows topology only and the
+ * line "Source-backed route preview. Distance not yet measured."
  */
 
 import { useEffect, useMemo, useState } from "react";
@@ -24,18 +28,10 @@ import IndoorMapCanvas from "@/components/navigation/IndoorMapCanvas";
 import { toFloorplanModel, buildRoutePolyline, attachFloorImages, normalizeFloorLabel } from "@/components/navigation/floorplanModel";
 import { pilotBuildRoute } from "@/components/navigation/pilotRoute";
 import {
-  MALL_REDS_PILOT_NODES as NODES, MALL_REDS_PILOT_EDGES as EDGES,
-  MALL_REDS_PILOT_MALL_ID, MALL_REDS_PILOT_MALL_NAME, MALL_REDS_PILOT_FLOOR_IMAGES,
-  pilotStartOptions, searchPilotPois, defaultPilotAnchor, anchorFromStart, pilotDatasetStatus,
+  getWayfindingMall, startOptions, searchPois, defaultAnchor, anchorFor, DEFAULT_WAYFINDING_MALL_ID,
   type PilotPoi, type PilotAnchor,
-} from "@/components/navigation/mallRedsPilotGraph";
-
-const DISCLAIMERS = [
-  "Pilot schematic — route geometry awaits on-site verification.",
-  "Not an official Mall@Reds floorplan.",
-  "Route preview only — live indoor positioning is not active.",
-  "Not accessibility-verified. Not for emergency or evacuation use.",
-];
+} from "@/components/navigation/mallDatasets";
+import type { LoadedPilotDataset } from "@/components/navigation/mallRedsPilotDataset";
 
 const poiIcon = (p: PilotPoi): string =>
   p.kind === "store" ? "🛍️" : ({ toilet: "🚻", lift: "🛗", escalator: "🪜", stairs: "🪜", food_court: "🍽️", landmark: "ℹ️" }[p.type] ?? "📍");
@@ -45,7 +41,38 @@ const ANCHOR_SOURCE_LABEL: Partial<Record<PilotAnchor["source"], string>> = {
   qr: "from the QR code you scanned",
 };
 
+/** Honest status wording derived from the DATA, never from the UI's optimism. */
+function truthCopy(g: LoadedPilotDataset): { summary: string; statusLine: string; details: string[] } {
+  const measured = g.metric ? "" : " Distance not yet measured.";
+  if (g.datasetStatus === "schematic") {
+    return {
+      summary: "Pilot schematic · not an official floorplan · route preview only",
+      statusLine: `Route preview — your position is not tracked.${measured}`,
+      details: [
+        "Pilot schematic — route geometry awaits on-site verification.",
+        `Not an official ${g.mallName} floorplan.`,
+        "Route preview only — live indoor positioning is not active.",
+        "Not accessibility-verified. Not for emergency or evacuation use.",
+      ],
+    };
+  }
+  const verified = g.fieldVerified ? "walked on site" : "not yet walked on site";
+  return {
+    summary: `Source-backed route preview · ${verified}${g.metric ? "" : " · distance not measured"}`,
+    statusLine: `Source-backed route preview.${measured} Your position is not tracked.`,
+    details: [
+      `Route traced from ${g.mallName}'s published floor plan; ${verified}.`,
+      `Not an official ${g.mallName} deployment. Controlled pilot only.`,
+      g.metric ? "Distances are measured." : "Distance not yet measured — no walking time is shown.",
+      "Store entrances shown as the nearest corridor point, not the door.",
+      "Not accessibility-verified. Not for emergency or evacuation use.",
+    ],
+  };
+}
+
 export interface WayfindingPilotProps {
+  /** Which bundled mall dataset to route over; defaults to the Mall@Reds pilot. */
+  mallId?: string;
   /** Start anchor resolved from a link / QR (same model as manual selection). */
   initialAnchor?: PilotAnchor | null;
   /** Human-readable reason an incoming link anchor was rejected (manual start still works). */
@@ -56,18 +83,32 @@ export interface WayfindingPilotProps {
   onOpenAssistant?: () => void;
 }
 
-export default function WayfindingPilot({ initialAnchor, anchorNotice, embedded, onOpenAssistant }: WayfindingPilotProps) {
-  const starts = useMemo(() => pilotStartOptions(), []);
+export default function WayfindingPilot({ mallId, initialAnchor, anchorNotice, embedded, onOpenAssistant }: WayfindingPilotProps) {
+  const graph = useMemo(() => getWayfindingMall(mallId ?? DEFAULT_WAYFINDING_MALL_ID), [mallId]);
+
+  if (!graph) {
+    // Defensive: callers validate mall ids first (wayfindingAnchor.ts); never invent a map.
+    return (
+      <div className="px-4 py-6 text-sm text-muted-foreground" data-testid="pilot-no-map">
+        MallMind does not have a map for this mall yet.
+      </div>
+    );
+  }
+  return <WayfindingPilotView key={graph.mallId} graph={graph} initialAnchor={initialAnchor} anchorNotice={anchorNotice} embedded={embedded} onOpenAssistant={onOpenAssistant} />;
+}
+
+function WayfindingPilotView({ graph, initialAnchor, anchorNotice, embedded, onOpenAssistant }: Omit<WayfindingPilotProps, "mallId"> & { graph: LoadedPilotDataset }) {
+  const starts = useMemo(() => startOptions(graph), [graph]);
   const floorplan = useMemo(
     () => attachFloorImages(
-      toFloorplanModel({ nodes: NODES, edges: EDGES }, { mallId: MALL_REDS_PILOT_MALL_ID, mallName: MALL_REDS_PILOT_MALL_NAME }),
-      MALL_REDS_PILOT_FLOOR_IMAGES,
+      toFloorplanModel({ nodes: graph.nodes, edges: graph.edges }, { mallId: graph.mallId, mallName: graph.mallName }),
+      graph.floorImages,
     ),
-    [],
+    [graph],
   );
-  const status = pilotDatasetStatus();
+  const copy = useMemo(() => truthCopy(graph), [graph]);
 
-  const [anchor, setAnchor] = useState<PilotAnchor>(() => initialAnchor ?? defaultPilotAnchor());
+  const [anchor, setAnchor] = useState<PilotAnchor>(() => initialAnchor ?? defaultAnchor(graph));
   const [dest, setDest] = useState<PilotPoi | null>(null);
   const [query, setQuery] = useState("");
   const [stepMode, setStepMode] = useState(false);
@@ -78,20 +119,31 @@ export default function WayfindingPilot({ initialAnchor, anchorNotice, embedded,
     if (initialAnchor) { setAnchor(initialAnchor); setStepIdx(0); }
   }, [initialAnchor]);
 
-  const results = useMemo(() => searchPilotPois(query), [query]);
+  const results = useMemo(() => searchPois(graph, query), [graph, query]);
   const route = useMemo(
-    () => (dest ? pilotBuildRoute(NODES, EDGES, anchor.nodeId, dest.id) : null),
-    [dest, anchor],
+    () => (dest ? pilotBuildRoute(graph.nodes, graph.edges, anchor.nodeId, dest.id) : null),
+    [graph, dest, anchor],
   );
   const hasRoute = Boolean(route?.found && !route?.fallback && route!.steps.length);
-  const polyline = hasRoute ? buildRoutePolyline(route!.steps) : [];
   const steps = route?.steps ?? [];
-  const activeFloor = normalizeFloorLabel(steps[stepMode ? stepIdx : 0]?.floor ?? "G");
+  // Steps record their "to" node, so prepend the chosen start node: the START pin and the first
+  // route segment then begin at the entrance the shopper actually chose, not at the first junction.
+  const polyline = useMemo(() => {
+    if (!hasRoute) return [];
+    const startNode = graph.nodes.find((n) => n.id === anchor.nodeId);
+    const lead = startNode
+      ? [{ node_id: startNode.id, floor: startNode.floor, x_coordinate: startNode.x_coordinate, y_coordinate: startNode.y_coordinate }]
+      : [];
+    return buildRoutePolyline([...lead, ...steps]);
+  }, [hasRoute, graph, anchor.nodeId, steps]);
+  const activeFloor = normalizeFloorLabel(steps[stepMode ? stepIdx : 0]?.floor ?? graph.dataset.floors[0]?.id ?? "G");
   const anchorSourceLabel = ANCHOR_SOURCE_LABEL[anchor.source] ?? null;
+  const showMetrics = Boolean(hasRoute && route!.metric && route!.total_distance_meters !== null && route!.estimated_minutes !== null);
+  const exampleNames = useMemo(() => searchPois(graph, "").slice(0, 5).map((p) => p.name).join(", "), [graph]);
 
   function choose(p: PilotPoi) { setDest(p); setStepMode(false); setStepIdx(0); }
   function clearDest() { setDest(null); setQuery(""); setStepMode(false); setStepIdx(0); }
-  function changeAnchor(nodeId: string) { setAnchor(anchorFromStart(nodeId, "manual")); setStepIdx(0); } // route rebuilds via memo
+  function changeAnchor(nodeId: string) { setAnchor(anchorFor(graph, nodeId, "manual")); setStepIdx(0); } // route rebuilds via memo
 
   const header = embedded ? null : (
     <header className="sticky top-0 z-10 flex items-center gap-2 border-b bg-background/95 px-4 py-3 backdrop-blur">
@@ -101,7 +153,7 @@ export default function WayfindingPilot({ initialAnchor, anchorNotice, embedded,
         </button>
       )}
       <div className="min-w-0">
-        <h1 className="truncate text-base font-semibold leading-tight">{MALL_REDS_PILOT_MALL_NAME} · Wayfinding</h1>
+        <h1 className="truncate text-base font-semibold leading-tight">{graph.mallName} · Wayfinding</h1>
         <p className="truncate text-xs text-muted-foreground">Find a shop or facility and get walked there</p>
       </div>
     </header>
@@ -111,6 +163,9 @@ export default function WayfindingPilot({ initialAnchor, anchorNotice, embedded,
     <div
       className={embedded ? "flex flex-col" : "mx-auto flex min-h-[100dvh] max-w-md flex-col bg-background"}
       data-testid="mallreds-pilot"
+      data-mall-id={graph.mallId}
+      data-dataset-status={graph.datasetStatus}
+      data-metric={graph.metric ? "true" : "false"}
     >
       {header}
 
@@ -147,7 +202,7 @@ export default function WayfindingPilot({ initialAnchor, anchorNotice, embedded,
 
             {results.length === 0 ? (
               <div className="rounded-lg border border-dashed px-4 py-6 text-center text-sm text-muted-foreground" data-testid="pilot-no-result">
-                No match for “{query.trim()}” in this pilot.<br />Try Clicks, Game, Dis-Chem, Pick n Pay, Woolworths, toilets or lifts.
+                No match for “{query.trim()}” in this pilot.<br />Try {exampleNames}.
               </div>
             ) : (
               <div className="grid grid-cols-1 gap-2" data-testid="pilot-suggestions">
@@ -218,12 +273,20 @@ export default function WayfindingPilot({ initialAnchor, anchorNotice, embedded,
               </div>
             ) : (
               <>
-                {/* Summary */}
-                <div className="grid grid-cols-3 gap-2 text-center" data-testid="pilot-summary">
-                  <div className="rounded-lg border py-2"><div className="text-lg font-semibold">{route!.total_distance_meters}<span className="text-xs font-normal"> m</span></div><div className="text-[11px] text-muted-foreground">distance</div></div>
-                  <div className="rounded-lg border py-2"><div className="text-lg font-semibold">{route!.estimated_minutes}<span className="text-xs font-normal"> min</span></div><div className="text-[11px] text-muted-foreground">walk</div></div>
-                  <div className="rounded-lg border py-2"><div className="text-lg font-semibold">{steps[0]?.floor ?? "G"}</div><div className="text-[11px] text-muted-foreground">floor</div></div>
-                </div>
+                {/* Summary — metres/minutes ONLY for measured routes; never for an unscaled source. */}
+                {showMetrics ? (
+                  <div className="grid grid-cols-3 gap-2 text-center" data-testid="pilot-summary">
+                    <div className="rounded-lg border py-2"><div className="text-lg font-semibold">{route!.total_distance_meters}<span className="text-xs font-normal"> m</span></div><div className="text-[11px] text-muted-foreground">distance</div></div>
+                    <div className="rounded-lg border py-2"><div className="text-lg font-semibold">{route!.estimated_minutes}<span className="text-xs font-normal"> min</span></div><div className="text-[11px] text-muted-foreground">walk</div></div>
+                    <div className="rounded-lg border py-2"><div className="text-lg font-semibold">{steps[0]?.floor ?? "G"}</div><div className="text-[11px] text-muted-foreground">floor</div></div>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2 text-center" data-testid="pilot-summary-unscaled">
+                    <div className="rounded-lg border py-2"><div className="text-lg font-semibold">{steps.length - 1}</div><div className="text-[11px] text-muted-foreground">{steps.length - 1 === 1 ? "leg" : "legs"}</div></div>
+                    <div className="rounded-lg border py-2"><div className="text-lg font-semibold">{steps[0]?.floor ?? "G"}</div><div className="text-[11px] text-muted-foreground">floor</div></div>
+                    <p className="col-span-2 text-xs text-muted-foreground" data-testid="pilot-distance-unmeasured">Distance not yet measured — no walking time shown.</p>
+                  </div>
+                )}
 
                 {/* Map */}
                 <div className="overflow-hidden rounded-xl border" style={{ height: 240, background: "hsl(240 24% 4%)" }}>
@@ -234,7 +297,7 @@ export default function WayfindingPilot({ initialAnchor, anchorNotice, embedded,
                     completedStepIndices={new Set<number>()}
                     currentStepIndex={stepMode ? stepIdx : 0}
                     simulatedPosition={null}
-                    isDemo={status.datasetStatus === "schematic"}
+                    isDemo={graph.datasetStatus === "schematic"}
                   />
                 </div>
 
@@ -271,7 +334,7 @@ export default function WayfindingPilot({ initialAnchor, anchorNotice, embedded,
                     ))}
                   </ol>
                 )}
-                <p className="text-xs text-muted-foreground" data-testid="pilot-status-line">Route preview — your position is not tracked.</p>
+                <p className="text-xs text-muted-foreground" data-testid="pilot-status-line">{copy.statusLine}</p>
               </>
             )}
           </section>
@@ -281,10 +344,10 @@ export default function WayfindingPilot({ initialAnchor, anchorNotice, embedded,
       {/* Compact honest-status area (not visually dominant) */}
       <details className="border-t px-4 py-2 text-xs text-muted-foreground" data-testid="pilot-disclaimer">
         <summary className="flex cursor-pointer list-none items-center justify-between">
-          <span>Pilot schematic · not an official floorplan · route preview only</span>
+          <span>{copy.summary}</span>
           <span className="underline">details</span>
         </summary>
-        <ul className="space-y-0.5 pt-2 leading-snug">{DISCLAIMERS.map((d) => <li key={d}>• {d}</li>)}</ul>
+        <ul className="space-y-0.5 pt-2 leading-snug">{copy.details.map((d) => <li key={d}>• {d}</li>)}</ul>
       </details>
     </div>
   );

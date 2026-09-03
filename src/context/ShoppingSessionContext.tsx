@@ -9,9 +9,11 @@ export interface RouteStep {
   node_id: string;
   node_name: string;
   floor: string | null;
-  distance_meters: number;
+  /** Measured metres for this step; null when the route's source is unscaled (never fabricated). */
+  distance_meters: number | null;
   floor_change: boolean;
-  cumulative_meters: number;
+  /** Running metres; null when the route is unscaled. */
+  cumulative_meters: number | null;
   /** Percent-style map coordinate from backend mall_nodes.x_coordinate. */
   x_coordinate?: number | null;
   /** Percent-style map coordinate from backend mall_nodes.y_coordinate. */

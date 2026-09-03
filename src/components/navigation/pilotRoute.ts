@@ -1,27 +1,42 @@
 /**
- * pilotRoute.ts — client-side route for the Mall@Reds navigation pilot.
+ * pilotRoute.ts — client-side route for the wayfinding pilots.
  *
  * A FAITHFUL PORT of the backend Dijkstra in
- * google-cloud-backend/src/services/routingService.ts (same algorithm, same
- * mall_nodes/mall_edges shape, undirected edges weighted by distance_meters). It exists
- * only so the pilot is self-contained and demonstrable without seeding a hosted graph or
- * running the backend. When verified Mall@Reds nodes/edges are loaded, this can be replaced
- * by a call to the existing POST /build-route with no change to the graph shape or the UI.
+ * google-cloud-backend/src/services/routingCore.ts (same algorithm, same mall_nodes/mall_edges
+ * shape, undirected edges). It exists so the pilot is self-contained and demonstrable without
+ * seeding a hosted graph or running the backend.
  *
- * Pure + deterministic → unit-testable. Never fabricates a route: if there is no path it
- * returns `fallback:true` with empty steps; unknown tenants return `found:false`.
+ * DISTANCE TRUTH. Shortest-path uses the unit-agnostic edge `weight` (metres for metric data,
+ * pixels for an unscaled source). Metres are reported ONLY when every traversed edge carries
+ * measured `distance_meters`; otherwise `total_distance_meters` and `estimated_minutes` are null,
+ * every step's `distance_meters` is null, and `metric` is false. Nothing here converts pixels to
+ * metres. Never fabricates a route: no path → `fallback:true`; unknown tenant → `found:false`.
  */
 
 import type { BackendNodeLike, BackendEdgeLike } from "./floorplanModel";
 import type { RouteStep } from "@/context/ShoppingSessionContext";
 
+/** Average indoor walking pace used for the time estimate (metres per minute). */
+export const WALK_METERS_PER_MINUTE = 72;
+
 export interface PilotRouteResult {
-  found: boolean;               // was the destination tenant present in the pilot graph?
+  found: boolean;               // was the destination tenant present in the graph?
   fallback: boolean;            // present but not connected → no honest route
   steps: RouteStep[];
-  total_distance_meters: number;
-  estimated_minutes: number;
+  /** true only when every traversed edge has measured metres. */
+  metric: boolean;
+  /** null when the route is unscaled (never derived from pixels). */
+  total_distance_meters: number | null;
+  /** null when the route is unscaled. */
+  estimated_minutes: number | null;
   message: string | null;       // honest failure text when found=false / fallback=true
+}
+
+/** Shortest-path weight: dataset weight, else measured metres, else 1 hop. Never a distance claim. */
+function edgeWeight(e: BackendEdgeLike): number {
+  if (typeof e.weight === "number" && e.weight > 0) return e.weight;
+  if (typeof e.distance_meters === "number" && e.distance_meters > 0) return e.distance_meters;
+  return 1;
 }
 
 function dijkstra(nodes: BackendNodeLike[], edges: BackendEdgeLike[], startId: string, endId: string):
@@ -42,7 +57,7 @@ function dijkstra(nodes: BackendNodeLike[], edges: BackendEdgeLike[], startId: s
     for (const e of edges.filter((x) => x.from_node_id === u || x.to_node_id === u)) {
       const v = e.from_node_id === u ? e.to_node_id : e.from_node_id;
       if (!unvisited.has(v)) continue;
-      const alt = dist[u] + (e.distance_meters ?? 20);
+      const alt = dist[u] + edgeWeight(e);
       if (alt < dist[v]) { dist[v] = alt; prev[v] = { from: u, edge: e }; }
     }
   }
@@ -61,7 +76,11 @@ function isInternal(node: BackendNodeLike | undefined): boolean {
   return t === "corridor" || /corridor|junction|spine|\bnode\s*\d+\b/i.test(node.name ?? "");
 }
 
-function instruction(from: BackendNodeLike, to: BackendNodeLike, first: boolean, floorChange: boolean): string {
+function instruction(from: BackendNodeLike, to: BackendNodeLike, edge: BackendEdgeLike, first: boolean, floorChange: boolean): string {
+  // A dataset may supply the topological wording for a leg (e.g. "Continue straight across the
+  // cross corridor; Clicks is on your right."). It is used verbatim — it never carries distances.
+  const supplied = edge.instruction?.trim();
+  if (supplied) return first ? `Start at ${from.name}. ${supplied}` : supplied;
   if (first) return isInternal(from) ? "Start and head into the concourse." : `Start at ${from.name} and head into the concourse.`;
   if (floorChange) return "Take the escalator or lift to the next level.";
   if (isInternal(to)) return "Continue along the concourse.";
@@ -78,16 +97,19 @@ export function pilotBuildRoute(
   startNodeId: string,
   destinationShopId: string,
 ): PilotRouteResult {
-  const empty = { steps: [] as RouteStep[], total_distance_meters: 0, estimated_minutes: 0 };
+  const empty = { steps: [] as RouteStep[], metric: false, total_distance_meters: null, estimated_minutes: null };
   const destNode = nodes.find((n) => n.linked_shop_id === destinationShopId || n.id === destinationShopId);
-  if (!destNode) return { found: false, fallback: false, ...empty, message: "That store isn’t in the Mall@Reds pilot yet." };
+  if (!destNode) return { found: false, fallback: false, ...empty, message: "That destination isn’t on this map yet." };
   if (!nodes.some((n) => n.id === startNodeId)) return { found: true, fallback: true, ...empty, message: "Please choose a starting point." };
   if (startNodeId === destNode.id) return { found: true, fallback: true, ...empty, message: "You’re already there." };
 
   const result = dijkstra(nodes, edges, startNodeId, destNode.id);
   if (!result || result.path.length < 2) {
-    return { found: true, fallback: true, ...empty, message: `${destNode.name} isn’t connected to the pilot map yet.` };
+    return { found: true, fallback: true, ...empty, message: `${destNode.name} isn’t connected to this map yet.` };
   }
+
+  // Metres exist only if EVERY traversed edge was measured. One unscaled leg → the whole route is unscaled.
+  const metric = result.edges.every((e) => typeof e.distance_meters === "number" && e.distance_meters > 0);
 
   const nodeMap = Object.fromEntries(nodes.map((n) => [n.id, n]));
   const steps: RouteStep[] = [];
@@ -97,16 +119,17 @@ export function pilotBuildRoute(
     const to = nodeMap[result.path[i + 1]];
     const edge = result.edges[i];
     const floorChange = Boolean(edge.floor_change);
-    total += edge.distance_meters ?? 20;
+    const legMetres = metric ? (edge.distance_meters as number) : null;
+    if (legMetres !== null) total += legMetres;
     steps.push({
       step: i + 1,
-      instruction: instruction(from, to, i === 0, floorChange),
+      instruction: instruction(from, to, edge, i === 0, floorChange),
       node_id: to.id,
       node_name: to.name,
       floor: to.floor ?? "G",
-      distance_meters: edge.distance_meters ?? 20,
+      distance_meters: legMetres,
       floor_change: floorChange,
-      cumulative_meters: total,
+      cumulative_meters: metric ? total : null,
       x_coordinate: to.x_coordinate,
       y_coordinate: to.y_coordinate,
     });
@@ -114,9 +137,17 @@ export function pilotBuildRoute(
   steps.push({
     step: steps.length + 1, instruction: `You’ve arrived at ${destNode.name}.`,
     node_id: destNode.id, node_name: destNode.name, floor: destNode.floor ?? "G",
-    distance_meters: 0, floor_change: false, cumulative_meters: total,
+    distance_meters: metric ? 0 : null, floor_change: false, cumulative_meters: metric ? total : null,
     x_coordinate: destNode.x_coordinate, y_coordinate: destNode.y_coordinate,
   });
 
-  return { found: true, fallback: false, steps, total_distance_meters: total, estimated_minutes: Math.max(1, Math.round(total / 72)), message: null };
+  return {
+    found: true,
+    fallback: false,
+    steps,
+    metric,
+    total_distance_meters: metric ? total : null,
+    estimated_minutes: metric ? Math.max(1, Math.round(total / WALK_METERS_PER_MINUTE)) : null,
+    message: null,
+  };
 }

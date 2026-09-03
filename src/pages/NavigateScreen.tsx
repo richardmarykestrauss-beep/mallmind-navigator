@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import IndoorMapCanvas from "@/components/navigation/IndoorMapCanvas";
 import WayfindingPilot from "@/components/navigation/WayfindingPilot";
 import { parseWayfindingAnchor } from "@/components/navigation/wayfindingAnchor";
+import { getWayfindingMall, DEFAULT_WAYFINDING_MALL_ID } from "@/components/navigation/mallDatasets";
 import {
   toFloorplanModel, schematicModelFromRoute, buildRoutePolyline,
   routeFloors, normalizeFloorLabel, floorChip, type FloorplanModel,
@@ -61,6 +62,9 @@ const NavigateScreen = () => {
   const navigate = useNavigate();
   const { search } = useLocation();
   const linkAnchor = useMemo(() => parseWayfindingAnchor(search), [search]);
+  // Which bundled dataset the finder routes over: the link's mall when valid, else the default pilot.
+  const wayfindingMallId = linkAnchor.mallId ?? DEFAULT_WAYFINDING_MALL_ID;
+  const wayfindingMall = getWayfindingMall(wayfindingMallId);
 
   const {
     selectedMall,
@@ -255,7 +259,7 @@ const NavigateScreen = () => {
       <MobileShell>
         <ScreenHeader
           title="Navigate"
-          subtitle="Mall@Reds · pilot"
+          subtitle={`${wayfindingMall?.mallName ?? "Mall"} · ${wayfindingMall?.datasetStatus === "schematic" ? "pilot" : "source-backed preview"}`}
           back={false}
           right={
             (hasRealRoute || routeStops.length > 0) ? (
@@ -271,6 +275,7 @@ const NavigateScreen = () => {
         />
         <WayfindingPilot
           embedded
+          mallId={wayfindingMallId}
           initialAnchor={linkAnchor.status === "ok" ? linkAnchor.anchor : null}
           anchorNotice={linkAnchor.status === "invalid" ? linkAnchor.reason : null}
           onOpenAssistant={() => navigate("/assistant")}

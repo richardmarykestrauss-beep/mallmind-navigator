@@ -95,3 +95,42 @@ describe("WayfindingPilot — shopper wayfinding loop", () => {
     expect(screen.queryByRole("heading", { level: 1 })).toBeNull();
   });
 });
+
+describe("WayfindingPilot — unscaled source-backed dataset (Menlyn Park)", () => {
+  it("routes Entrance 13 → Clicks with topology only: NO metres, NO minutes, honest status", () => {
+    render(<WayfindingPilot embedded mallId="menlyn-park" />);
+    expect(screen.getByTestId("mallreds-pilot")).toHaveAttribute("data-mall-id", "menlyn-park");
+    expect(screen.getByTestId("mallreds-pilot")).toHaveAttribute("data-metric", "false");
+    expect(screen.getByTestId("pilot-anchor-summary")).toHaveTextContent("Entrance 13");
+    fireEvent.click(within(screen.getByTestId("pilot-suggestions")).getByText("Clicks"));
+    expect(screen.getByTestId("pilot-dest-name")).toHaveTextContent("Clicks");
+    expect(screen.queryByTestId("pilot-summary")).toBeNull();
+    expect(screen.getByTestId("pilot-summary-unscaled")).toHaveTextContent(/2\s*legs/);
+    expect(screen.getByTestId("pilot-distance-unmeasured")).toHaveTextContent("Distance not yet measured");
+    const view = screen.getByTestId("pilot-route-view").textContent ?? "";
+    // no digit followed by "m"/"min" anywhere in the route view (no word-boundary trick: tiles concatenate)
+    expect(view).not.toMatch(/\d\s?m/i);
+    expect(view).not.toMatch(/verified route|official MallMind map/i);
+    expect(screen.getByTestId("pilot-status-line")).toHaveTextContent("Source-backed route preview. Distance not yet measured.");
+    const steps = within(screen.getByTestId("pilot-steps")).getAllByRole("listitem");
+    expect(steps).toHaveLength(3);
+    expect(steps[1]).toHaveTextContent("Clicks is on your right");
+    expect(screen.getByTestId("pilot-disclaimer")).toHaveTextContent("not yet walked on site");
+    expect(screen.getByTestId("pilot-disclaimer")).toHaveTextContent("Not an official Menlyn Park deployment");
+  });
+
+  it("the metric Mall@Reds pilot still shows metres and minutes", () => {
+    render(<WayfindingPilot embedded mallId="mallreds-pilot" />);
+    fireEvent.click(within(screen.getByTestId("pilot-suggestions")).getByText("Clicks"));
+    expect(screen.getByTestId("pilot-summary")).toHaveTextContent(/\d+ m/);
+    expect(screen.getByTestId("pilot-summary")).toHaveTextContent(/\d+ min/);
+    expect(screen.queryByTestId("pilot-summary-unscaled")).toBeNull();
+    expect(screen.getByTestId("mallreds-pilot")).toHaveAttribute("data-metric", "true");
+  });
+
+  it("an unknown mall id renders a safe 'no map' notice, never a fabricated map", () => {
+    render(<WayfindingPilot embedded mallId="sandton-city" />);
+    expect(screen.getByTestId("pilot-no-map")).toBeInTheDocument();
+    expect(screen.queryByTestId("pilot-finder")).toBeNull();
+  });
+});
