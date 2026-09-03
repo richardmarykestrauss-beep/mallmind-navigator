@@ -252,22 +252,13 @@ export interface AdminStatsResponse {
  * GET /admin-stats
  *
  * Returns aggregated platform metrics + founder analytics from analytics_events.
- * DEV_ONLY: No auth enforcement yet — protect before going public.
+ * Admin-only: requires the signed-in admin's Supabase access token.
  */
-export async function getAdminStats(): Promise<AdminStatsResponse> {
+export async function getAdminStats(accessToken: string): Promise<AdminStatsResponse> {
   if (!BASE_URL) {
     throw new Error("VITE_GOOGLE_BACKEND_URL is not configured");
   }
-  const res = await fetch(`${BASE_URL}/admin-stats`, { method: "GET" });
-  if (!res.ok) {
-    let message = `Admin stats error ${res.status}`;
-    try {
-      const err = (await res.json()) as { error?: string };
-      if (err.error) message = err.error;
-    } catch { /* ignore */ }
-    throw new Error(message);
-  }
-  return res.json() as Promise<AdminStatsResponse>;
+  return getAuthenticated<AdminStatsResponse>("/admin-stats", accessToken);
 }
 
 // ── Price correction types ────────────────────────────────────────────────────

@@ -4,6 +4,7 @@ import cors from "cors";
 import helmet from "helmet";
 
 import { buildCorsOptions, describeCorsConfig } from "./lib/cors.js";
+import { createRateLimiter } from "./lib/rateLimit.js";
 
 import healthRouter          from "./routes/health.js";
 import detectActiveMallRouter from "./routes/detectActiveMall.js";
@@ -39,6 +40,11 @@ if (missing.length) {
 // ── App ───────────────────────────────────────────────────────────────────────
 const app = express();
 
+// Cloud Run sits behind one Google front end, which appends the real client IP
+// as the LAST X-Forwarded-For entry. Trusting exactly one hop makes req.ip that
+// value (unspoofable by the client) — required for per-IP rate limiting.
+app.set("trust proxy", 1);
+
 // Security headers
 app.use(helmet());
 
@@ -57,13 +63,22 @@ app.use((req, _res, next) => {
   next();
 });
 
+// ── Public-pilot abuse protection ─────────────────────────────────────────────
+// The shopper experience stays login-free, so cost-bearing public endpoints are
+// rate limited per client IP instead. /assistant is the expensive one (every
+// request is a Gemini call): a short burst window plus an hourly ceiling. The
+// other unauthenticated write endpoints get a lighter shared limit.
+const assistantBurst  = createRateLimiter({ windowMs: 60_000,        max: 20,  label: "assistant requests" });
+const assistantHourly = createRateLimiter({ windowMs: 60 * 60_000,   max: 200, label: "assistant requests this hour" });
+const publicWrites    = createRateLimiter({ windowMs: 60_000,        max: 60,  label: "requests" });
+
 // ── Routes ────────────────────────────────────────────────────────────────────
 app.use("/health",              healthRouter);
-app.use("/detect-active-mall",  detectActiveMallRouter);
-app.use("/recommend-products",  recommendProductsRouter);
-app.use("/build-route",         buildRouteRouter);
+app.use("/detect-active-mall",  publicWrites.middleware, detectActiveMallRouter);
+app.use("/recommend-products",  publicWrites.middleware, recommendProductsRouter);
+app.use("/build-route",         publicWrites.middleware, buildRouteRouter);
 app.use("/indoor-map-model",   indoorMapModelRouter);
-app.use("/assistant",           assistantRouter);
+app.use("/assistant",           assistantBurst.middleware, assistantHourly.middleware, assistantRouter);
 app.use("/admin-stats",         adminStatsRouter);
 app.use("/admin/mall-data",       mallDataCompilerRouter);
 app.use("/admin/data-guardian",   dataGuardianRouter);
@@ -74,9 +89,9 @@ app.use("/admin/map-factory",      mapFactoryRouter);
 app.use("/admin/retail-observations", retailObservationsAdminRouter);
 app.use("/admin/intake",              adminIntakeProxyRouter);
 app.use("/admin",                 adminVerifyProductRouter);
-app.use("/analytics",           analyticsEventRouter);
-app.use("/price-corrections",   priceCorrectionsRouter);
-app.use("/rewards",             rewardsRouter);
+app.use("/analytics",           publicWrites.middleware, analyticsEventRouter);
+app.use("/price-corrections",   publicWrites.middleware, priceCorrectionsRouter);
+app.use("/rewards",             publicWrites.middleware, rewardsRouter);
 
 // 404 catch-all
 app.use((_req, res) => {

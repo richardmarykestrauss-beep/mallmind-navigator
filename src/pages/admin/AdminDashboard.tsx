@@ -3234,7 +3234,7 @@ function BatchItemRow({
           ? { extracted_data: result.extracted_data }
           : {}),
         ...(result.finding_type !== undefined && result.finding_type !== "unknown"
-          ? { finding_type: result.finding_type }
+          ? { finding_type: result.finding_type as MallResearchFindingType }
           : {}),
       }));
     } catch (e) {
@@ -4841,20 +4841,24 @@ function AdminDashboardContent() {
   }, [refreshKey]);
 
   useEffect(() => {
-    if (!backendOk) return;
+    if (!backendOk || !session?.access_token) return;
     setAnalyticsLoading(true);
     setAnalyticsError(null);
-    getAdminStats()
+    getAdminStats(session.access_token)
       .then((resp) => setAnalytics(resp.analytics))
       .catch((e) => setAnalyticsError(String(e)))
       .finally(() => setAnalyticsLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [session?.access_token]);
 
   function refreshAnalytics() {
+    if (!session?.access_token) {
+      setAnalyticsError("Sign in as an admin to load analytics.");
+      return;
+    }
     setAnalyticsLoading(true);
     setAnalyticsError(null);
-    getAdminStats()
+    getAdminStats(session.access_token)
       .then((resp) => setAnalytics(resp.analytics))
       .catch((e) => setAnalyticsError(String(e)))
       .finally(() => setAnalyticsLoading(false));
