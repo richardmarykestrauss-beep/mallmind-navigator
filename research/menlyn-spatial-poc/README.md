@@ -48,7 +48,7 @@ Clicks is on your right, just past the crossing.
 
 Plane coordinates: the MallMind plane is 1000:620; the source is 1.50, so it must be padded
 symmetrically in width (3.743 % of source width each side). `x_percent = (x_percent_source + 3.743)
-/ 1.07486`, `y` unchanged. `node scripts…/validate-candidate.mjs` checks the derivation (33 checks).
+/ 1.07486`, `y` unchanged. `node research/menlyn-spatial-poc/validate-candidate.mjs` checks the derivation (33 checks).
 
 ## 4. Distance status: **unavailable**
 
