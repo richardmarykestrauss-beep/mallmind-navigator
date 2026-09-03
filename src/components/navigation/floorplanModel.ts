@@ -240,6 +240,35 @@ export function buildRoutePolyline(steps: RouteStepLike[]): RoutePolylinePoint[]
   }));
 }
 
+/**
+ * Per-floor plan images keyed by floor label (any label form; normalized here).
+ * Produced by the spatial-dataset adapter (`plan_image` in the dataset JSON).
+ */
+export type FloorImageMap = Record<string, string>;
+
+/**
+ * Attach real floor-plan raster/vector images to a FloorplanModel as the base
+ * layer the canvas draws under the graph. The dataset contract requires each
+ * plan image to be prepared at the MallMind plane aspect (FLOOR_WIDTH:FLOOR_HEIGHT)
+ * so 0..100 percent node coordinates measured on that image land exactly on
+ * it. Pure: returns a new model; floors without an image are untouched.
+ */
+export function attachFloorImages(model: FloorplanModel, images: FloorImageMap | null | undefined): FloorplanModel {
+  if (!images || Object.keys(images).length === 0) return model;
+  const byLabel = new Map<string, string>();
+  for (const [label, url] of Object.entries(images)) {
+    if (url) byLabel.set(normalizeFloorLabel(label), url);
+  }
+  if (byLabel.size === 0) return model;
+  return {
+    ...model,
+    floors: model.floors.map((f) => {
+      const url = byLabel.get(normalizeFloorLabel(f.label));
+      return url ? { ...f, imageUrl: url } : f;
+    }),
+  };
+}
+
 /** Points of a polyline that belong to a given floor (label-normalized). */
 export function pointsForFloor(points: RoutePolylinePoint[], floor: string): RoutePolylinePoint[] {
   const target = normalizeFloorLabel(floor);

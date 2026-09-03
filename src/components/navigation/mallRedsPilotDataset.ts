@@ -20,7 +20,7 @@
  * (pilotRoute.ts), the page (MallRedsPilot.tsx) or the renderer (IndoorMapCanvas) needs to change.
  */
 
-import type { BackendNodeLike, BackendEdgeLike } from "./floorplanModel";
+import { FLOOR_WIDTH, FLOOR_HEIGHT, type BackendNodeLike, type BackendEdgeLike, type FloorImageMap } from "./floorplanModel";
 import rawDataset from "./data/mall-reds-pilot.dataset.json";
 
 // ── Evidence vocabulary (belongs to the DATA) ────────────────────────────────
@@ -53,9 +53,34 @@ export interface PilotDatasetEdge {
   floor_change: boolean;
   evidence: SpatialEvidence;
 }
+/**
+ * The ONE addition a real traced route needs that the schematic pilot did not:
+ * a reference to the floor plan the coordinates were measured on. Every node's
+ * x_percent / y_percent is then a position ON THIS IMAGE. The image must be
+ * prepared at the MallMind plane aspect (1000:620, e.g. 2000×1240 px) so the
+ * existing renderer draws it 1:1 under the graph with no code change; the
+ * validator enforces the aspect within PLAN_IMAGE_ASPECT_TOLERANCE.
+ *
+ * Deliberately NOT added (not needed to load one route as JSON): metres-per-
+ * pixel (edge distances are measured directly), edge bearings, polylines,
+ * IMDF/IndoorGML structures, a database migration.
+ */
+export interface PilotDatasetPlanImage {
+  /** Absolute or app-relative URL (or data: URI) of the prepared plan raster/SVG. */
+  url: string;
+  width_px: number;
+  height_px: number;
+  /** How trustworthy the plan is as geometry (same vocabulary as nodes/edges). */
+  evidence: SpatialEvidence;
+  /** Where it came from (e.g. "Mall management leasing plan, 2026-09"). */
+  source: string | null;
+  /** Written permission / licence reference for displaying it. null = not yet confirmed. */
+  licence: string | null;
+}
 export interface PilotDatasetFloor {
   id: string;
   label: string;
+  plan_image?: PilotDatasetPlanImage | null;
 }
 export interface PilotSpatialDataset {
   asset_id: string;
@@ -84,6 +109,30 @@ export interface LoadedPilotDataset {
   evidenceStatus: EvidenceStatus;
   nodes: BackendNodeLike[];
   edges: BackendEdgeLike[];
+  /** Floor label → plan image URL, for floors that declare a `plan_image`. */
+  floorImages: FloorImageMap;
+}
+
+/** Allowed deviation of a plan image's aspect ratio from the MallMind plane (1000:620). */
+export const PLAN_IMAGE_ASPECT_TOLERANCE = 0.02;
+
+function validatePlanImage(floor: PilotDatasetFloor, levels: SpatialEvidence[]): void {
+  const img = floor.plan_image;
+  if (img == null) return;
+  const where = `pilot dataset: floor "${floor.id}" plan_image`;
+  if (typeof img.url !== "string" || !img.url.trim()) throw new Error(`${where} url must be a non-empty string`);
+  for (const [k, v] of [["width_px", img.width_px], ["height_px", img.height_px]] as const) {
+    if (!Number.isInteger(v) || (v as number) <= 0) throw new Error(`${where} ${k} must be a positive integer (got ${v})`);
+  }
+  const expected = FLOOR_WIDTH / FLOOR_HEIGHT;
+  const actual = img.width_px / img.height_px;
+  if (Math.abs(actual - expected) / expected > PLAN_IMAGE_ASPECT_TOLERANCE) {
+    throw new Error(
+      `${where} must be prepared at the ${FLOOR_WIDTH}:${FLOOR_HEIGHT} plane aspect (${expected.toFixed(3)}); ` +
+      `got ${img.width_px}×${img.height_px} (${actual.toFixed(3)}). Crop/pad the plan before tracing.`,
+    );
+  }
+  if (!levels.includes(img.evidence)) throw new Error(`${where} has unknown evidence "${img.evidence}"`);
 }
 
 /**
@@ -93,6 +142,16 @@ export interface LoadedPilotDataset {
 export function validatePilotDataset(dataset: PilotSpatialDataset): void {
   if (!dataset || !Array.isArray(dataset.nodes) || !Array.isArray(dataset.edges)) {
     throw new Error("pilot dataset: missing nodes/edges arrays");
+  }
+  if (!Array.isArray(dataset.floors) || dataset.floors.length === 0) {
+    throw new Error("pilot dataset: floors must be a non-empty array");
+  }
+  const floorIds = new Set<string>();
+  for (const f of dataset.floors) {
+    if (!f.id || !f.label) throw new Error(`pilot dataset: floor missing id/label (${JSON.stringify(f)})`);
+    if (floorIds.has(f.id)) throw new Error(`pilot dataset: duplicate floor id "${f.id}"`);
+    floorIds.add(f.id);
+    validatePlanImage(f, dataset.evidence_levels);
   }
   const ids = new Set<string>();
   for (const n of dataset.nodes) {
@@ -106,6 +165,9 @@ export function validatePilotDataset(dataset: PilotSpatialDataset): void {
     }
     if (!dataset.evidence_levels.includes(n.evidence)) {
       throw new Error(`pilot dataset: node "${n.node_id}" has unknown evidence "${n.evidence}"`);
+    }
+    if (!floorIds.has(n.floor)) {
+      throw new Error(`pilot dataset: node "${n.node_id}" references unknown floor "${n.floor}"`);
     }
   }
   for (const e of dataset.edges) {
@@ -148,6 +210,10 @@ function toBackendEdge(e: PilotDatasetEdge): BackendEdgeLike {
  */
 export function loadPilotSpatialDataset(source: PilotSpatialDataset = rawDataset as PilotSpatialDataset): LoadedPilotDataset {
   validatePilotDataset(source);
+  const floorImages: FloorImageMap = {};
+  for (const f of source.floors) {
+    if (f.plan_image?.url) floorImages[f.id] = f.plan_image.url;
+  }
   return {
     dataset: source,
     mallId: source.mall_id,
@@ -156,5 +222,6 @@ export function loadPilotSpatialDataset(source: PilotSpatialDataset = rawDataset
     evidenceStatus: source.evidence_status,
     nodes: source.nodes.map(toBackendNode),
     edges: source.edges.map(toBackendEdge),
+    floorImages,
   };
 }

@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   loadPilotSpatialDataset, validatePilotDataset, type PilotSpatialDataset,
 } from "./mallRedsPilotDataset";
+import { attachFloorImages, toFloorplanModel } from "./floorplanModel";
 import { pilotBuildRoute } from "./pilotRoute";
 import {
   MALL_REDS_PILOT_NODES as NODES, MALL_REDS_PILOT_EDGES as EDGES,
@@ -125,5 +126,56 @@ describe("Mall@Reds spatial dataset — future real-map swap (structural proof)"
       edges: [{ edge_id: "bad", from: "entrance-main", to: "does-not-exist", distance_meters: 10, floor_change: false, evidence: "schematic" as const }],
     };
     expect(() => validatePilotDataset(broken)).toThrow(/unknown to-node/);
+  });
+});
+
+describe("Mall@Reds spatial dataset — plan_image contract (real-route readiness)", () => {
+  const base = loadPilotSpatialDataset().dataset;
+  const withImage = (img: Partial<NonNullable<PilotSpatialDataset["floors"][number]["plan_image"]>>): PilotSpatialDataset => ({
+    ...base,
+    floors: base.floors.map((f, i) => (i === 0 ? {
+      ...f,
+      plan_image: {
+        url: "/plans/mallreds-ground.png", width_px: 2000, height_px: 1240,
+        evidence: "source-backed", source: "test", licence: "test", ...img,
+      },
+    } : f)),
+  });
+
+  it("the schematic pilot declares NO plan image (nothing is drawn under the graph)", () => {
+    expect(base.floors.every((f) => f.plan_image == null)).toBe(true);
+    expect(loadPilotSpatialDataset().floorImages).toEqual({});
+  });
+
+  it("a floor with a plan image at the 1000:620 plane aspect loads and exposes the image by floor", () => {
+    const loaded = loadPilotSpatialDataset(withImage({}));
+    expect(loaded.floorImages).toEqual({ G: "/plans/mallreds-ground.png" });
+    // graph derived exactly as before — the image is additive
+    expect(loaded.nodes.length).toBe(base.nodes.length);
+  });
+
+  it("a plan image at the wrong aspect is rejected with an actionable error", () => {
+    expect(() => loadPilotSpatialDataset(withImage({ width_px: 1000, height_px: 1000 })))
+      .toThrow(/plane aspect/);
+    expect(() => loadPilotSpatialDataset(withImage({ url: "" }))).toThrow(/url must be/);
+    expect(() => loadPilotSpatialDataset(withImage({ width_px: 0 }))).toThrow(/positive integer/);
+    expect(() => loadPilotSpatialDataset(withImage({ evidence: "surveyed-by-vibes" as never }))).toThrow(/unknown evidence/);
+  });
+
+  it("a node on an undeclared floor is rejected", () => {
+    const bad: PilotSpatialDataset = { ...base, nodes: [...base.nodes, { ...base.nodes[0], node_id: "ghost", floor: "L9" }] };
+    expect(() => validatePilotDataset(bad)).toThrow(/unknown floor "L9"/);
+  });
+
+  it("attachFloorImages puts the image on the matching floor of the rendered model (no renderer change)", () => {
+    const loaded = loadPilotSpatialDataset(withImage({}));
+    const model = attachFloorImages(
+      toFloorplanModel({ nodes: loaded.nodes, edges: loaded.edges }, { mallId: loaded.mallId, mallName: loaded.mallName }),
+      loaded.floorImages,
+    );
+    const ground = model.floors.find((f) => f.label === "Ground Floor")!;
+    expect(ground.imageUrl).toBe("/plans/mallreds-ground.png");
+    expect(ground.width).toBe(1000);
+    expect(ground.height).toBe(620);
   });
 });

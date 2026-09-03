@@ -17,7 +17,7 @@
  * change: swap the dataset JSON for a source-backed / on-site-verified one in the same shape.
  */
 
-import type { BackendNodeLike, BackendEdgeLike } from "./floorplanModel";
+import type { BackendNodeLike, BackendEdgeLike, FloorImageMap } from "./floorplanModel";
 import { loadPilotSpatialDataset, type DatasetStatus, type EvidenceStatus } from "./mallRedsPilotDataset";
 
 const PILOT = loadPilotSpatialDataset();
@@ -30,6 +30,9 @@ export const MALL_REDS_PILOT_NODES: BackendNodeLike[] = PILOT.nodes;
 
 /** Pilot edges derived from the spatial dataset (corridor spine + one entry edge per POI). */
 export const MALL_REDS_PILOT_EDGES: BackendEdgeLike[] = PILOT.edges;
+
+/** Floor label → plan image URL when the dataset declares a real plan (empty for the schematic pilot). */
+export const MALL_REDS_PILOT_FLOOR_IMAGES: FloorImageMap = PILOT.floorImages;
 
 /** The dataset's self-declared truth level — schematic/unverified until real geometry is loaded. */
 export function pilotDatasetStatus(): { datasetStatus: DatasetStatus; evidenceStatus: EvidenceStatus } {
@@ -81,7 +84,11 @@ export function pilotStartOptions(): Array<{ id: string; label: string }> {
  * was obtained (`source`) is decoupled, so a future positioning provider (QR, native indoor, Wi-Fi
  * RTT, UWB, Apple indoor) can set the anchor WITHOUT the route UI changing. No provider is built here.
  */
-export type PilotAnchorSource = "manual" | "qr" | "native" | "wifi_rtt" | "uwb" | "apple_indoor";
+export type PilotAnchorSource =
+  | "manual"        // the shopper chose a start point in the UI
+  | "url"           // a /navigate?mall=&start= link (what printed QR signage encodes)
+  | "qr"            // an in-app scanner resolved a QR code (not built yet)
+  | "native" | "wifi_rtt" | "uwb" | "apple_indoor"; // future positioning providers (not built)
 export interface PilotAnchor { nodeId: string; label: string; source: PilotAnchorSource; }
 
 export function defaultPilotAnchor(): PilotAnchor {
