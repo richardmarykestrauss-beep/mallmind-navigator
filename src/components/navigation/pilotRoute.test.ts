@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { pilotBuildRoute } from "./pilotRoute";
+import type { BackendNodeLike, BackendEdgeLike } from "./floorplanModel";
 import {
   MALL_REDS_PILOT_NODES as NODES, MALL_REDS_PILOT_EDGES as EDGES,
   pilotStartOptions, pilotDestinations, pilotPointsOfInterest, searchPilotPois,
@@ -36,7 +37,7 @@ describe("Mall@Reds navigation pilot — routing", () => {
     const r = pilotBuildRoute(NODES, EDGES, "entrance-main", "lacoste");
     expect(r.found).toBe(false);
     expect(r.steps).toHaveLength(0);
-    expect(r.message).toMatch(/isn.t in the Mall@Reds pilot/i);
+    expect(r.message).toMatch(/isn.t on this map yet/i);
   });
 
   it("present-but-disconnected destination fails honestly", () => {
@@ -102,5 +103,67 @@ describe("Mall@Reds navigation pilot — anchor abstraction (positioning seam)",
     // the route consumes only nodeId — source never reaches the router
     const r = pilotBuildRoute(NODES, EDGES, a.nodeId, "clicks");
     expect(r.found && !r.fallback).toBe(true);
+  });
+});
+
+describe("distance truth — metric vs unscaled graphs", () => {
+  const node = (id: string, type = "shop", shop: string | null = null): BackendNodeLike =>
+    ({ id, name: id, type, floor: "G", x_coordinate: 10, y_coordinate: 10, linked_shop_id: shop });
+  // Diamond: A→B→D is 2 hops but LONG in pixels; A→C1→C2→D is 3 hops but SHORT in pixels.
+  const nodes = [node("A", "entrance"), node("B", "corridor"), node("C1", "corridor"), node("C2", "corridor"), node("D", "shop", "dest")];
+  const px = (id: string, from: string, to: string, weight: number): BackendEdgeLike =>
+    ({ id, from_node_id: from, to_node_id: to, distance_meters: null, weight, floor_change: false });
+  const pxEdges = [px("ab", "A", "B", 500), px("bd", "B", "D", 500), px("ac1", "A", "C1", 100), px("c1c2", "C1", "C2", 100), px("c2d", "C2", "D", 100)];
+
+  it("pixel weights select the correct (shorter-in-pixels) path even with more hops", () => {
+    const r = pilotBuildRoute(nodes, pxEdges, "A", "dest");
+    expect(r.found && !r.fallback).toBe(true);
+    expect(r.steps.map((s) => s.node_id)).toEqual(["C1", "C2", "D", "D"]);
+  });
+
+  it("an unscaled route reports NO metres and NO minutes anywhere (no px→m conversion)", () => {
+    const r = pilotBuildRoute(nodes, pxEdges, "A", "dest");
+    expect(r.metric).toBe(false);
+    expect(r.total_distance_meters).toBeNull();
+    expect(r.estimated_minutes).toBeNull();
+    expect(r.steps.every((s) => s.distance_meters === null && s.cumulative_meters === null)).toBe(true);
+    // 300 px of weight must never surface as 300 m
+    expect(JSON.stringify(r)).not.toMatch(/300/);
+  });
+
+  it("a metric graph still reports metres and minutes", () => {
+    const m = (id: string, from: string, to: string, metres: number): BackendEdgeLike =>
+      ({ id, from_node_id: from, to_node_id: to, distance_meters: metres, weight: metres, floor_change: false });
+    const r = pilotBuildRoute(nodes, [m("ab", "A", "B", 30), m("bd", "B", "D", 42)], "A", "dest");
+    expect(r.metric).toBe(true);
+    expect(r.total_distance_meters).toBe(72);
+    expect(r.estimated_minutes).toBe(1);
+    expect(r.steps.map((s) => s.cumulative_meters)).toEqual([30, 72, 72]);
+  });
+
+  it("one unmeasured leg makes the WHOLE route unscaled (never partially metric)", () => {
+    const mixed = [
+      { id: "ab", from_node_id: "A", to_node_id: "B", distance_meters: 30, weight: 30, floor_change: false },
+      { id: "bd", from_node_id: "B", to_node_id: "D", distance_meters: null, weight: 40, floor_change: false },
+    ];
+    const r = pilotBuildRoute(nodes, mixed, "A", "dest");
+    expect(r.metric).toBe(false);
+    expect(r.total_distance_meters).toBeNull();
+    expect(r.steps.every((s) => s.distance_meters === null)).toBe(true);
+  });
+
+  it("the Mall@Reds pilot (metric, schematic) is unchanged: metres and minutes present", () => {
+    const r = pilotBuildRoute(NODES, EDGES, "entrance-main", "clicks");
+    expect(r.metric).toBe(true);
+    expect(r.total_distance_meters).toBe(66);
+    expect(r.estimated_minutes).toBe(1);
+  });
+
+  it("a dataset-supplied edge instruction is used verbatim (topology wording, no distances)", () => {
+    const e: BackendEdgeLike[] = [{ id: "ab", from_node_id: "A", to_node_id: "B", distance_meters: null, weight: 10, floor_change: false, instruction: "Turn right at the fountain." },
+      { id: "bd", from_node_id: "B", to_node_id: "D", distance_meters: null, weight: 10, floor_change: false }];
+    const r = pilotBuildRoute(nodes, e, "A", "dest");
+    expect(r.steps[0].instruction).toBe("Start at A. Turn right at the fountain.");
+    expect(r.steps[1].instruction).toBe("Walk toward D.");
   });
 });

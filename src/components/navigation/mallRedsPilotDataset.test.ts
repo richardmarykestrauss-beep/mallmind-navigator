@@ -3,6 +3,7 @@ import {
   loadPilotSpatialDataset, validatePilotDataset, type PilotSpatialDataset,
 } from "./mallRedsPilotDataset";
 import { attachFloorImages, toFloorplanModel } from "./floorplanModel";
+import menlynRaw from "./data/menlyn-park-lf-pilot.dataset.json";
 import { pilotBuildRoute } from "./pilotRoute";
 import {
   MALL_REDS_PILOT_NODES as NODES, MALL_REDS_PILOT_EDGES as EDGES,
@@ -177,5 +178,48 @@ describe("Mall@Reds spatial dataset — plan_image contract (real-route readines
     expect(ground.imageUrl).toBe("/plans/mallreds-ground.png");
     expect(ground.width).toBe(1000);
     expect(ground.height).toBe(620);
+  });
+});
+
+describe("distance_unit contract (\"m\" default, \"px\" unscaled)", () => {
+  const base = loadPilotSpatialDataset().dataset;
+
+  it("existing metric datasets are unchanged: no distance_unit → \"m\", metric true", () => {
+    const loaded = loadPilotSpatialDataset(base);
+    expect(loaded.distanceUnit).toBe("m");
+    expect(loaded.metric).toBe(true);
+    expect(loaded.edges.every((e) => e.distance_meters! > 0 && e.weight === e.distance_meters)).toBe(true);
+  });
+
+  it("a px dataset requires length_px > 0 on every edge and exposes weight = pixels, distance_meters = null", () => {
+    const px: PilotSpatialDataset = {
+      ...base, distance_unit: "px",
+      edges: base.edges.map((e) => ({ ...e, distance_meters: undefined, length_px: 100 })),
+    };
+    const loaded = loadPilotSpatialDataset(px);
+    expect(loaded.metric).toBe(false);
+    expect(loaded.edges.every((e) => e.distance_meters === null && e.weight === 100)).toBe(true);
+    const missing: PilotSpatialDataset = { ...px, edges: px.edges.map((e, i) => (i === 0 ? { ...e, length_px: 0 } : e)) };
+    expect(() => validatePilotDataset(missing)).toThrow(/length_px must be > 0/);
+  });
+
+  it("a px dataset that also claims metres is rejected (an unscaled source cannot claim metres)", () => {
+    const bad: PilotSpatialDataset = {
+      ...base, distance_unit: "px",
+      edges: base.edges.map((e) => ({ ...e, length_px: 100 })), // distance_meters still present
+    };
+    expect(() => validatePilotDataset(bad)).toThrow(/cannot claim metres/);
+  });
+
+  it("an unknown distance_unit is rejected", () => {
+    expect(() => validatePilotDataset({ ...base, distance_unit: "ft" as never })).toThrow(/distance_unit/);
+  });
+
+  it("the bundled Menlyn dataset validates under the px rules", () => {
+    const menlyn = loadPilotSpatialDataset(menlynRaw as PilotSpatialDataset);
+    expect(menlyn.distanceUnit).toBe("px");
+    expect(menlyn.metric).toBe(false);
+    expect(menlyn.nodes.length).toBe(3);
+    expect(menlyn.edges.length).toBe(2);
   });
 });

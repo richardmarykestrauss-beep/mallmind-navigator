@@ -1,23 +1,26 @@
 /**
- * mallRedsPilotDataset.ts — spatial DATASET + ADAPTER for the Mall@Reds navigation pilot.
+ * mallRedsPilotDataset.ts — spatial DATASET contract + ADAPTER for MallMind wayfinding pilots.
  *
- * The pilot's spatial information used to be a hardcoded graph literal. It now lives as an explicit,
- * reusable DATA asset (`data/mall-reds-pilot.dataset.json`) and this module is the smallest clean
- * adapter that turns that dataset into the graph shape the pilot already consumes
- * (`BackendNodeLike` / `BackendEdgeLike`, the backend mall_nodes / mall_edges contract).
+ * (The file keeps its historical name; it now serves every bundled mall dataset — see
+ * `mallDatasets.ts` for the registry keyed by mall id.)
  *
  *   dataset JSON  →  adapter (this file)  →  BackendNodeLike/BackendEdgeLike  →  pilotBuildRoute /
  *   toFloorplanModel  →  IndoorMapCanvas
  *
  * EVIDENCE lives in the DATA, not in the UI. Every entity carries an `evidence` level
  * (schematic | source-backed | on-site-verified); the dataset carries `dataset_status` /
- * `evidence_status`. A tenant's factual identity (`tenant.shop_number`, e.g. Clicks = Shop 45 from
- * the verified register) is recorded SEPARATELY from the spatial evidence of its coordinate — a
- * source-backed identity must never silently upgrade a schematic position to "verified".
+ * `evidence_status`. A tenant's factual identity (`tenant.shop_number`) is recorded SEPARATELY
+ * from the spatial evidence of its coordinate — a source-backed identity must never silently
+ * upgrade a schematic position to "verified".
  *
- * To make the pilot physically truthful later, replace the dataset JSON with a source-backed /
- * on-site-verified dataset in the SAME shape. Nothing in this adapter, the routing engine
- * (pilotRoute.ts), the page (MallRedsPilot.tsx) or the renderer (IndoorMapCanvas) needs to change.
+ * DISTANCE TRUTH. A dataset declares `distance_unit`:
+ *   • "m"  (default) — every edge carries measured `distance_meters` > 0; routes show metres/minutes.
+ *   • "px"           — the source (e.g. a published floor plan with no scale bar) is UNSCALED:
+ *                      every edge carries `length_px` > 0 and MUST NOT carry `distance_meters`.
+ *                      Pixel length is used only as the shortest-path weight; the adapter never
+ *                      converts pixels to metres, and routes over such data report
+ *                      `total_distance_meters: null` / `estimated_minutes: null` so the UI has
+ *                      nothing metric to display.
  */
 
 import { FLOOR_WIDTH, FLOOR_HEIGHT, type BackendNodeLike, type BackendEdgeLike, type FloorImageMap } from "./floorplanModel";
@@ -27,6 +30,8 @@ import rawDataset from "./data/mall-reds-pilot.dataset.json";
 export type SpatialEvidence = "schematic" | "source-backed" | "on-site-verified";
 export type DatasetStatus = "schematic" | "source-backed" | "on-site-verified";
 export type EvidenceStatus = "unverified" | "source-backed" | "on-site-verified";
+/** "m" = measured metres on every edge; "px" = unscaled source, pixel lengths only. */
+export type DistanceUnit = "m" | "px";
 
 // ── Dataset shape (the JSON contract) ────────────────────────────────────────
 export interface PilotTenantIdentity {
@@ -44,14 +49,24 @@ export interface PilotDatasetNode {
   linked_shop_id?: string;
   evidence: SpatialEvidence;
   tenant?: PilotTenantIdentity;
+  /** Free-text provenance (source URL / method); informational. */
+  source?: string;
+  notes?: string;
 }
 export interface PilotDatasetEdge {
   edge_id: string;
   from: string;
   to: string;
-  distance_meters: number;
+  /** Required (> 0) when distance_unit is "m"; must be absent/null when "px". */
+  distance_meters?: number | null;
+  /** Required (> 0) when distance_unit is "px"; pixels on the traced source image. */
+  length_px?: number | null;
   floor_change: boolean;
   evidence: SpatialEvidence;
+  /** Optional topological instruction shown verbatim for this leg (no distance words). */
+  instruction?: string | null;
+  source?: string;
+  notes?: string;
 }
 /**
  * The ONE addition a real traced route needs that the schematic pilot did not:
@@ -60,10 +75,6 @@ export interface PilotDatasetEdge {
  * prepared at the MallMind plane aspect (1000:620, e.g. 2000×1240 px) so the
  * existing renderer draws it 1:1 under the graph with no code change; the
  * validator enforces the aspect within PLAN_IMAGE_ASPECT_TOLERANCE.
- *
- * Deliberately NOT added (not needed to load one route as JSON): metres-per-
- * pixel (edge distances are measured directly), edge bearings, polylines,
- * IMDF/IndoorGML structures, a database migration.
  */
 export interface PilotDatasetPlanImage {
   /** Absolute or app-relative URL (or data: URI) of the prepared plan raster/SVG. */
@@ -94,6 +105,10 @@ export interface PilotSpatialDataset {
   coordinate_system: string;
   viewBox: string;
   evidence_levels: SpatialEvidence[];
+  /** Defaults to "m". See DISTANCE TRUTH above. */
+  distance_unit?: DistanceUnit;
+  /** Has anyone walked this on site? Kept explicit so "source-backed" never reads as "verified". */
+  field_verified?: boolean;
   notes?: string;
   floors: PilotDatasetFloor[];
   nodes: PilotDatasetNode[];
@@ -107,6 +122,10 @@ export interface LoadedPilotDataset {
   mallName: string;
   datasetStatus: DatasetStatus;
   evidenceStatus: EvidenceStatus;
+  distanceUnit: DistanceUnit;
+  /** true only when every edge carries measured metres — the sole gate for showing metres/minutes. */
+  metric: boolean;
+  fieldVerified: boolean;
   nodes: BackendNodeLike[];
   edges: BackendEdgeLike[];
   /** Floor label → plan image URL, for floors that declare a `plan_image`. */
@@ -115,6 +134,10 @@ export interface LoadedPilotDataset {
 
 /** Allowed deviation of a plan image's aspect ratio from the MallMind plane (1000:620). */
 export const PLAN_IMAGE_ASPECT_TOLERANCE = 0.02;
+
+export function datasetDistanceUnit(dataset: Pick<PilotSpatialDataset, "distance_unit">): DistanceUnit {
+  return dataset.distance_unit ?? "m";
+}
 
 function validatePlanImage(floor: PilotDatasetFloor, levels: SpatialEvidence[]): void {
   const img = floor.plan_image;
@@ -135,6 +158,10 @@ function validatePlanImage(floor: PilotDatasetFloor, levels: SpatialEvidence[]):
   if (!levels.includes(img.evidence)) throw new Error(`${where} has unknown evidence "${img.evidence}"`);
 }
 
+function isPositiveNumber(v: unknown): v is number {
+  return typeof v === "number" && Number.isFinite(v) && v > 0;
+}
+
 /**
  * Validate a spatial dataset (any dataset in this shape, not just the bundled one) and throw an
  * explicit error on the first structural problem. Deterministic and side-effect free.
@@ -145,6 +172,10 @@ export function validatePilotDataset(dataset: PilotSpatialDataset): void {
   }
   if (!Array.isArray(dataset.floors) || dataset.floors.length === 0) {
     throw new Error("pilot dataset: floors must be a non-empty array");
+  }
+  const unit = dataset.distance_unit ?? "m";
+  if (unit !== "m" && unit !== "px") {
+    throw new Error(`pilot dataset: distance_unit must be "m" or "px" (got ${JSON.stringify(unit)})`);
   }
   const floorIds = new Set<string>();
   for (const f of dataset.floors) {
@@ -173,8 +204,25 @@ export function validatePilotDataset(dataset: PilotSpatialDataset): void {
   for (const e of dataset.edges) {
     if (!ids.has(e.from)) throw new Error(`pilot dataset: edge "${e.edge_id}" references unknown from-node "${e.from}"`);
     if (!ids.has(e.to)) throw new Error(`pilot dataset: edge "${e.edge_id}" references unknown to-node "${e.to}"`);
-    if (typeof e.distance_meters !== "number" || e.distance_meters <= 0) {
-      throw new Error(`pilot dataset: edge "${e.edge_id}" distance_meters must be > 0 (got ${e.distance_meters})`);
+    if (!dataset.evidence_levels.includes(e.evidence)) {
+      throw new Error(`pilot dataset: edge "${e.edge_id}" has unknown evidence "${e.evidence}"`);
+    }
+    if (unit === "m") {
+      if (!isPositiveNumber(e.distance_meters)) {
+        throw new Error(`pilot dataset: edge "${e.edge_id}" distance_meters must be > 0 (got ${e.distance_meters})`);
+      }
+    } else {
+      if (!isPositiveNumber(e.length_px)) {
+        throw new Error(`pilot dataset: edge "${e.edge_id}" length_px must be > 0 for a "px" dataset (got ${e.length_px})`);
+      }
+      if (e.distance_meters != null) {
+        throw new Error(
+          `pilot dataset: edge "${e.edge_id}" carries distance_meters in a "px" dataset — an unscaled source cannot claim metres`,
+        );
+      }
+    }
+    if (e.instruction != null && (typeof e.instruction !== "string" || !e.instruction.trim())) {
+      throw new Error(`pilot dataset: edge "${e.edge_id}" instruction must be a non-empty string when present`);
     }
   }
 }
@@ -192,24 +240,32 @@ function toBackendNode(n: PilotDatasetNode): BackendNodeLike {
   };
 }
 
-/** Map a dataset edge onto the backend graph edge shape (undirected, distance-weighted). */
-function toBackendEdge(e: PilotDatasetEdge): BackendEdgeLike {
+/**
+ * Map a dataset edge onto the backend graph edge shape (undirected). `weight` is the shortest-path
+ * weight in the dataset's own unit; `distance_meters` is set ONLY for metric datasets. Pixels are
+ * never turned into metres here or anywhere else.
+ */
+function toBackendEdge(e: PilotDatasetEdge, unit: DistanceUnit): BackendEdgeLike {
+  const metres = unit === "m" ? (e.distance_meters as number) : null;
   return {
     id: e.edge_id,
     from_node_id: e.from,
     to_node_id: e.to,
-    distance_meters: e.distance_meters,
+    distance_meters: metres,
+    weight: unit === "m" ? metres : (e.length_px as number),
     floor_change: e.floor_change,
+    instruction: e.instruction ?? null,
   };
 }
 
 /**
- * Load + validate the bundled Mall@Reds pilot dataset and derive the graph. This is the single
- * seam between "spatial data" and "the pilot": swap the JSON (or point this at another dataset in
- * the same shape) and the rest of the pilot is unchanged.
+ * Load + validate a spatial dataset and derive the graph. This is the single seam between
+ * "spatial data" and "the pilot": swap the JSON (or point this at another dataset in the same
+ * shape) and the rest of the pilot is unchanged. Defaults to the bundled Mall@Reds pilot.
  */
 export function loadPilotSpatialDataset(source: PilotSpatialDataset = rawDataset as PilotSpatialDataset): LoadedPilotDataset {
   validatePilotDataset(source);
+  const unit = datasetDistanceUnit(source);
   const floorImages: FloorImageMap = {};
   for (const f of source.floors) {
     if (f.plan_image?.url) floorImages[f.id] = f.plan_image.url;
@@ -220,8 +276,11 @@ export function loadPilotSpatialDataset(source: PilotSpatialDataset = rawDataset
     mallName: source.mall_name,
     datasetStatus: source.dataset_status,
     evidenceStatus: source.evidence_status,
+    distanceUnit: unit,
+    metric: unit === "m",
+    fieldVerified: source.field_verified === true,
     nodes: source.nodes.map(toBackendNode),
-    edges: source.edges.map(toBackendEdge),
+    edges: source.edges.map((e) => toBackendEdge(e, unit)),
     floorImages,
   };
 }

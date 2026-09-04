@@ -151,7 +151,12 @@ export interface BackendEdgeLike {
   from_node_id: string;
   to_node_id: string;
   floor_change?: boolean | null;
+  /** Measured metres. null/absent = NOT measured (unscaled source) — never derive it from pixels. */
   distance_meters?: number | null;
+  /** Unit-agnostic graph weight for shortest-path only (metres for metric data, pixels for unscaled). */
+  weight?: number | null;
+  /** Optional topological instruction supplied by the dataset ("Continue straight; Clicks is on your right."). */
+  instruction?: string | null;
 }
 export interface BackendFloorplanLike {
   floor_label: string | null;
