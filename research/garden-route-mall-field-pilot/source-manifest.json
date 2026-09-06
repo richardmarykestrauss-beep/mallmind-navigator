@@ -1,0 +1,141 @@
+{
+  "manifest_id": "garden-route-mall-field-pilot-sources-v1",
+  "generated_at": "2026-09-03",
+  "access_policy_note": "Hosts marked blocked were refused by the session's organisation egress policy (curl: proxy 403 on CONNECT; harness fetcher: EGRESS_BLOCKED). No retry loops, mirrors, caches or archives were used. Only a web-search endpoint answered.",
+  "sources": [
+    {
+      "url": "https://www.gardenroutemall.co.za/",
+      "role": "official home",
+      "party": "first-party",
+      "attempted_via": [
+        "curl",
+        "harness fetch"
+      ],
+      "outcome": "blocked",
+      "content_captured": false
+    },
+    {
+      "url": "https://www.gardenroutemall.co.za/garden-route-mall-shops",
+      "role": "official shop directory + 'Click here to view MALL MAP' lightbox",
+      "party": "first-party",
+      "attempted_via": [
+        "curl",
+        "harness fetch"
+      ],
+      "outcome": "blocked",
+      "content_captured": false
+    },
+    {
+      "url": "https://www.gardenroutemall.co.za/garden-route-mall-contact",
+      "role": "official contact / centre management / security-office landmark",
+      "party": "first-party",
+      "attempted_via": [
+        "curl",
+        "harness fetch"
+      ],
+      "outcome": "blocked",
+      "content_captured": false
+    },
+    {
+      "url": "https://www.gardenroutemall.co.za/garden-route-mall---department-stores",
+      "role": "official category page (Pick n Pay 41, Woolworths 9, Game 129, Food Lovers 131 per snippet)",
+      "party": "first-party",
+      "attempted_via": [
+        "search only"
+      ],
+      "outcome": "url-known-not-fetched",
+      "content_captured": false
+    },
+    {
+      "url": "https://www.gardenroutemall.co.za/garden-route-mall---health-beauty",
+      "role": "official category page (Dis-Chem 122/123 per snippet)",
+      "party": "first-party",
+      "attempted_via": [
+        "search only"
+      ],
+      "outcome": "url-known-not-fetched",
+      "content_captured": false
+    },
+    {
+      "url": "http://grmall.co.za/garden-route-mall---store-directory.html",
+      "role": "legacy store directory (older site)",
+      "party": "first-party (legacy)",
+      "attempted_via": [
+        "harness fetch"
+      ],
+      "outcome": "blocked",
+      "content_captured": false
+    },
+    {
+      "url": "https://gardenroutemall.co.za/phone/garden-route-mall---store-directory.html",
+      "role": "legacy mobile directory",
+      "party": "first-party (legacy)",
+      "attempted_via": [
+        "search only"
+      ],
+      "outcome": "url-known-not-fetched",
+      "content_captured": false
+    },
+    {
+      "url": "https://clicks.co.za/store/Garden-Route-Mall/261",
+      "role": "retailer store page (corroborates Shop 37)",
+      "party": "secondary",
+      "attempted_via": [
+        "search only"
+      ],
+      "outcome": "url-known-not-fetched",
+      "content_captured": false
+    },
+    {
+      "url": "https://www.attacq.co.za/space/garden-route-mall/",
+      "role": "owner listing (rights research)",
+      "party": "owner",
+      "attempted_via": [
+        "harness fetch"
+      ],
+      "outcome": "blocked",
+      "content_captured": false
+    },
+    {
+      "url": "https://mydorpie.com/m/?page=mall_gardenroute",
+      "role": "secondary mobile store directory",
+      "party": "secondary",
+      "attempted_via": [
+        "harness fetch"
+      ],
+      "outcome": "blocked",
+      "content_captured": false
+    },
+    {
+      "url": "https://cdn.prod.website-files.com/",
+      "role": "Webflow asset CDN (where the mall-map lightbox image most likely lives)",
+      "party": "vendor CDN",
+      "attempted_via": [
+        "harness fetch (reachability probe)"
+      ],
+      "outcome": "blocked (reachability probe refused) — the image must be downloaded by the user and uploaded; a URL alone cannot be fetched from this session",
+      "content_captured": false
+    },
+    {
+      "url": "https://uploads-ssl.webflow.com/",
+      "role": "legacy Webflow asset host",
+      "party": "vendor CDN",
+      "attempted_via": [
+        "harness fetch (reachability probe)"
+      ],
+      "outcome": "blocked (reachability probe refused) — the image must be downloaded by the user and uploaded; a URL alone cannot be fetched from this session",
+      "content_captured": false
+    }
+  ],
+  "search_queries_run": [
+    "gardenroutemall.co.za \"mall map\" website-files.com OR uploads-ssl.webflow.com Garden Route Mall map image",
+    "\"Garden Route Mall\" shops directory Clicks \"Store 37\" OR \"Shop 37\" Pick n Pay Woolworths Dis-Chem Game \"Food Lovers\"",
+    "\"Garden Route Mall\" contact centre management \"044 887 0044\" Rion Olivier Geoff Warner Tumi Masango",
+    "\"Garden Route Mall\" \"Entrance 2\" security offices centre management entrances parking George",
+    "\"Garden Route Mall\" George floor plan map PDF site plan levels single level mall layout",
+    "\"Garden Route Mall\" \"Pick n Pay\" \"Store 41\" OR \"Woolworths\" \"Store 9\" OR \"Game\" \"Store 129\" OR \"Food Lover\" \"Store 131\" gardenroutemall.co.za",
+    "\"Garden Route Mall\" \"MALL MAP\" OR \"mall-map\" OR \"GRM Map\" jpg OR png OR pdf webflow \"website-files\""
+  ],
+  "map_imagery_in_repo": false,
+  "map_imagery_note": "No Garden Route Mall imagery was obtained. When supplied, it stays outside the repository; only the source URL and derived factual geometry are committed."
+}

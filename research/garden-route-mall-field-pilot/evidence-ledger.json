@@ -1,0 +1,27 @@
+{
+  "ledger_id": "garden-route-mall-field-pilot-evidence-v1",
+  "mall": "Garden Route Mall, N2 Highway & Knysna Road (72 Knysna Road), George, Western Cape, 6529",
+  "generated_at": "2026-09-03",
+  "generated_by": "MallMind research session (web search only; every first-party host blocked by egress policy)",
+  "evidence_levels": ["FIRST_PARTY_EXPLICIT", "FIRST_PARTY_VISUAL", "SECONDARY_CORROBORATION", "INFERRED", "UNKNOWN"],
+  "rules": [
+    "INFERRED facts must never silently become verified geometry.",
+    "SECONDARY_CORROBORATION here means a web-search snippet quoting the first-party page; the page itself was not retrievable.",
+    "Store numbers are identity only; adjacency/order is never inferred from them.",
+    "No node, edge, coordinate or distance exists in this ledger."
+  ],
+  "facts": [
+    { "id": "G01", "fact": "Clicks is Store 37 (phone 044 887 0030).", "source_url": "https://www.gardenroutemall.co.za/garden-route-mall-shops", "source_type": "first-party directory (search snippet)", "retrieval_date": "2026-09-03", "evidence_level": "SECONDARY_CORROBORATION", "confidence": 0.75, "notes": "Also corroborated by https://clicks.co.za/store/Garden-Route-Mall/261 snippet ('Shop 37')." },
+    { "id": "G02", "fact": "Pick n Pay is Store 41 (044 887 0000).", "source_url": "https://www.gardenroutemall.co.za/garden-route-mall---department-stores", "source_type": "first-party directory (search snippet)", "retrieval_date": "2026-09-03", "evidence_level": "SECONDARY_CORROBORATION", "confidence": 0.7, "notes": "" },
+    { "id": "G03", "fact": "Woolworths is Store 9 (044 803 5400).", "source_url": "https://www.gardenroutemall.co.za/garden-route-mall---department-stores", "source_type": "first-party directory (search snippet)", "retrieval_date": "2026-09-03", "evidence_level": "SECONDARY_CORROBORATION", "confidence": 0.7, "notes": "" },
+    { "id": "G04", "fact": "Dis-Chem is Store 122/123.", "source_url": "https://www.gardenroutemall.co.za/garden-route-mall---health-beauty", "source_type": "first-party directory (search snippet)", "retrieval_date": "2026-09-03", "evidence_level": "SECONDARY_CORROBORATION", "confidence": 0.7, "notes": "" },
+    { "id": "G05", "fact": "Game is Store 129 (044 803 6000).", "source_url": "https://www.gardenroutemall.co.za/garden-route-mall---department-stores", "source_type": "first-party directory (search snippet)", "retrieval_date": "2026-09-03", "evidence_level": "SECONDARY_CORROBORATION", "confidence": 0.7, "notes": "" },
+    { "id": "G06", "fact": "Food Lovers Market is Store 131 (044 887 0282).", "source_url": "https://www.gardenroutemall.co.za/garden-route-mall---department-stores", "source_type": "first-party directory (search snippet)", "retrieval_date": "2026-09-03", "evidence_level": "SECONDARY_CORROBORATION", "confidence": 0.7, "notes": "" },
+    { "id": "G07", "fact": "Security offices are located next to the Centre Management offices.", "source_url": "https://www.gardenroutemall.co.za/garden-route-mall-contact", "source_type": "first-party contact page (search snippet)", "retrieval_date": "2026-09-03", "evidence_level": "SECONDARY_CORROBORATION", "confidence": 0.7, "notes": "Landmark only. The 'near Entrance 2' part of the brief was NOT present in the snippet → UNVERIFIED (G12)." },
+    { "id": "G08", "fact": "Centre Management: 044 887 0044; General Manager & Leasing Rion Olivier; Operations Manager Geoff Warner; Marketing Manager Tumi Masango; office hours Mon–Fri 9–18, Sat 9–17, Sun & PH 9–15.", "source_url": "https://www.gardenroutemall.co.za/garden-route-mall-contact", "source_type": "first-party contact page (search snippet)", "retrieval_date": "2026-09-03", "evidence_level": "SECONDARY_CORROBORATION", "confidence": 0.75, "notes": "Matches the mission brief. Email addresses seen in the snippet are recorded only in permission-request-draft.md." },
+    { "id": "G09", "fact": "The mall is described as a single-level regional centre with about 120–125 shops and about 3 000 parking bays.", "source_url": "https://www.attacq.co.za/space/garden-route-mall/", "source_type": "owner/secondary listings (search snippets)", "retrieval_date": "2026-09-03", "evidence_level": "SECONDARY_CORROBORATION", "confidence": 0.5, "notes": "Level count must be confirmed on the plan; never assumed." },
+    { "id": "G10", "fact": "The official shops page carries a link labelled 'Click here to view MALL MAP'.", "source_url": "https://www.gardenroutemall.co.za/garden-route-mall-shops", "source_type": "first-party page (stated in mission brief; page not fetched)", "retrieval_date": "2026-09-03", "evidence_level": "UNKNOWN", "confidence": 0.0, "notes": "Asset URL, format, native dimensions and revision date UNKNOWN. Likely a Webflow lightbox with a w-json payload pointing at cdn.prod.website-files.com or uploads-ssl.webflow.com." },
+    { "id": "G11", "fact": "Map geometry: entrances, corridors, store footprints, amenities, parking interfaces, scale.", "source_url": null, "source_type": "not obtained", "retrieval_date": "2026-09-03", "evidence_level": "UNKNOWN", "confidence": 0.0, "notes": "Nothing traced. Blocking input = the mall-map image." },
+    { "id": "G12", "fact": "Centre Management / security offices are near Entrance 2.", "source_url": "https://www.gardenroutemall.co.za/garden-route-mall-contact", "source_type": "mission brief claim", "retrieval_date": "2026-09-03", "evidence_level": "UNKNOWN", "confidence": 0.0, "notes": "Not seen in any retrievable snippet. Verify on the official page or on site." }
+  ]
+}
