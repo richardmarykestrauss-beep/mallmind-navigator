@@ -8,6 +8,9 @@
  *   • menlyn-park     — Menlyn Park, SOURCE-BACKED topology traced from the published Lower First
  *                       Level plan, UNSCALED (pixel lengths only, no metres, no minutes),
  *                       NOT field-verified. Controlled pilot dataset, not an official deployment.
+ *   • garden-route-mall — Garden Route Mall (George), SOURCE-BACKED topology traced from the
+ *                       official mall map, UNSCALED, AWAITING field verification (Sunday walk).
+ *                       Entrance 4 → Woolworths / Clicks / Pick n Pay. Controlled pilot only.
  */
 
 import type { BackendNodeLike } from "./floorplanModel";
@@ -16,9 +19,10 @@ import {
 } from "./mallRedsPilotDataset";
 import mallRedsDataset from "./data/mall-reds-pilot.dataset.json";
 import menlynParkDataset from "./data/menlyn-park-lf-pilot.dataset.json";
+import gardenRouteMallDataset from "./data/garden-route-mall.dataset.json";
 
 const SOURCES: Record<string, PilotSpatialDataset> = Object.fromEntries(
-  [mallRedsDataset, menlynParkDataset].map((d) => [d.mall_id, d as PilotSpatialDataset]),
+  [mallRedsDataset, menlynParkDataset, gardenRouteMallDataset].map((d) => [d.mall_id, d as unknown as PilotSpatialDataset]),
 );
 
 const cache = new Map<string, LoadedPilotDataset>();
