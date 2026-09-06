@@ -134,3 +134,31 @@ describe("WayfindingPilot — unscaled source-backed dataset (Menlyn Park)", () 
     expect(screen.queryByTestId("pilot-finder")).toBeNull();
   });
 });
+
+describe("WayfindingPilot — Garden Route Mall (source-backed, unscaled, awaiting field verification)", () => {
+  it("Entrance 4 → Pick n Pay renders topology only with the Garden Route status wording", () => {
+    render(<WayfindingPilot embedded mallId="garden-route-mall" />);
+    expect(screen.getByTestId("mallreds-pilot")).toHaveAttribute("data-mall-id", "garden-route-mall");
+    expect(screen.getByTestId("pilot-anchor-summary")).toHaveTextContent("Entrance 4");
+    const list = screen.getByTestId("pilot-suggestions");
+    for (const name of ["Woolworths", "Clicks", "Pick n Pay"]) expect(within(list).getByText(name)).toBeInTheDocument();
+    fireEvent.click(within(list).getByText("Pick n Pay"));
+    expect(screen.queryByTestId("pilot-summary")).toBeNull();
+    expect(screen.getByTestId("pilot-summary-unscaled")).toHaveTextContent(/8\s*legs/);
+    expect(screen.getByTestId("pilot-distance-unmeasured")).toHaveTextContent("Distance not yet measured");
+    const view = screen.getByTestId("pilot-route-view").textContent ?? "";
+    expect(view).not.toMatch(/\d\s?m/i);
+    expect(view).not.toMatch(/verified route|official MallMind map/i);
+    expect(screen.getByTestId("pilot-status-line")).toHaveTextContent("Source-backed route preview. Distance not yet measured. Your position is not tracked.");
+    expect(screen.getByTestId("pilot-disclaimer")).toHaveTextContent("Not an official Garden Route Mall deployment");
+    expect(screen.getByTestId("pilot-disclaimer")).toHaveTextContent("not yet walked on site");
+    expect(within(screen.getByTestId("pilot-steps")).getAllByRole("listitem")).toHaveLength(9);
+  });
+
+  it("Entrance 4 → Woolworths is the short route", () => {
+    render(<WayfindingPilot embedded mallId="garden-route-mall" />);
+    fireEvent.click(within(screen.getByTestId("pilot-suggestions")).getByText("Woolworths"));
+    expect(within(screen.getByTestId("pilot-steps")).getAllByRole("listitem")).toHaveLength(3);
+    expect(screen.getByTestId("pilot-summary-unscaled")).toHaveTextContent(/2\s*legs/);
+  });
+});

@@ -53,6 +53,13 @@ describe("wayfinding URL anchor (QR-ready seam)", () => {
     expect(route.metric).toBe(false);
   });
 
+  it("Garden Route link with Entrance 4 → ok; a Menlyn start is rejected there", () => {
+    const r = parseWayfindingAnchor("?mall=garden-route-mall&start=grm-entrance-4");
+    expect(r.status).toBe("ok");
+    if (r.status === "ok") expect(r.anchor).toEqual({ nodeId: "grm-entrance-4", label: "Entrance 4", source: "url" });
+    expect(parseWayfindingAnchor("?mall=garden-route-mall&start=menlyn-lf-entrance-13").status).toBe("invalid");
+  });
+
   it("a start node from another mall is rejected for this mall", () => {
     const r = parseWayfindingAnchor("?mall=menlyn-park&start=entrance-main");
     expect(r.status).toBe("invalid");
@@ -80,7 +87,7 @@ describe("wayfinding URL anchor (QR-ready seam)", () => {
   });
 
   it("known malls are exactly those with a bundled spatial dataset", () => {
-    expect(knownWayfindingMalls().map((m) => m.id)).toEqual([MALL_REDS_PILOT_MALL_ID, "menlyn-park"]);
+    expect(knownWayfindingMalls().map((m) => m.id)).toEqual([MALL_REDS_PILOT_MALL_ID, "menlyn-park", "garden-route-mall"]);
   });
 
   it("wayfindingLinkFor produces the canonical /navigate link", () => {
