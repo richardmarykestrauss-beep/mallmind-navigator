@@ -8,14 +8,19 @@
  * QR API: codes are generated locally with the `qrcode` dev dependency.
  *
  * Usage:
- *   node scripts/navigation/generate-demo-qr.mjs --origin https://<your-deployment> [--out docs/qr-demo]
+ *   VITE_PUBLIC_APP_ORIGIN=https://<published-host> node scripts/navigation/generate-demo-qr.mjs [--out docs/qr-demo]
+ *   node scripts/navigation/generate-demo-qr.mjs --origin https://<published-host>
+ *
+ * The origin comes from ONE seam (VITE_PUBLIC_APP_ORIGIN in .env.local / the environment, or
+ * --origin). Without a valid public origin the script exits non-zero: it never encodes a guessed
+ * hostname. http:// is accepted only for localhost (local development; never print those).
  *
  * The anchors below are the ONLY inputs; every one must be a permitted start of a bundled mall
  * (the app validates them again on scan). The output is clearly labelled DEMO / PILOT and is not
  * official mall signage.
  */
 
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import QRCode from "qrcode";
 
@@ -30,12 +35,52 @@ function arg(name, fallback) {
   return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : fallback;
 }
 
-const origin = arg("origin", "");
-if (!/^https?:\/\/[^/\s?#]+$/i.test(origin)) {
-  console.error("Usage: node scripts/navigation/generate-demo-qr.mjs --origin https://<deployment-origin> [--out docs/qr-demo]");
-  console.error("       (origin only — no path, query or trailing slash; the canonical path is appended)");
+/** Minimal dotenv reader (no dependency): KEY=value lines, quotes stripped, comments ignored. */
+function readDotenv(file) {
+  if (!existsSync(file)) return {};
+  const out = {};
+  for (const line of readFileSync(file, "utf8").split(/\r?\n/)) {
+    const m = /^\s*(?:export\s+)?([A-Z0-9_]+)\s*=\s*(.*)\s*$/.exec(line);
+    if (!m || line.trim().startsWith("#")) continue;
+    out[m[1]] = m[2].replace(/^(['"])(.*)\1$/, "$2").trim();
+  }
+  return out;
+}
+
+/**
+ * Resolve the public origin from ONE seam: --origin, else VITE_PUBLIC_APP_ORIGIN (process env, then
+ * .env.local, then .env). Returns { origin, source } or { error }. Never guesses a hostname.
+ */
+export function resolvePublicOrigin(argv = process.argv, env = process.env, cwd = process.cwd()) {
+  const i = argv.indexOf("--origin");
+  const candidates = [
+    ["--origin", i >= 0 ? argv[i + 1] : ""],
+    ["VITE_PUBLIC_APP_ORIGIN (environment)", env.VITE_PUBLIC_APP_ORIGIN],
+    ["VITE_PUBLIC_APP_ORIGIN (.env.local)", readDotenv(resolve(cwd, ".env.local")).VITE_PUBLIC_APP_ORIGIN],
+    ["VITE_PUBLIC_APP_ORIGIN (.env)", readDotenv(resolve(cwd, ".env")).VITE_PUBLIC_APP_ORIGIN],
+  ];
+  const found = candidates.find(([, v]) => typeof v === "string" && v.trim());
+  if (!found) return { error: "no public origin configured" };
+  const [source, raw] = found;
+  const value = raw.trim();
+  let url;
+  try { url = new URL(value); } catch { return { error: `${source} is not a valid URL: "${value}"` }; }
+  const local = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(url.hostname);
+  if (url.protocol !== "https:" && !(url.protocol === "http:" && local)) return { error: `${source} must use https:// (http:// only for localhost): "${value}"` };
+  if (url.pathname !== "/" || url.search || url.hash || value.endsWith("/")) return { error: `${source} must be scheme + host only, no path/query/trailing slash: "${value}"` };
+  if (!url.hostname.includes(".") && !local) return { error: `${source} does not look like a public host: "${value}"` };
+  return { origin: url.origin, source, local };
+}
+
+const resolved = resolvePublicOrigin();
+if (resolved.error) {
+  console.error(`generate-demo-qr: ${resolved.error}.`);
+  console.error("Set VITE_PUBLIC_APP_ORIGIN (in .env.local or the environment) to the PUBLISHED frontend origin,");
+  console.error("or pass --origin https://<host>. Refusing to encode a guessed hostname into QR codes.");
   process.exit(1);
 }
+const { origin, source, local } = resolved;
+console.log(`origin ${origin} (from ${source})${local ? " — LOCAL DEVELOPMENT ORIGIN, not for printing" : ""}`);
 const outDir = resolve(arg("out", "docs/qr-demo"));
 mkdirSync(outDir, { recursive: true });
 
@@ -79,7 +124,8 @@ for (const a of ANCHORS) {
   console.log(`${base}: ${url}`);
 }
 writeFileSync(resolve(outDir, "manifest.json"), JSON.stringify({
-  generated_by: "scripts/navigation/generate-demo-qr.mjs", origin, label: "DEMO / PILOT QR — not official mall signage",
-  note: "Regenerate with --origin <deployment> before printing. The app validates mall + start on every scan.",
+  generated_by: "scripts/navigation/generate-demo-qr.mjs", origin, origin_source: source, local_origin: local,
+  label: "DEMO / PILOT QR — not official mall signage",
+  note: "Origin comes from VITE_PUBLIC_APP_ORIGIN (or --origin). Regenerate whenever the published origin changes. The app validates mall + start on every scan.",
   anchors: manifest,
 }, null, 2) + "\n");

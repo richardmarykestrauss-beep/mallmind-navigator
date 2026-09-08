@@ -42,12 +42,14 @@ scan QR  →  /navigate?mall=<id>&start=<anchor>&via=qr
 
 - Canonical URL: `<origin>/navigate?mall=<mall-id>&start=<anchor-id>&via=qr`. The pre-existing
   `/navigate?mall=&start=` form (no `via`) stays valid and resolves as a `url` anchor.
-- Generator: `node scripts/navigation/generate-demo-qr.mjs --origin https://<deployment>` (local
-  `qrcode` dev dependency, no external API, no backend). Output in `docs/qr-demo/`: a labelled SVG
-  poster ("DEMO / PILOT QR — NOT OFFICIAL SIGNAGE", mall, anchor, truth status, URL) and a plain PNG
-  per anchor, plus `manifest.json`. Committed assets encode `https://mallmind.app` (the origin the
-  backend CORS harness treats as production); **regenerate with the real deployment origin before
-  printing anything**.
+- Generator: `node scripts/navigation/generate-demo-qr.mjs` (local `qrcode` dev dependency, no
+  external API, no backend). The origin comes from ONE seam — `VITE_PUBLIC_APP_ORIGIN` (`.env.local`
+  or the environment; `src/lib/env.ts` exposes the same variable to the app) or `--origin`. Without a
+  valid `https://` origin the script exits non-zero; it never encodes a guessed hostname. Output is a
+  labelled SVG poster ("DEMO / PILOT QR — NOT OFFICIAL SIGNAGE") plus a PNG per anchor and a
+  `manifest.json`. **No assets are committed** until the app has a published origin
+  (`docs/qr-demo/README.md`); the earlier `https://mallmind.app` assets were removed because that
+  host was never verified.
 - Validation on scan: mall must be bundled, anchor must be a node of that mall, and permitted as a
   start. Failures render a notice and fall back to manual start selection. Non-MallMind payloads
   (other hosts' paths, `javascript:`, `mailto:`, free text) are rejected by `qrAnchorProvider`; the
@@ -66,9 +68,18 @@ Checked with Chromium (Playwright) against the production build served by `vite 
   Cloud Run calls simply fail silently offline; the first visit must complete online before any
   offline re-open works; no precaching of route datasets beyond what the JS bundle contains
   (datasets are bundled, so routing itself is offline-capable).
-- Hosting: no SPA rewrite config lives in this repo (Firebase/Cloud Run hosting is documented as
-  a plan only). The deploy target **must** rewrite `/navigate` to `index.html` or QR deep links
-  will 404 on a cold open. Verify on the real deployment before printing codes.
+- Hosting (deployment truth, 2026-09-08): the frontend is the Lovable project "MallMind
+  Navigator" (`5abb25db-a7ba-4373-bfd4-8b0241bc8b36`), linked to this repository's `main`. It is
+  **not published** (`is_published: false`); the only URL is the editor preview
+  `https://id-preview--5abb25db-….lovable.app`, which serves `main` at `98a7fe6f` (2026-05-06) —
+  152 commits behind `claude-premium-nav-test`, so it does not contain the navigation session.
+  Lovable's own hosting serves `index.html` for client-side routes (SPA fallback), so no
+  `vercel.json` / `_redirects` / Firebase rewrite is needed there and none is added; if the app is
+  ever moved to another host, that host's SPA fallback must be configured. Live cold-open tests of
+  the deep links could not be run from the build container (egress to `lovable.app` is denied), and
+  none would be meaningful until the branch is published. Public hostnames seen in the repo
+  (`mallmind.app` in the backend CORS harness, `mallmind.co.za` in a bot user-agent) are not
+  verified deployments.
 
 ## 5. Mobile UX and accessibility
 
@@ -101,8 +112,8 @@ Checked with Chromium (Playwright) against the production build served by `vite 
    the same distance-truth rule.
 9. Test ids (`mallreds-pilot`) and the `/pilot` route name (`MallRedsPilot.tsx`) carry the pilot's
    original mall name.
-10. Demo QR origin (`https://mallmind.app`) is taken from the backend CORS harness, not from a
-    configured public origin; there is no `VITE_PUBLIC_ORIGIN`.
+10. The public origin now has one seam (`VITE_PUBLIC_APP_ORIGIN`), but it is empty until the app is
+    published; the backend CORS harness still carries its own `https://mallmind.app` literal.
 
 ## 7. Tests
 
