@@ -12,6 +12,7 @@ import { useLocation } from "react-router-dom";
 import WayfindingPilot from "@/components/navigation/WayfindingPilot";
 import { parseWayfindingAnchor } from "@/components/navigation/wayfindingAnchor";
 import { DEFAULT_WAYFINDING_MALL_ID } from "@/components/navigation/mallDatasets";
+import { trackEvent } from "@/lib/analytics";
 
 export default function MallRedsPilot() {
   const { search } = useLocation();
@@ -22,6 +23,7 @@ export default function MallRedsPilot() {
       mallId={parsed.mallId ?? DEFAULT_WAYFINDING_MALL_ID}
       initialAnchor={parsed.status === "ok" ? parsed.anchor : null}
       anchorNotice={parsed.status === "invalid" ? parsed.reason : null}
+      onEvent={(e) => trackEvent(e.name, { mallId: e.mallId, metadata: e.detail })}
     />
   );
 }

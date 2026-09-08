@@ -26,6 +26,11 @@ export interface IndoorMapCanvasProps {
   routePolyline: RoutePolylinePoint[];
   completedStepIndices: Set<number>;
   currentStepIndex: number;
+  /**
+   * How to mark `currentStepIndex`: "position" (legacy pulsing marker for the assistant route
+   * preview) or "step" (static numbered ring for manual navigation sessions — never a blue dot).
+   */
+  markerStyle?: "position" | "step";
   /** Simulated marker position in floor-unit space (not live GPS). */
   simulatedPosition?: FloorplanCoordinate | null;
   /** Show the "demo" tag when this is illustrative demo geometry. */
@@ -114,23 +119,44 @@ function StartPin({ x, y }: { x: number; y: number }) {
   );
 }
 
-function PositionMarker({ x, y }: { x: number; y: number }) {
+function PositionMarker({ x, y, animate }: { x: number; y: number; animate: boolean }) {
   return (
     <g transform={`translate(${x},${y})`} filter="url(#mmf-pin-glow)">
-      <circle r={28} fill="none" stroke="hsl(190 100% 55% / 0.5)" strokeWidth="3" className="animate-ping"
+      <circle r={28} fill="none" stroke="hsl(190 100% 55% / 0.5)" strokeWidth="3" className={animate ? "animate-ping" : undefined}
         style={{ transformBox: "fill-box", transformOrigin: "center" } as CSSProperties} />
       <circle r={19} fill="hsl(190 100% 50% / 0.2)" stroke="hsl(190 100% 62% / 0.85)" strokeWidth="3">
-        <animate attributeName="r" values="16;22;16" dur="1.8s" repeatCount="indefinite" />
+        {animate && <animate attributeName="r" values="16;22;16" dur="1.8s" repeatCount="indefinite" />}
       </circle>
       <circle r={9} fill="hsl(190 100% 72%)" stroke="hsl(0 0% 100%)" strokeWidth="2.4" />
     </g>
   );
 }
 
+/**
+ * Current-STEP marker for manual navigation sessions: a static numbered ring at the point the
+ * visitor last confirmed, deliberately NOT a pulsing "blue dot" — MallMind does not know where the
+ * visitor actually is.
+ */
+function StepMarker({ x, y, label }: { x: number; y: number; label: string }) {
+  return (
+    <g transform={`translate(${x},${y})`} data-testid="map-step-marker">
+      <circle r={22} fill="hsl(240 24% 6% / 0.9)" stroke="hsl(190 100% 62%)" strokeWidth="3" strokeDasharray="6 5" />
+      <text y={6} textAnchor="middle" fontSize="17" fontWeight="700" fontFamily="Inter, system-ui, sans-serif" fill="hsl(190 100% 80%)">{label}</text>
+    </g>
+  );
+}
+
+/** True when the viewer asked for reduced motion (matchMedia is stubbed in tests). */
+function prefersReducedMotion(): boolean {
+  try { return typeof window !== "undefined" && Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches); }
+  catch { return false; }
+}
+
 export default function IndoorMapCanvas({
-  floorplan, activeFloor, routePolyline, completedStepIndices, currentStepIndex, simulatedPosition, isDemo,
+  floorplan, activeFloor, routePolyline, completedStepIndices, currentStepIndex, simulatedPosition, isDemo, markerStyle = "position",
 }: IndoorMapCanvasProps) {
   const target = normalizeFloorLabel(activeFloor);
+  const motion = !prefersReducedMotion();
   const floor = useMemo(
     () => floorplan.floors.find((f) => normalizeFloorLabel(f.label) === target) ?? floorplan.floors[0] ?? null,
     [floorplan, target],
@@ -262,16 +288,20 @@ export default function IndoorMapCanvas({
           <polyline points={routeD(bridge)} fill="none" stroke="hsl(190 100% 50% / 0.18)" strokeWidth="40" strokeLinecap="round" strokeLinejoin="round" filter="url(#mmf-route-glow)" />
           <polyline points={routeD(bridge)} fill="none" stroke="hsl(190 100% 58% / 0.5)" strokeWidth="14" strokeLinecap="round" strokeLinejoin="round" />
           <polyline points={routeD(bridge)} fill="none" stroke="url(#mmf-route)" strokeWidth="7" strokeLinecap="round" strokeLinejoin="round" />
-          <polyline points={routeD(bridge)} fill="none" stroke="hsl(0 0% 100% / 0.9)" strokeWidth="4" strokeLinecap="round" strokeDasharray="2 42">
-            <animate attributeName="stroke-dashoffset" from="0" to="-44" dur="0.9s" repeatCount="indefinite" />
-          </polyline>
+          {motion && (
+            <polyline points={routeD(bridge)} fill="none" stroke="hsl(0 0% 100% / 0.9)" strokeWidth="4" strokeLinecap="round" strokeDasharray="2 42">
+              <animate attributeName="stroke-dashoffset" from="0" to="-44" dur="0.9s" repeatCount="indefinite" />
+            </polyline>
+          )}
         </>
       )}
 
       {/* Pins + marker on top */}
       {startOnFloor && <StartPin x={startOnFloor.x} y={startOnFloor.y} />}
       {destOnFloor && <DestinationPin x={destOnFloor.x} y={destOnFloor.y} label={destName} />}
-      {currentPos && <PositionMarker x={currentPos.x} y={currentPos.y} />}
+      {currentPos && (markerStyle === "step" && !simulatedPosition
+        ? <StepMarker x={currentPos.x} y={currentPos.y} label={String(currentStepIndex + 1)} />
+        : <PositionMarker x={currentPos.x} y={currentPos.y} animate={motion} />)}
 
       {/* Honest caption + floor + demo tag (drawn in full-viewport coords) */}
       <text x={20} y={H - 16} textAnchor="start" fontSize="16" fontFamily="Inter, system-ui, sans-serif" fontWeight="600"

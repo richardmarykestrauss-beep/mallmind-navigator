@@ -79,7 +79,7 @@ describe("Menlyn Park — source-backed, unscaled controlled pilot dataset", () 
     expect(r.steps.every((s) => s.distance_meters === null && s.cumulative_meters === null)).toBe(true);
     expect(r.steps[0].instruction).toBe("Start at Entrance 13. Walk straight into the mall along the corridor until you reach the cross corridor.");
     expect(r.steps[1].instruction).toBe("Continue straight across the cross corridor. Clicks is on your right, just past the crossing.");
-    expect(r.steps[2].instruction).toBe("You’ve arrived at Clicks.");
+    expect(r.steps[2].instruction).toBe("You’ve reached the mapped arrival point for Clicks."); // corridor point, not the door
     // instructions carry topology, never a distance or time claim
     expect(r.steps.some((s) => /\d+\s?(m|metres|min)/i.test(s.instruction))).toBe(false);
     expect(r.steps.every((s) => s.floor === "LF")).toBe(true);
@@ -133,7 +133,7 @@ describe("Garden Route Mall — source-backed, unscaled, awaiting Sunday field v
     expect(r.total_distance_meters).toBeNull();
     expect(r.estimated_minutes).toBeNull();
     expect(r.steps.map((s) => s.node_id)).toEqual(["grm-walkway-e4", "grm-woolworths-arrival", "grm-woolworths-arrival"]);
-    expect(r.steps[0].instruction).toMatch(/^Start at Entrance 4\. Walk straight in/);
+    expect(r.steps[0].instruction).toMatch(/^Walk straight in from Entrance 4/); // start already named → no "Start at" prefix
     expect(r.steps[1].instruction).toMatch(/Woolworths is directly ahead/);
     expect(r.steps.every((s) => s.distance_meters === null)).toBe(true);
   });

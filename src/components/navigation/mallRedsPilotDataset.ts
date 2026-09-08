@@ -237,6 +237,7 @@ function toBackendNode(n: PilotDatasetNode): BackendNodeLike {
     x_coordinate: n.x_percent,
     y_coordinate: n.y_percent,
     linked_shop_id: n.linked_shop_id ?? null,
+    evidence: n.evidence,
   };
 }
 

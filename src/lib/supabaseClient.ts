@@ -1,7 +1,20 @@
 import { createClient } from "@supabase/supabase-js";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./env";
 
-export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+/**
+ * True when the build carried VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY. A build without them
+ * (e.g. a published staging build whose backend config is deliberately not committed — see
+ * docs/environments/mallmind-environment-separation.md) must still boot: the SDK throws on an
+ * empty URL/key, which used to blank the WHOLE app at import time. Instead the client is created
+ * against a reserved, unresolvable host, so every backend call fails as an ordinary network error
+ * that callers already tolerate, while backend-free features (bundled wayfinding) keep working.
+ */
+export const SUPABASE_CONFIGURED = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
+
+export const supabase = createClient(
+  SUPABASE_CONFIGURED ? SUPABASE_URL : "https://supabase.not-configured.invalid",
+  SUPABASE_CONFIGURED ? SUPABASE_ANON_KEY : "not-configured",
+);
 
 export type Mall = {
   id: string | number;

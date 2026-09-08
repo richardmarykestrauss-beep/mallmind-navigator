@@ -79,3 +79,11 @@ export const GOOGLE_BACKEND_URL = getVar("VITE_GOOGLE_BACKEND_URL", false);
  * Reads VITE_VAPID_PUBLIC_KEY from the environment.
  */
 export const VAPID_PUBLIC_KEY = getVar("VITE_VAPID_PUBLIC_KEY", false);
+
+// ── Public frontend origin (optional) ────────────────────────────────────────
+//
+// The single source of truth for the app's public base URL (scheme + host, no
+// path). Empty until the app is published. QR / deep-link tooling
+// (scripts/navigation/generate-demo-qr.mjs) reads the same variable; nothing in
+// the app should hard-code a hostname.
+export const PUBLIC_APP_ORIGIN = getVar("VITE_PUBLIC_APP_ORIGIN", false);
