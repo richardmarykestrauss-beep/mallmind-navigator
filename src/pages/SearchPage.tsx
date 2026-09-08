@@ -7,13 +7,15 @@ import {
 import MobileShell from "@/components/MobileShell";
 import ScreenHeader from "@/components/ScreenHeader";
 import { Button } from "@/components/ui/button";
-import { supabase, type Product, type Shop } from "@/lib/supabaseClient";
+import type { Product, Shop } from "@/lib/supabaseClient";
 import { useShoppingSession } from "@/context/ShoppingSessionContext";
 import PriceSubmitModal from "@/components/PriceSubmitModal";
 import PriceAlertButton from "@/components/PriceAlertButton";
 import { trackSearch } from "@/lib/analytics";
 import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
+import { isGoogleBackendConfigured, recommendProducts } from "@/lib/googleBackendClient";
+import { describeShopFloor } from "@/lib/shopLocation";
 
 const FLOOR_ORDER: Record<string, number> = { B1: 0, G: 1, L1: 2, L2: 3, L3: 4, L4: 5 };
 
@@ -25,7 +27,7 @@ function sortShopsByFloor(a: Shop, b: Shop): number {
 }
 
 interface ProductMatch {
-  product: Product;
+  product: Product & { data_quality_status?: string | null; price_verified_at?: string | null };
   shop: Shop;
   effectivePrice: number;
 }
@@ -63,58 +65,74 @@ const SearchPage = () => {
       setGroups([]);
       return;
     }
+
+    if (!isGoogleBackendConfigured()) {
+      console.warn("[SearchPage] Google backend is not configured; search disabled.");
+      setGroups([]);
+      return;
+    }
+
     setLoading(true);
     try {
-      // Get shops for this mall first
-      const { data: shopData, error: shopErr } = await supabase
-        .from("shops")
-        .select("id, mall_id, name, floor, unit_number, category, opening_hours")
-        .eq("mall_id", selectedMall.id);
+      const response = await recommendProducts({
+        mall_id: String(selectedMall.id),
+        query: q,
+      });
 
-      if (shopErr || !shopData?.length) {
+      const recommendations = response.recommendations ?? [];
+
+      if (!recommendations.length) {
         setGroups([]);
-        setLoading(false);
+        trackSearch(q, 0, selectedMall?.id, selectedMall?.name, user?.id);
         return;
       }
 
-      const shopIds = shopData.map((s) => s.id);
-      const shopMap = Object.fromEntries(shopData.map((s) => [String(s.id), s]));
-
-      // Get matching products from those shops
-      const { data: productData, error: prodErr } = await supabase
-        .from("products")
-        .select("id, shop_id, mall_id, name, category, brand, model, price, original_price, is_on_special, in_stock, verified")
-        .in("shop_id", shopIds)
-        .ilike("name", `%${q}%`)
-        .eq("in_stock", true)
-        .order("price", { ascending: true });
-
-      if (prodErr || !productData?.length) {
-        setGroups([]);
-        setLoading(false);
-        return;
-      }
-
-      // Group by product name
       const grouped = new Map<string, ProductMatch[]>();
-      for (const p of productData) {
-        const shop = shopMap[String(p.shop_id)] as Shop;
-        if (!shop) continue;
-        const effectivePrice = p.is_on_special && p.original_price != null ? p.price : p.price;
-        const key = p.name.toLowerCase();
+
+      for (const rec of recommendations) {
+        const product = {
+          id: rec.product_id,
+          shop_id: rec.shop_id,
+          mall_id: selectedMall.id,
+          name: rec.name,
+          category: rec.category ?? null,
+          brand: rec.brand ?? null,
+          model: null,
+          price: rec.price,
+          original_price: rec.original_price ?? null,
+          is_on_special: Boolean(rec.is_on_special),
+          in_stock: true,
+          verified: rec.data_quality_status === "manually_verified" || rec.data_quality_status === "live_feed",
+          data_quality_status: rec.data_quality_status ?? null,
+          price_verified_at: rec.price_verified_at ?? null,
+        } as Product & { data_quality_status?: string | null; price_verified_at?: string | null };
+
+        const shop = {
+          id: rec.shop_id,
+          mall_id: selectedMall.id,
+          name: rec.shop_name,
+          floor: rec.floor ?? null,
+          unit_number: rec.unit_number ?? null,
+          category: null,
+          opening_hours: null,
+        } as Shop;
+
+        const key = product.name.toLowerCase();
         if (!grouped.has(key)) grouped.set(key, []);
-        grouped.get(key)!.push({ product: p as Product, shop, effectivePrice });
+        grouped.get(key)!.push({ product, shop, effectivePrice: product.price });
       }
 
-      // Sort each group cheapest first
       const result: ProductGroup[] = [];
       for (const [, matches] of grouped) {
         matches.sort((a, b) => a.effectivePrice - b.effectivePrice);
         result.push({ name: matches[0].product.name, matches });
       }
+
       setGroups(result);
-      // Track search event (fire-and-forget)
       trackSearch(q, result.length, selectedMall?.id, selectedMall?.name, user?.id);
+    } catch (err) {
+      console.error("[SearchPage] backend product search failed", err);
+      setGroups([]);
     } finally {
       setLoading(false);
     }
@@ -173,7 +191,7 @@ const SearchPage = () => {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="What are you looking for?"
-            className="w-full h-12 pl-11 pr-10 rounded-2xl bg-surface border border-border text-sm focus:outline-none focus:border-primary/50 focus:shadow-[0_0_0_3px_hsl(190_100%_50%/0.15)] transition-all"
+            className="w-full h-12 pl-11 pr-10 rounded-2xl bg-surface/60 backdrop-blur border border-border/80 text-sm focus:outline-none focus:border-primary/50 focus:bg-surface focus:shadow-[0_0_0_3px_hsl(190_100%_50%/0.12)] transition-all"
             autoFocus
           />
           {query && (
@@ -186,23 +204,27 @@ const SearchPage = () => {
           )}
         </div>
 
-        {/* Suggestions */}
+        {/* Suggestions — horizontal scroll chips */}
         {!query && (
           <div>
-            <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground mb-2 px-1">
+            <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground mb-2.5 px-1">
               Popular searches
             </p>
-            <div className="flex flex-wrap gap-2">
-              {SUGGESTIONS.map((s) => (
-                <button
-                  key={s}
-                  onClick={() => setQuery(s)}
-                  className="flex items-center gap-1.5 rounded-full border border-border bg-surface/60 px-3 py-1.5 text-xs hover:border-primary/50 hover:text-primary transition-all"
-                >
-                  <Tag className="h-3 w-3" />
-                  {s}
-                </button>
-              ))}
+            <div
+              className="overflow-x-auto scrollbar-hide -mx-5 px-5 pb-1"
+            >
+              <div className="flex gap-2 w-max">
+                {SUGGESTIONS.map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => setQuery(s)}
+                    className="flex items-center gap-1.5 rounded-full border border-primary/25 bg-primary/8 px-4 py-2 text-xs font-medium text-primary/90 hover:bg-primary/15 hover:border-primary/40 whitespace-nowrap transition-all active:scale-95 shrink-0"
+                  >
+                    <Tag className="h-3 w-3 shrink-0" />
+                    {s}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         )}
@@ -243,17 +265,22 @@ const SearchPage = () => {
 
         {/* Product groups */}
         {!loading && groups.map((group) => (
-          <div key={group.name} className="rounded-3xl border border-border bg-surface/70 overflow-hidden animate-slide-up">
-            <div className="flex items-center gap-2 px-4 py-3 border-b border-border bg-muted/20">
-              <ShoppingBag className="h-4 w-4 text-primary" />
+          <div
+            key={group.name}
+            className="rounded-3xl border border-primary/15 bg-surface/60 backdrop-blur overflow-hidden animate-slide-up shadow-[0_4px_20px_hsl(0_0%_0%/0.2)]"
+          >
+            {/* Group header */}
+            <div className="flex items-center gap-2 px-4 py-3 border-b border-border/60 bg-gradient-to-r from-primary/8 to-transparent">
+              <ShoppingBag className="h-4 w-4 text-primary shrink-0" />
               <span className="font-display font-bold text-sm">{group.name}</span>
               {group.matches.length > 1 && (
-                <span className="ml-auto text-[10px] uppercase tracking-wider text-secondary bg-secondary/10 border border-secondary/30 rounded-full px-2 py-0.5">
-                  {group.matches.length} stores compare
+                <span className="ml-auto text-[9px] uppercase tracking-wider text-secondary bg-secondary/10 border border-secondary/25 rounded-full px-2.5 py-0.5 font-bold">
+                  {group.matches.length} stores
                 </span>
               )}
             </div>
-            <div className="divide-y divide-border">
+
+            <div className="divide-y divide-border/40">
               {group.matches.map((m, idx) => {
                 const isSelected = selectedShopIds.has(m.shop.id);
                 const isCheapest = idx === 0 && group.matches.length > 1;
@@ -262,64 +289,72 @@ const SearchPage = () => {
                     key={`${m.product.id}`}
                     className={cn(
                       "flex flex-col transition-all",
-                      isSelected ? "bg-primary/10" : "hover:bg-muted/30"
+                      isSelected
+                        ? "bg-primary/8 border-l-2 border-l-primary"
+                        : "hover:bg-muted/20"
                     )}
                   >
-                    {/* Main row — tapping selects the stop */}
+                    {/* Main tap row */}
                     <button
                       onClick={() => toggleShop(m.shop.id)}
-                      className="w-full flex items-center gap-3 px-4 py-3 text-left"
+                      className="w-full flex items-center gap-3 px-4 py-3.5 text-left"
                     >
                       {/* Store icon */}
                       <div className={cn(
-                        "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border",
+                        "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border transition-all",
                         isSelected
                           ? "bg-primary/20 border-primary/40 text-primary"
-                          : "bg-surface border-border text-muted-foreground"
+                          : "bg-surface/80 border-border text-muted-foreground"
                       )}>
                         <Store className="h-4 w-4" />
                       </div>
 
                       {/* Store + floor info */}
                       <div className="flex-1 min-w-0">
-                        <p className="font-medium text-sm truncate">{m.shop.name}</p>
-                        <p className="text-[11px] text-muted-foreground">
-                          Floor {m.shop.floor ?? "?"} · Unit {m.shop.unit_number ?? "—"}
+                        <p className="font-semibold text-sm truncate">{m.shop.name}</p>
+                        <p className="text-[11px] text-muted-foreground mt-0.5">
+                          {describeShopFloor(m.shop.floor)} · Unit {m.shop.unit_number ?? "—"}
                         </p>
                       </div>
 
                       {/* Price */}
-                      <div className="text-right shrink-0">
+                      <div className="text-right shrink-0 pl-2">
                         {m.product.is_on_special && m.product.original_price != null && (
-                          <p className="text-[10px] text-muted-foreground line-through">
+                          <p className="text-xs text-muted-foreground line-through leading-none mb-0.5">
                             R{m.product.original_price.toFixed(0)}
                           </p>
                         )}
                         <p className={cn(
-                          "font-display font-bold text-base",
+                          "font-display font-bold text-lg leading-none",
                           m.product.is_on_special ? "text-secondary" : "text-foreground"
                         )}>
                           R{m.effectivePrice.toFixed(0)}
                         </p>
-                        {isCheapest && (
-                          <span className="text-[9px] uppercase tracking-wider text-secondary">
-                            Cheapest
-                          </span>
-                        )}
+                        <div className="flex items-center justify-end gap-1 mt-0.5">
+                          {isCheapest && (
+                            <span className="text-[9px] uppercase tracking-wide text-secondary font-bold">
+                              Cheapest
+                            </span>
+                          )}
+                          {(m.product.data_quality_status === "manually_verified" ||
+                            m.product.data_quality_status === "live_feed") && (
+                            <span className="text-[9px] text-emerald-400 font-semibold">✓</span>
+                          )}
+                        </div>
                       </div>
 
                       {/* Selected indicator */}
                       {isSelected
-                        ? <CheckCircle2 className="h-5 w-5 text-primary shrink-0" />
-                        : <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                        ? <CheckCircle2 className="h-5 w-5 text-primary shrink-0 ml-1" />
+                        : <ChevronRight className="h-4 w-4 text-muted-foreground/50 shrink-0 ml-1" />
                       }
                     </button>
 
                     {/* Price submit nudge + alert bell */}
-                    <div className="px-4 pb-2 flex items-center justify-between">
+                    <div className="px-4 pb-2.5 flex items-center justify-between">
                       <button
                         onClick={() => setPriceSubmit({ product: m.product, shop: m.shop })}
-                        className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-secondary transition-colors"
+                        className="flex items-center gap-1 text-[10px] text-muted-foreground/70 hover:text-secondary transition-colors"
                       >
                         <Zap className="h-3 w-3" />
                         Seen a different price? +50 XP

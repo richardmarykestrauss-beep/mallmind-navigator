@@ -1,0 +1,89 @@
+{
+  "artifact": "mallreds-product-coverage",
+  "sprint": "2F",
+  "generated_by": "read-only repository audit (no live DB access)",
+  "base_branch": "claude-premium-nav-test",
+  "scope_note": "Repository truth only. The live Supabase `products` table is where operational data lives and is NOT readable by this audit. Everything below is what is committed to git.",
+  "counts": {
+    "committed_mallreds_products_on_base_branch": 0,
+    "committed_mallreds_offers_on_base_branch": 0,
+    "real_evidence_backed_mallreds_products_in_repo": 0,
+    "mallreds_product_rows_in_unmerged_branches": 37,
+    "seed_products_total_all_malls_base_branch": 110,
+    "seed_products_for_mallreds": 0,
+    "seed_products_data_quality": "ALL 110 seed rows default to data_quality_status='demo' — supabase/seed.sql INSERT (line 125) lists only (shop_id, mall_id, name, category, brand, model, price, original_price, is_on_special, in_stock) and never sets data_quality_status, verified, or price_verified_at. Per migration 008 the column defaults to 'demo'. So the entire committed catalog is DEMO-grade.",
+    "seed_products_that_are_TVs_any_mall": 20,
+    "seed_products_that_are_43inch_TVs": 0
+  },
+  "column_coverage_repo_wide": {
+    "price": "present on products (price, original_price). All seed prices are demo-grade.",
+    "image_url": "ABSENT — no image_url / image column exists on products in any migration or in seed. Zero image coverage in the schema.",
+    "sku": "ABSENT — no sku column exists.",
+    "gtin_barcode": "ABSENT — no gtin/barcode column exists.",
+    "model": "present (products.model, free text) — the only SKU-like identifier, unnormalized.",
+    "availability": "products.in_stock boolean only. No UNKNOWN state; all seed rows hardcode true.",
+    "brand": "present (products.brand, free text) — manufacturer brand, not retailer."
+  },
+  "mallreds_product_sources": [
+    {
+      "source": "supabase/seed.sql (base branch)",
+      "retailer": "n/a for Mall@Reds",
+      "product_count": 0,
+      "offer_count": 0,
+      "classification": "real_vs_fixture: DEMO fixture",
+      "note": "Seeds 8 OTHER malls only. Zero Mall@Reds rows. Confirms Mall@Reds has no committed product baseline in the repo."
+    },
+    {
+      "source": "scripts/retail/mallreds_seed_starter.csv (UNMERGED branch mallreds-catalogue-batch2-source-pack-v1)",
+      "retailer": "Game (shop 0001), unnamed grocery (0002), Woolworths (0003)",
+      "product_count": 11,
+      "offer_count": 11,
+      "classification": "manually entered + 2 marked verified",
+      "price_coverage": "11/11",
+      "image_coverage": "0/11 (no schema support)",
+      "sku_coverage": "partial — model on the 5 electronics rows only (e.g. 43A4G, UA32T4300)",
+      "gtin_coverage": "0/11",
+      "availability_type": "in_stock=true asserted on all rows",
+      "branch_specific_or_national": "recorded as branch rows (mall_id+shop_id) — the copy-per-mall pattern",
+      "freshness": "valid_to 2026-07-31 hardcoded; no observed_at",
+      "evidence_status": "2 rows trust_state=verified (1 phone: Hisense 43\" FHD; 1 website: Woolworths Greek Yoghurt); 9 rows manual_fact_entry/csv_manual",
+      "shopper_eligibility": "would be eligible if applied to live DB (no evidence gate in shopper path)",
+      "reaches_shopper_assistant": "NOT on base branch (unapplied, unmerged)",
+      "real_versus_fixture": "manual seed intended to re-stage with provenance; not real evidence-backed"
+    },
+    {
+      "source": "scripts/retail/mallreds_batch2_source_pack.csv (UNMERGED branch)",
+      "retailer": "Game (0001), grocery (0002), Woolworths (0003), health&beauty incl. Clicks (0004), PEP (0005)",
+      "product_count": 26,
+      "offer_count": 26,
+      "classification": "PLACEHOLDER",
+      "price_coverage": "26/26 (placeholder prices)",
+      "image_coverage": "0/26",
+      "sku_coverage": "model on some electronics rows only",
+      "gtin_coverage": "0/26",
+      "availability_type": "in_stock=true asserted on all rows",
+      "branch_specific_or_national": "branch rows (copy-per-mall pattern)",
+      "freshness": "valid_to 2026-07-31 hardcoded; no observed_at",
+      "evidence_status": "EVERY row carries 'BATCH2 PLACEHOLDER - DO NOT APPLY until evidence captured'; intended sources listed (phone verification / website / store visit) but evidence NOT captured",
+      "shopper_eligibility": "explicitly must-not-apply until evidence captured",
+      "reaches_shopper_assistant": "NO (unapplied, unmerged, placeholder)",
+      "real_versus_fixture": "placeholder — no real evidence"
+    }
+  ],
+  "classification_totals": {
+    "real_evidence_backed_data": 0,
+    "manually_entered_data_unmerged": 11,
+    "synthetic_test_data": 0,
+    "demo_fixtures_base_branch_other_malls": 110,
+    "placeholders_unmerged": 26,
+    "stale_data": "unknown (live DB not audited)"
+  },
+  "shopper_path_reality": {
+    "retrieval": "products table filtered by name ILIKE %term% + shop_id IN (mall's shops) + optional price<=budget (google-cloud-backend/src/services/productService.ts:117-151).",
+    "evidence_gate": "NONE — verification/trust only affects RANKING (scoreProduct) and a display badge, never inclusion.",
+    "freshness_gate": "NONE — price_verified_at only drives an expiry badge (7 days); stale prices still returned.",
+    "branch_gate": "NONE — granularity stops at shop_id; no branch entity.",
+    "implication": "For a Mall@Reds shopper query, whatever exists in the live products table for that mall is shown, DEMO-grade or not, with only a soft 'Sample data' badge."
+  },
+  "headline": "Zero committed, evidence-backed Mall@Reds products exist in the repository. The only Mall@Reds product data anywhere in git is 37 rows of manual/placeholder CSV on two UNMERGED branches, of which just 2 rows claim any verification and 26 are explicitly marked DO-NOT-APPLY. The schema has no image, SKU, or GTIN columns at all. The shopper path applies no evidence or freshness gate, so trustworthiness of what a real shopper sees depends entirely on unaudited live-DB contents."
+}

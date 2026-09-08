@@ -19,7 +19,7 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 async function fetchOrCreateProfile(userId: string, email: string, fullName?: string): Promise<Profile | null> {
   const { data: existing } = await supabase
     .from("profiles")
-    .select("id, username, full_name, xp, level, subscription_status")
+    .select("id, username, full_name, xp, level, subscription_status, is_admin")
     .eq("id", userId)
     .single();
 
@@ -35,7 +35,7 @@ async function fetchOrCreateProfile(userId: string, email: string, fullName?: st
       level: 1,
       subscription_status: "free",
     })
-    .select("id, username, full_name, xp, level, subscription_status")
+    .select("id, username, full_name, xp, level, subscription_status, is_admin")
     .single();
 
   return (created as Profile) ?? null;

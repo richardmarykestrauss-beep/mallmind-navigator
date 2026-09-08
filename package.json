@@ -8,9 +8,31 @@
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
+    "typecheck": "tsc -p tsconfig.app.json --noEmit",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "demo:smoke": "node scripts/assistant/demo-smoke-check.mjs",
+    "verify:backend": "cd google-dev-agent && npm install && npm run build && node dist/index.js --task VERIFY_BACKEND_DEV",
+    "verify:all": "node scripts/build-os/verify-all.mjs",
+    "verify:db": "node scripts/build-os/verify-db.mjs",
+    "test:mallreds-import": "node scripts/retail/validate-mallreds-tenant-import.mjs",
+    "test:mallreds-import-sql": "node scripts/retail/generate-mallreds-import-sql.mjs",
+    "retail:feed:dry-run": "node scripts/retail/feed-dry-run.mjs",
+    "scope-guard": "node scripts/build-os/scope-guard.mjs",
+    "test:scope-guard": "node scripts/build-os/scope-guard.test.mjs",
+    "test:issue-form": "node scripts/build-os/issue-form.test.mjs",
+    "test:evidence": "node scripts/build-os/evidence.test.mjs",
+    "test:rerun": "node scripts/build-os/rerun-guard.test.mjs",
+    "test:diagnostics": "node scripts/build-os/diagnostics.test.mjs",
+    "intake:fixture:upload": "npm --prefix google-cloud-backend run intake:fixture:upload --",
+    "retail:feed:json:dry-run": "node scripts/retail/feed-json-dry-run.mjs",
+    "retail:mapping:validate": "node scripts/retail/mapping-validate.mjs",
+    "retail:staging:guard": "node scripts/retail/staging-guard.mjs",
+    "db:test:start": "node scripts/retail/staging-guard.mjs && npx supabase start",
+    "db:test:reset": "node scripts/retail/staging-guard.mjs && npx supabase db reset --local",
+    "db:test:stop": "npx supabase stop --no-backup",
+    "retail:staging:test": "node scripts/retail/staging-guard.mjs && npm run verify:db"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
@@ -81,10 +103,17 @@
     "jsdom": "^20.0.3",
     "lovable-tagger": "^1.1.13",
     "postcss": "^8.5.6",
+    "qrcode": "^1.5.4",
+    "supabase": "2.108.0",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.38.0",
     "vite": "^5.4.19",
     "vitest": "^3.2.4"
-  }
+  },
+  "engines": {
+    "node": "22.x",
+    "npm": ">=10 <12"
+  },
+  "packageManager": "npm@11.17.0"
 }

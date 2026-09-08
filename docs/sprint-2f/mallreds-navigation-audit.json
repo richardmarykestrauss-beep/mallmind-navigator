@@ -1,0 +1,115 @@
+{
+  "artifact": "mallreds-navigation-audit",
+  "sprint": "2F",
+  "generated_by": "read-only repository audit (no live DB access)",
+  "base_branch": "claude-premium-nav-test",
+  "scope_note": "Node/edge counts are runtime data-driven from Supabase tables mall_nodes/mall_edges. For Mall@Reds specifically the repo commits ZERO nodes/edges; any that exist live only in the unaudited Supabase project.",
+  "map_source": {
+    "customer_map": "Postgres node/edge graph (tables mall_nodes + mall_edges) rendered as a hand-authored 2.5D SVG in src/components/navigation/IndoorMapCanvas.tsx.",
+    "format": "Pure inline SVG (viewport 360x172). No GeoJSON, no raster tiles, no map library, no real floor-plan geometry.",
+    "geometry_is_real": false,
+    "geometry_note": "Node placement is synthetic: shops ordered by x_coordinate and dropped alternately above/below a hardcoded corridor line (CORRIDOR_Y=86). Real y_coordinate is ignored. Edge distances are estimates (ABS(dx)*5+30) generated in migration 005, not surveyed.",
+    "indoorMapModel_route_exists": false,
+    "indoorMapModel_note": "The route google-cloud-backend/src/routes/indoorMapModel.ts does NOT exist on this branch. Map backend is mapFactory.ts; routing backend is buildRoute.ts + routingService.ts."
+  },
+  "map_file_format": "SVG (schematic, generated in-component). Map Factory can also emit proprietary SVG floorplans (map_factory_generated_floorplans.svg_output, migration 019) but the customer map does NOT consume it.",
+  "floor_representation": {
+    "model": "mall_nodes.floor TEXT label per node (migration 005). No true 3D/z-axis.",
+    "multi_floor": true,
+    "inconsistency": "Two floor-label conventions coexist (short codes G/B1/L1-L4 vs descriptive 'Ground Floor'/'Level 5'); routingService.formatFloorLabel exists to reconcile them.",
+    "frontend_floor_picker": "Hardcoded fallback ['G','L1','L2','L3'] in NavigateScreen.tsx, otherwise derived from route steps."
+  },
+  "counts": {
+    "committed_mallreds_nodes_in_repo": 0,
+    "committed_mallreds_edges_in_repo": 0,
+    "counts_are_runtime_data_driven": true,
+    "compile_time_node_count": "none",
+    "hardcoded_frontend_graph": "none (no inline node/edge arrays in src/**)",
+    "only_rich_fixture": {
+      "location": "google-cloud-backend/src/services/mapImageExtractionService.ts:79-124 (MOCK, Mall of Africa ONLY, not Mall@Reds)",
+      "level_3": "10 anchors (5 shops, 1 entrance, 4 parking) + 4 corridor nodes",
+      "level_5": "15 anchors (4 shops, 1 landmark, 6 entrances, 4 parking) + 4 corridor nodes",
+      "note": "Enters mall_nodes only if an admin runs Map Factory with the (default) mock provider and publishes. Irrelevant to Mall@Reds."
+    },
+    "how_reds_nodes_would_arise": "Migration 005 auto-generates one node per shops row + one 'Main Entrance' per mall, and edges to 3 nearest neighbours by x. Since Mall@Reds has ZERO committed shops, it has ZERO committed nodes/edges. Live-DB counts are unknown/unaudited."
+  },
+  "store_node_links": {
+    "mechanism": "mall_nodes.linked_shop_id TEXT (migration 005:59). Not a mapping table.",
+    "resolution": "Routing scans for linked_shop_id === shopId; if none, returns fallback:true.",
+    "committed_mallreds_store_node_links": 0
+  },
+  "special_node_types": {
+    "schema_supports": ["shop", "entrance", "escalator", "lift", "stairs", "toilet", "food_court", "parking", "corridor", "landmark", "emergency_exit", "info_desk"],
+    "added_in": "base set migration 005; extended in 020_mall_nodes_extend_types.sql",
+    "rendered_on_customer_map": ["shop", "entrance"],
+    "stored_but_invisible": ["escalator", "lift", "stairs", "parking", "corridor", "landmark", "emergency_exit", "info_desk"],
+    "note": "Escalators/lifts/stairs/parking have NO dedicated glyph in IndoorMapCanvas — they exist in data but render nothing distinctive."
+  },
+  "entrance_nodes": "One synthetic 'Main Entrance' per mall on floor G (migration 005). Real entrance/parking-entrance survey data: none committed for Mall@Reds.",
+  "vertical_transition_nodes": "Represented as edges with floor_change=true and node types lift/escalator/stairs. None committed for Mall@Reds.",
+  "route_algorithm": {
+    "type": "Dijkstra shortest path (real, textbook O(V^2)), weighted by edge distance_meters.",
+    "implementations": 3,
+    "implementation_locations": [
+      "supabase/functions/build-route/index.ts:69-126",
+      "google-cloud-backend/src/services/routingService.ts:12-67",
+      "(frontend has only a crude fallback estimator, NavigateScreen.tsx:19-29)"
+    ],
+    "multi_stop": "Greedy sequential (start->dest1->dest2), not TSP-optimised.",
+    "eta_model": "distance / 72 m per min.",
+    "divergence_risk": "Edge function JSON.stringifies route_steps/destination_shop_ids into JSONB; backend service passes native arrays and comments that stringifying is wrong — the two paths persist the SAME columns in incompatible formats."
+  },
+  "start_point_logic": {
+    "positioning_used": false,
+    "priority": ["shopping_sessions.current_anchor_node_id (never written from live position)", "first type=entrance node", "first ground-floor shop", "nodes[0]"],
+    "effect": "A fresh route almost always starts at the synthetic Main Entrance, regardless of where the shopper actually is."
+  },
+  "route_preview_behavior": "Static step list + a pulsing dot on the first not-yet-completed step. Completed vs remaining drawn as two polylines.",
+  "simulated_movement_behavior": {
+    "animated_movement": false,
+    "live_tracking": false,
+    "advance_mechanism": "Position advances ONLY when the user taps 'Done' (markStepDone). No setInterval/requestAnimationFrame/watchPosition. Only cosmetic CSS animate-ping pulse."
+  },
+  "positioning_capabilities": {
+    "gps_geolocation": "PRESENT but coarse and outdoor-only — navigator.geolocation.getCurrentPosition used solely to pick the nearest mall (LocationContext.tsx). NEVER mapped to an indoor node.",
+    "mobile_sensors_accelerometer_compass": "ABSENT (no DeviceMotion/DeviceOrientation).",
+    "qr_nfc": "ABSENT.",
+    "ble_bluetooth_beacons": "ABSENT.",
+    "wifi_rtt": "ABSENT.",
+    "uwb": "ABSENT.",
+    "visual_positioning_camera": "ABSENT (no getUserMedia).",
+    "ui_misrepresentation": "NavigateScreen.tsx:214-218 renders a hardcoded 'GPS' badge and a 'Prototype Tracking' label over the map with no positioning behind them — the most misleading UI element for an honest reality proof."
+  },
+  "offline_capability": {
+    "service_worker": "public/sw.js registered in main.tsx — precaches app shell only (/, /index.html, /manifest.json).",
+    "maps_offline": false,
+    "reason": "sw.js explicitly bypasses any supabase.co request, so mall_nodes/mall_edges/shopping_routes are never cached. Indoor map + routing do NOT work offline. SW purpose is PWA install + Web Push price alerts."
+  },
+  "map_editor_admin_tooling": {
+    "exists": true,
+    "name": "Map Factory (src/pages/admin/MapFactoryTab.tsx + migration 019)",
+    "shape": "8-stage pipeline runner (source_discovery -> ... -> publish). No free-form drag-and-drop node editor.",
+    "ai_default": "MOCK — provider defaults to 'mock' unless MAP_FACTORY_AI_PROVIDER/GEMINI keys set; harvest is simulated (no real HTTP). Default deployment produces the hardcoded Mall of Africa fixtures, not real extracted maps.",
+    "writes_to_live_graph": "only on publish (mapFactoryRouteGraphBuilderService); protects human-curated nodes via source column (021)."
+  },
+  "known_defects": [
+    "Fake 'GPS' badge and 'Prototype Tracking' label with no positioning behind them (NavigateScreen.tsx:214-218).",
+    "Synthetic geometry presented as a floor plan (real y_coordinate ignored; corridor/edge distances invented).",
+    "Dead ternary in edge function: build-route/index.ts:142 Unit ${...? '—' : '—'} — unit number never shown.",
+    "Two divergent routing implementations persist route_steps/destination_shop_ids in incompatible JSONB formats (stringified vs native array).",
+    "current_anchor_node_id is read for start-point but never written from a live position — anchoring is inert.",
+    "Special node types (escalator/lift/stairs/parking) stored but never rendered with a distinct glyph.",
+    "Offline maps do not work (service worker bypasses Supabase).",
+    "Floor-change direction guessed from meaningless synthetic y_coordinate sign."
+  ],
+  "mallreds_specifics": {
+    "committed_nodes": 0,
+    "committed_edges": 0,
+    "committed_store_node_links": 0,
+    "committed_entrance_nodes": 0,
+    "committed_vertical_transition_nodes": 0,
+    "committed_parking_entrance_nodes": 0,
+    "smoke_test_evidence": "google-dev-agent/src/smokeTests.ts:526-535 has an explicit 'fallback mode' branch: 'Shop ID has no matching node in mall_nodes ... Route returned 0 steps' — i.e. routing for Mall@Reds is entirely contingent on live-DB mall_nodes.linked_shop_id being populated, which the repo cannot verify."
+  },
+  "headline": "Navigation is a real Dijkstra pathfinder over a synthetic, schematic node/edge graph with NO real indoor positioning of any kind (GPS is outdoor mall-selection only; the on-map 'GPS'/'Tracking' UI is decorative). For Mall@Reds the repository commits zero nodes, edges, and store-node links; whether any exist at all is a live-DB question this audit cannot answer."
+}

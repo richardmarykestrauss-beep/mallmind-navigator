@@ -11,9 +11,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useAuth } from "@/context/AuthContext";
-
-// Public VAPID key — matches the private key stored in Supabase secrets
-const VAPID_PUBLIC_KEY = "BOmbXH4FbyiLj3Wy32HY2XU3dGt-a9cLddFl3rSpNv1uiiCIhM6xLJS1W07SGTNJbJoY9oM0Zi3hiaqBhCb8j78";
+import { VAPID_PUBLIC_KEY } from "@/lib/env";
 
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);

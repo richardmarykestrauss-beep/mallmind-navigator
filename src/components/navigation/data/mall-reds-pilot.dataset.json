@@ -1,0 +1,52 @@
+{
+  "asset_id": "mall-reds-pilot-v1",
+  "dataset_version": "1.0.0",
+  "dataset_status": "schematic",
+  "evidence_status": "unverified",
+  "reality_label": "pilot-schematic-unverified",
+  "source_policy": "reference evidence only; no third-party map artwork copied; every coordinate and distance is illustrative and awaits on-site verification",
+  "mall_id": "mallreds-pilot",
+  "mall_name": "Mall@Reds",
+  "coordinate_system": "percent-based MallMind node coordinates (0..100)",
+  "viewBox": "0 0 1000 620",
+  "evidence_levels": ["schematic", "source-backed", "on-site-verified"],
+  "notes": "Tenant NAMES are real Mall@Reds anchors and amenity TYPES are real categories every mall has, but every position/distance in this file is SCHEMATIC. A tenant's factual identity (e.g. shop number from the verified tenant register) is recorded on `tenant` and is independent of the spatial `evidence` of its coordinate: a source-backed identity must never upgrade a schematic coordinate. Replace this whole file with a source-backed / on-site-verified dataset in the same shape to make the route physically truthful — no code change required.",
+  "floors": [
+    { "id": "G", "label": "Ground Floor" }
+  ],
+  "nodes": [
+    { "node_id": "entrance-main", "name": "Main Entrance", "type": "entrance", "floor": "G", "x_percent": 5, "y_percent": 50, "evidence": "schematic" },
+    { "node_id": "entrance-2", "name": "Entrance 2", "type": "entrance", "floor": "G", "x_percent": 95, "y_percent": 55, "evidence": "schematic" },
+    { "node_id": "info-desk", "name": "Information Desk", "type": "landmark", "floor": "G", "x_percent": 50, "y_percent": 70, "evidence": "schematic" },
+    { "node_id": "c1", "name": "Concourse", "type": "corridor", "floor": "G", "x_percent": 18, "y_percent": 50, "evidence": "schematic" },
+    { "node_id": "c2", "name": "Concourse", "type": "corridor", "floor": "G", "x_percent": 35, "y_percent": 50, "evidence": "schematic" },
+    { "node_id": "c3", "name": "Concourse", "type": "corridor", "floor": "G", "x_percent": 50, "y_percent": 50, "evidence": "schematic" },
+    { "node_id": "c4", "name": "Concourse", "type": "corridor", "floor": "G", "x_percent": 68, "y_percent": 50, "evidence": "schematic" },
+    { "node_id": "c5", "name": "Concourse", "type": "corridor", "floor": "G", "x_percent": 85, "y_percent": 50, "evidence": "schematic" },
+    { "node_id": "woolworths", "name": "Woolworths", "type": "shop", "floor": "G", "x_percent": 18, "y_percent": 24, "linked_shop_id": "woolworths", "evidence": "schematic", "tenant": { "shop_number": null, "identity_evidence": "unverified", "identity_source": null } },
+    { "node_id": "clicks", "name": "Clicks", "type": "shop", "floor": "G", "x_percent": 35, "y_percent": 80, "linked_shop_id": "clicks", "evidence": "schematic", "tenant": { "shop_number": "45", "identity_evidence": "source-backed", "identity_source": "docs/sprint-2f/mallreds-verified-tenant-register.json (mallreds-shop-45)" } },
+    { "node_id": "dischem", "name": "Dis-Chem", "type": "shop", "floor": "G", "x_percent": 50, "y_percent": 24, "linked_shop_id": "dischem", "evidence": "schematic", "tenant": { "shop_number": null, "identity_evidence": "unverified", "identity_source": null } },
+    { "node_id": "picknpay", "name": "Pick n Pay", "type": "shop", "floor": "G", "x_percent": 68, "y_percent": 80, "linked_shop_id": "picknpay", "evidence": "schematic", "tenant": { "shop_number": null, "identity_evidence": "unverified", "identity_source": null } },
+    { "node_id": "game", "name": "Game", "type": "shop", "floor": "G", "x_percent": 92, "y_percent": 26, "linked_shop_id": "game", "evidence": "schematic", "tenant": { "shop_number": null, "identity_evidence": "unverified", "identity_source": null } },
+    { "node_id": "lifts", "name": "Lifts", "type": "lift", "floor": "G", "x_percent": 35, "y_percent": 22, "evidence": "schematic" },
+    { "node_id": "toilets", "name": "Toilets", "type": "toilet", "floor": "G", "x_percent": 68, "y_percent": 22, "evidence": "schematic" },
+    { "node_id": "food-court", "name": "Food Court", "type": "food_court", "floor": "G", "x_percent": 85, "y_percent": 80, "evidence": "schematic" }
+  ],
+  "edges": [
+    { "edge_id": "e-em-c1", "from": "entrance-main", "to": "c1", "distance_meters": 22, "floor_change": false, "evidence": "schematic" },
+    { "edge_id": "e-c1-c2", "from": "c1", "to": "c2", "distance_meters": 24, "floor_change": false, "evidence": "schematic" },
+    { "edge_id": "e-c2-c3", "from": "c2", "to": "c3", "distance_meters": 22, "floor_change": false, "evidence": "schematic" },
+    { "edge_id": "e-c3-c4", "from": "c3", "to": "c4", "distance_meters": 24, "floor_change": false, "evidence": "schematic" },
+    { "edge_id": "e-c4-c5", "from": "c4", "to": "c5", "distance_meters": 22, "floor_change": false, "evidence": "schematic" },
+    { "edge_id": "e-c5-e2", "from": "c5", "to": "entrance-2", "distance_meters": 18, "floor_change": false, "evidence": "schematic" },
+    { "edge_id": "e-c3-info", "from": "c3", "to": "info-desk", "distance_meters": 12, "floor_change": false, "evidence": "schematic" },
+    { "edge_id": "e-c1-ww", "from": "c1", "to": "woolworths", "distance_meters": 20, "floor_change": false, "evidence": "schematic" },
+    { "edge_id": "e-c2-cl", "from": "c2", "to": "clicks", "distance_meters": 20, "floor_change": false, "evidence": "schematic" },
+    { "edge_id": "e-c3-dc", "from": "c3", "to": "dischem", "distance_meters": 20, "floor_change": false, "evidence": "schematic" },
+    { "edge_id": "e-c4-pnp", "from": "c4", "to": "picknpay", "distance_meters": 20, "floor_change": false, "evidence": "schematic" },
+    { "edge_id": "e-c5-gm", "from": "c5", "to": "game", "distance_meters": 22, "floor_change": false, "evidence": "schematic" },
+    { "edge_id": "e-c2-lf", "from": "c2", "to": "lifts", "distance_meters": 16, "floor_change": false, "evidence": "schematic" },
+    { "edge_id": "e-c4-wc", "from": "c4", "to": "toilets", "distance_meters": 16, "floor_change": false, "evidence": "schematic" },
+    { "edge_id": "e-c5-fc", "from": "c5", "to": "food-court", "distance_meters": 18, "floor_change": false, "evidence": "schematic" }
+  ]
+}

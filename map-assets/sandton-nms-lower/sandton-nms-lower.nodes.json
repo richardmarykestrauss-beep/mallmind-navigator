@@ -1,0 +1,43 @@
+[
+  {
+    "name": "NMS Entry Reference",
+    "type": "entrance",
+    "floor": "Ground Floor",
+    "x_percent": 14.8,
+    "y_percent": 19.7,
+    "confidence": "stub"
+  },
+  {
+    "name": "NMS Lower Spine Node 1",
+    "type": "corridor",
+    "floor": "Ground Floor",
+    "x_percent": 20.3,
+    "y_percent": 50.6,
+    "confidence": "stub"
+  },
+  {
+    "name": "69 Belmont",
+    "type": "shop",
+    "floor": "Ground Floor",
+    "shop_number": "L41",
+    "x_percent": 20.3,
+    "y_percent": 66.3,
+    "confidence": "metadata confirmed; coordinate approximate"
+  },
+  {
+    "name": "NMS Public Square Reference",
+    "type": "landmark",
+    "floor": "Ground Floor",
+    "x_percent": 50.0,
+    "y_percent": 50.6,
+    "confidence": "stub"
+  },
+  {
+    "name": "Sandton City Connection Reference",
+    "type": "connector",
+    "floor": "Ground Floor",
+    "x_percent": 86.0,
+    "y_percent": 50.6,
+    "confidence": "stub"
+  }
+]

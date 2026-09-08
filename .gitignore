@@ -1,5 +1,6 @@
-# Environment secrets — never commit
-.env
+# Environment files. `.env` is COMMITTED on purpose and may hold PUBLIC build-time
+# config only (e.g. VITE_PUBLIC_APP_ORIGIN) — the hosted build (Lovable) reads it from
+# the repo. Keys and secrets go in .env.local / .env.*.local, which stay ignored.
 .env.*
 !.env.example
 
@@ -28,3 +29,12 @@ dist-ssr
 *.sln
 *.sw?
 .claude/
+
+# Dev agent reports — generated output, not source
+reports/dev-agent/
+
+# Supabase CLI local runtime state
+supabase/.temp/
+
+# Sprint 2K local dry-run reports (not committed)
+/artifacts/

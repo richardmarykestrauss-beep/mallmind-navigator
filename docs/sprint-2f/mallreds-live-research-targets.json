@@ -1,0 +1,117 @@
+{
+  "artifact": "mallreds-live-research-targets",
+  "sprint": "2F",
+  "purpose": "Prioritised, machine-readable research targets to acquire real Mall@Reds retailer + product coverage. Research execution artifact — NO scraping/ingestion performed. Built on docs/sprint-2f/mallreds-retailer-targets.json (repository truth).",
+  "rules": {
+    "no_invented_tenants": "Only retailers with repository/audit evidence are listed as known. Additional Mall@Reds tenants require the official directory (see mallreds-map-source-targets.json) and are NOT guessed here.",
+    "live_verification": "Every field describing an EXTERNAL fact (public API existence, catalogue availability, chain size) is marked requires_live_verification=true. Do not treat model memory as final truth."
+  },
+  "priority_scoring": "priority_score 1-100 = shopper_impact(0-40) + acquisition_leverage(0-30) + reuse_across_malls(0-20) + evidence_readiness(0-10). Higher = do first.",
+  "retailers": [
+    {
+      "normalized_retailer_name": "game",
+      "display_name": "Game",
+      "category": "Electronics / general merchandise",
+      "national_chain_likelihood": "high",
+      "requires_live_verification": true,
+      "repository_evidence": "Named the Mall@Reds demo store (docs/MALLMIND_DEMO_QA_CHECKLIST.md, shop_id …0001); electronics products in unmerged mallreds_seed_starter.csv (Hisense 43\" FHD, Samsung 32\", LG 40\", JBL, Sony); appears as an Electronics shop across 6 malls in seed.sql.",
+      "known_mallreds_branch_evidence": "Demo/placeholder only — no verified shop number/floor/hours committed.",
+      "product_source_status": "none real; unmerged CSV placeholders only",
+      "branch_availability_status": "unknown",
+      "reusable_connector_potential": "HIGHEST — already modelled across 6 malls; a Game connector benefits every mall.",
+      "priority_score": 92,
+      "missing_proof": ["real Mall@Reds Game shop number/floor/hours/phone", "a real verified 43-inch TV price under R5000 in-store", "whether Game exposes a public product feed/API"],
+      "live_research_queries": [
+        "Game South Africa official product catalogue API OR sitemap (game.co.za/sitemap.xml)",
+        "site:game.co.za JSON-LD Product markup sample",
+        "Game Mall@Reds Centurion branch trading hours phone",
+        "Game price feed affiliate / Google Shopping feed availability South Africa"
+      ]
+    },
+    {
+      "normalized_retailer_name": "woolworths",
+      "display_name": "Woolworths",
+      "category": "Grocery / food / clothing",
+      "national_chain_likelihood": "high",
+      "requires_live_verification": true,
+      "repository_evidence": "shop_id …0003 products all branded 'Woolworths' (unmerged CSVs); one row website-verified; woolworths.co.za cited as a public-page evidence source in docs/MALL_RESEARCH_BATCH_WORKFLOW.md.",
+      "known_mallreds_branch_evidence": "Placeholder only; store name inferred from product brand.",
+      "product_source_status": "none real; unmerged CSV placeholders",
+      "branch_availability_status": "unknown; CSV notes 'online price needs in-store confirmation'",
+      "reusable_connector_potential": "high (national anchor; consistent own-brand catalogue)",
+      "priority_score": 80,
+      "missing_proof": ["confirmed Woolworths Mall@Reds tenancy + shop number", "public product page structure (JSON-LD?)", "in-store vs online price parity policy"],
+      "live_research_queries": [
+        "woolworths.co.za product page JSON-LD Product schema sample",
+        "Woolworths South Africa developer/API or affiliate feed",
+        "Woolworths Mall@Reds The Reeds Centurion store page"
+      ]
+    },
+    {
+      "normalized_retailer_name": "pep",
+      "display_name": "PEP",
+      "category": "Value clothing / general / home",
+      "national_chain_likelihood": "high",
+      "requires_live_verification": true,
+      "repository_evidence": "shop_id …0005 products all branded 'PEP' (unmerged batch2 CSV: t-shirts, leggings, socks, sneakers, towels); intended source 'MallMind Store Visit Evidence'.",
+      "known_mallreds_branch_evidence": "Placeholder only; store name inferred.",
+      "product_source_status": "none real; all batch2 rows marked DO-NOT-APPLY",
+      "branch_availability_status": "unknown",
+      "reusable_connector_potential": "high (very large SA footprint)",
+      "priority_score": 68,
+      "missing_proof": ["PEP Mall@Reds tenancy", "whether PEP publishes an online catalogue at all (historically limited)", "SKU/price source"],
+      "live_research_queries": [
+        "PEP stores South Africa online catalogue availability",
+        "pepstores.com product listing OR PEP app catalogue",
+        "PEP Mall@Reds Centurion branch"
+      ]
+    },
+    {
+      "normalized_retailer_name": "clicks",
+      "display_name": "Clicks",
+      "category": "Health & beauty / pharmacy",
+      "national_chain_likelihood": "high",
+      "requires_live_verification": true,
+      "repository_evidence": "shop_id …0004 (health & beauty) includes a 'Clicks Vitamin C' item (unmerged batch2 CSV); other items Panado/Colgate/Dove/Johnson's.",
+      "known_mallreds_branch_evidence": "Inferred only — a single Clicks-branded item; store identity uncertain.",
+      "product_source_status": "none real; placeholders",
+      "branch_availability_status": "unknown",
+      "reusable_connector_potential": "high (national pharmacy chain, loyalty/catalogue-rich)",
+      "priority_score": 64,
+      "missing_proof": ["confirm Clicks (vs Dis-Chem) is the …0004 tenant", "public product page structure", "promo/catalogue feed"],
+      "live_research_queries": [
+        "clicks.co.za product page JSON-LD sample",
+        "Clicks South Africa API or affiliate feed",
+        "Clicks Mall@Reds Centurion branch trading hours"
+      ]
+    },
+    {
+      "normalized_retailer_name": "unknown_grocery_anchor",
+      "display_name": "UNKNOWN grocery anchor (shop_id …0002)",
+      "category": "Grocery",
+      "national_chain_likelihood": "high (identity unknown)",
+      "requires_live_verification": true,
+      "repository_evidence": "shop_id …0002 holds generic grocery brands (Coca-Cola, Lay's, Albany, Jacobs, Nescafe, Huletts, Sunlight, Fatti's & Moni's) but NO store name is recorded anywhere.",
+      "known_mallreds_branch_evidence": "None — cannot be named from repository evidence (could be Shoprite/Checkers/Pick n Pay/SPAR).",
+      "product_source_status": "none real; placeholders",
+      "branch_availability_status": "unknown",
+      "reusable_connector_potential": "high once identified",
+      "priority_score": 55,
+      "missing_proof": ["the actual retailer name of the Mall@Reds grocery anchor", "everything downstream depends on identity"],
+      "live_research_queries": [
+        "Mall@Reds official tenant directory grocery anchor (Shoprite/Checkers/Pick n Pay/SPAR)",
+        "mallatreds.co.za stores grocery"
+      ]
+    }
+  ],
+  "other_retailers_status": {
+    "note": "No other Mall@Reds tenants are discoverable from repository/audit evidence. The complete tenant list must come from the official directory research in mallreds-map-source-targets.json (source class: official mall directory). Do NOT invent tenants.",
+    "product_brands_seen_not_retailers": ["Hisense", "Samsung", "LG", "JBL", "Sony", "Defy", "Russell Hobbs", "Sunbeam", "Coca-Cola", "Lay's", "Albany", "Jacobs", "Nescafe", "Huletts", "Sunlight", "Fatti's & Moni's", "Panado", "Colgate", "Dove", "Johnson's"]
+  },
+  "summary": {
+    "known_priority_retailers": 5,
+    "named_reusable_national_chains": 4,
+    "unidentified_anchors": 1,
+    "flagship_target": "A real, verified, in-budget 43-inch TV at the Mall@Reds Game (or equivalent electronics) store — the '43-inch TV under R5000' proof."
+  }
+}

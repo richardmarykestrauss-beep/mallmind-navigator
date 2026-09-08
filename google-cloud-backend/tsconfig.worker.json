@@ -1,0 +1,43 @@
+{
+  // Typecheck-only config for the durable intake worker.
+  //
+  // The worker is the one part of the backend that reaches OUTSIDE
+  // google-cloud-backend/src to reuse the fabric intake engine (../src/lib/fabric),
+  // which the main backend tsconfig cannot express: it pins rootDir to "src" and its
+  // Dockerfile copies only its own sources. Rather than loosen the API service's
+  // build, the worker gets its own config here and its own esbuild bundle
+  // (Dockerfile.worker, repo-root build context).
+  //
+  // noEmit: true — esbuild produces the artifact; tsc only proves the types.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": "..",
+    "moduleResolution": "node",
+    "baseUrl": ".",
+    "paths": {
+      // `@/*` means the FRONTEND source tree (the fabric), matching the frontend
+      // alias. Backend-local modules use relative imports, so the two never blur.
+      "@/*": ["../src/*"]
+    },
+    "types": ["node"],
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false
+  },
+  "include": [
+    "src/worker.ts",
+    "src/services/intake/**/*.ts",
+    "src/routes/internalIntake.ts",
+    "../src/lib/fabric/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "../src/lib/fabric/**/*.test.ts",
+    // Browser-only: this is the dashboard's client for the worker, so it reads
+    // Vite's import.meta.env and is never imported by the worker itself. It is
+    // typechecked by the frontend's tsconfig.app.json instead.
+    "../src/lib/fabric/intake/durable/durableWorkerClient.ts"
+  ]
+}

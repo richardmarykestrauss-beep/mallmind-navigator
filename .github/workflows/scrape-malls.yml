@@ -1,18 +1,44 @@
-name: Weekly Mall & Store Scraper
+# ─────────────────────────────────────────────────────────────────────────────
+# QUARANTINED (Sprint 22C): do not schedule legacy direct-write scrapers.
+#
+# This workflow predates the 19C retail trust pipeline and writes mall/store
+# data to Supabase with a service-role key, outside the staged/approved
+# ingestion lanes (mall_sources / staged tables / Mall Intelligence review).
+#
+# All ingestion must go through staging + approval. Do not use
+# SUPABASE_SERVICE_KEY here for direct writes. Do not re-add a `schedule:`
+# trigger. Manual dispatch requires the acknowledgement input below.
+# See docs/retail/retail-data-readiness-audit.md.
+#
+# HUMAN ACTION STILL REQUIRED: if the SUPABASE_SERVICE_KEY repository secret
+# is configured, inspect/remove it in GitHub → Settings → Secrets.
+# ─────────────────────────────────────────────────────────────────────────────
+name: "[QUARANTINED] Legacy Mall & Store Scraper (manual only — do not schedule)"
 
 on:
-  schedule:
-    # Every Sunday at 1:00 AM SAST (23:00 UTC Saturday)
-    - cron: "0 23 * * 6"
+  # schedule trigger removed in Sprint 22C — see quarantine note above.
   workflow_dispatch:
+    inputs:
+      acknowledge:
+        description: "Type QUARANTINED to confirm you know this legacy scraper bypasses the staged ingestion pipeline"
+        required: true
+        default: ""
 
 jobs:
   scrape-malls:
-    name: Scrape mall & store data
+    name: "[QUARANTINED] Scrape mall & store data (legacy — bypasses staging)"
     runs-on: ubuntu-latest
     timeout-minutes: 90
 
     steps:
+      - name: Quarantine gate
+        run: |
+          echo "::warning::QUARANTINED legacy scraper. It bypasses staged/approved ingestion."
+          if [ "${{ github.event.inputs.acknowledge }}" != "QUARANTINED" ]; then
+            echo "::error::Refusing to run. Type QUARANTINED in the acknowledge input to proceed."
+            exit 1
+          fi
+
       - name: Checkout
         uses: actions/checkout@v4
 

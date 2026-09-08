@@ -1,0 +1,139 @@
+{
+  "schema_version": 1,
+  "project": {
+    "name": "MallMind",
+    "repository": "richardmarykestrauss-beep/mallmind-navigator",
+    "status": "active-development"
+  },
+  "authority": {
+    "document": "docs/build-os/AUTHORITY.md",
+    "architecture": "docs/build-os/ARCHITECTURE.md",
+    "decisions": "docs/build-os/DECISIONS.md"
+  },
+  "runtime": {
+    "node": "22.x",
+    "package_manager": "npm",
+    "package_manager_version": "10.9.8"
+  },
+  "verification": {
+    "application_command": "npm run verify:all",
+    "database_command": "npm run verify:db",
+    "ci_workflow": ".github/workflows/verify.yml",
+    "last_local_application_result": "passed",
+    "last_local_database_result": "passed",
+    "last_ci_result": "passed",
+    "last_ci_run_id": 28298600698,
+    "assertions_total": 834
+  },
+  "database": {
+    "provider": "Supabase PostgreSQL",
+    "project_ref": "qspsouemjtcdcfnivpnt",
+    "highest_verified_migration": "032",
+    "migration_strategy": "append-only",
+    "disposable_database_verification": "implemented-and-passing",
+    "baseline_migration": "000_baseline_schema.sql",
+    "verified_migration_count": 33,
+    "verified_contract": {
+      "public_tables": 44,
+      "public_functions": 35,
+      "public_and_storage_policies": 24
+    },
+    "production_safety_note": "Migration 000 reconstructs pre-existing foundational schema for disposable local/CI databases and must not be blindly pushed to the existing linked production project."
+  },
+  "backend": {
+    "platform": "Google Cloud Run",
+    "gcp_project": "mallmind",
+    "gcp_project_number": "1017902775578",
+    "region": "africa-south1",
+    "service": "mallmind-backend-dev",
+    "last_verified_revision": "mallmind-backend-dev-00118-9r4",
+    "last_verified_image_digest": "sha256:12d4dc1dad2fde1b1137fdecc8d282ee0e157220b9b3e7647eee4189b1121d7c",
+    "health_status": "passed"
+  },
+  "automation": {
+    "application_ci": "active-and-passing",
+    "legacy_scrapers": "quarantined-manual-only",
+    "automated_deployment": "not-yet-implemented",
+    "database_ci": "active-and-passing",
+    "autonomous_build_loop": {
+      "name": "AF-1 Safe Autonomous Build Loop",
+      "status": "implemented-pending-review-and-first-run",
+      "workflow": ".github/workflows/agent-build.yml",
+      "charter": "docs/build-os/AGENT_CHARTER.md",
+      "trigger": "workflow_dispatch (pilot); issue label agent:approved gated by repo variable AF1_LABEL_TRIGGER_ENABLED",
+      "permitted_task_types": ["docs", "frontend", "backend", "test"],
+      "writes_identity": "Claude GitHub App via the official action performs branch push and draft-PR creation; workflow GITHUB_TOKEN is read-only for code and cannot create or approve PRs",
+      "scope_guard": "scripts/build-os/scope-guard.mjs",
+      "evidence": "scripts/build-os/evidence.mjs",
+      "secrets_used": ["ANTHROPIC_API_KEY"],
+      "repair_attempts_counted": false,
+      "merge_or_deploy_authority": "none-human-approval-required"
+    }
+  },
+  "hosted_readiness_audit": {
+    "sprint": "2M-A",
+    "date": "2026-07-31",
+    "branch": "audit/hosted-supabase-readiness-2m-a",
+    "mode": "strictly-read-only-hosted-audit",
+    "target_project_ref": "qspsouemjtcdcfnivpnt",
+    "linked_project_ref_observed": "iivmrlgntspbkpfqoboi",
+    "linked_project_name_observed": "mallmind-dev",
+    "identity_gate": "failed-linked-ref-is-not-target",
+    "remote_inspection_performed": false,
+    "remote_migration_history_status": "unverified-blocked-at-identity-gate",
+    "schema_drift_status": "unverified-blocked-at-identity-gate",
+    "migration_039_remote_state": "unverified-repository-only-and-locally-verified",
+    "migration_039_static_collision_risk": "low-additive-no-rewrite",
+    "publication_boundary_preserved_by_039_design": true,
+    "rollback_readiness": "ready-with-conditions",
+    "backup_readiness": "human-verification-required",
+    "hosted_mutation_occurred": false,
+    "relink_performed": false,
+    "verdict": "NO-GO-audit-blocked-readiness-not-certified",
+    "human_verification_required": [
+      "target-linked supabase migration list (000-038 agreement; 039 unapplied)",
+      "output-only schema diff classification",
+      "db push --dry-run shows only 039 pending",
+      "dashboard backup readiness (latest backup, retention, status)",
+      "explicit go/no-go approval for a migration window"
+    ]
+  },
+  "target_readiness_backup_2m_b": {
+    "sprint": "2M-B",
+    "date": "2026-07-31",
+    "branch": "audit/target-readiness-backup-2m-b",
+    "mode": "target-linked-read-only-plus-manual-logical-backup",
+    "target_project_ref": "qspsouemjtcdcfnivpnt",
+    "target_project_name": "Mallmind",
+    "target_status_dashboard": "healthy",
+    "target_plan": "free",
+    "managed_backups_available": false,
+    "pitr_enabled": false,
+    "agent_authenticated_to_target": false,
+    "credentials_present_in_env": false,
+    "blocked_reason": "agent-prohibited-from-entering-access-token-or-db-password",
+    "dev_link_relinked": false,
+    "remote_inspection_performed": false,
+    "manual_backup_created_by_agent": false,
+    "hosted_mutation_occurred": false,
+    "verdict": "NO-GO-operator-action-required-credential-boundary",
+    "operator_runbook": "docs/sprint-2m-b/operator-runbook.md",
+    "operator_completes": [
+      "supabase login + link separate dir to target",
+      "supabase migration list (000-038 agreement; 039 pending)",
+      "supabase db push --dry-run (only 039 pending)",
+      "read-only schema/collision/boundary checks",
+      "manual logical backup (free plan) + verify",
+      "explicit go/no-go approval"
+    ]
+  },
+  "known_gaps": [
+    "behavioural RPC integration tests with representative database records",
+    "production-safe linked migration workflow for local-only baseline migration 000",
+    "deployment and rollback evidence automation",
+    "branch protection confirmation",
+    "dependency vulnerability remediation",
+    "repository secrets inventory",
+    "formal observability standard"
+  ]
+}

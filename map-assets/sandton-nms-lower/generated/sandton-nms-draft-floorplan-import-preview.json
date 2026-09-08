@@ -1,0 +1,36 @@
+{
+  "sprint": "18C.6",
+  "mode": "DRY_RUN_ONLY",
+  "asset_pack": "sandton-nms-lower",
+  "generated_at": "2026-06-07T18:39:55.011Z",
+  "safety": {
+    "writes_allowed": false,
+    "supabase_url_present": false,
+    "service_role_key_present": false,
+    "writes_scope": "create one dev-only map_factory_jobs row and one draft map_factory_generated_floorplans row",
+    "will_overwrite_mall_nodes": false,
+    "will_overwrite_mall_edges": false,
+    "will_publish": false,
+    "will_mark_verified_or_production": false
+  },
+  "validation": {
+    "svg_chars": 3506,
+    "node_count": 5,
+    "edge_count": 4,
+    "target_node": "69 Belmont"
+  },
+  "planned_insert": {
+    "map_factory_jobs": {
+      "status": "paused",
+      "stage": "floorplan_generation",
+      "readiness_score": 0,
+      "notes": "DEV-ONLY Sandton/NMS reference-led proprietary draft floorplan import. No node/edge overwrite. Field verification required."
+    },
+    "map_factory_generated_floorplans": {
+      "floor_label": "lower",
+      "version": 1,
+      "status": "draft",
+      "notes": "Sprint 18C.6 draft floorplan import. Reference-led proprietary stub. Not verified. Not published."
+    }
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "asset_id": "sandton-nms-lower-v0",
+  "status": "stub",
+  "reality_label": "reference-led-proprietary-stub",
+  "source_policy": "reference evidence only; no third-party map artwork copied",
+  "viewBox": "0 0 1000 620",
+  "coordinate_system": "percent-based MallMind node coordinates",
+  "known_target": {
+    "shop_name": "69 Belmont",
+    "shop_number": "L41",
+    "confidence": "metadata confirmed; geometry approximate"
+  }
+}

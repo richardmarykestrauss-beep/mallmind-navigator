@@ -1,0 +1,24 @@
+{
+  "ok": true,
+  "mode": "dry-run",
+  "asset_dir": "map-assets/sandton-nms-lower",
+  "asset_id": "sandton-nms-lower-v0",
+  "status": "stub",
+  "reality_label": "reference-led-proprietary-stub",
+  "source_policy": "reference evidence only; no third-party map artwork copied",
+  "svg_bytes": 3509,
+  "nodes": 5,
+  "edges": 4,
+  "target": {
+    "name": "69 Belmont",
+    "shop_number": "L41",
+    "x_percent": 20.3,
+    "y_percent": 66.3,
+    "confidence": "metadata confirmed; coordinate approximate"
+  },
+  "warnings": [
+    "Dry run only. No database writes performed.",
+    "Coordinates are approximate until reference-led reconstruction and field verification.",
+    "Approval gate required before writing to map_factory_generated_floorplans, mall_nodes, or mall_edges."
+  ]
+}

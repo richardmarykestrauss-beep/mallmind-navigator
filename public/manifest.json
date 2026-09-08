@@ -1,20 +1,19 @@
 {
-  "name": "MallMind — Smart Mall Companion",
+  "id": "/",
+  "name": "MallMind — Mall Wayfinding",
   "short_name": "MallMind",
-  "description": "Find deals, navigate malls and save more. SA's gamified shopping assistant.",
+  "description": "Find a shop, toilet, lift or food court inside a South African mall and preview the walking route.",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#0a0a0f",
   "theme_color": "#00d4ff",
-  "icons": [
-    {
-      "src": "/favicon.ico",
-      "sizes": "64x64 32x32 24x24 16x16",
-      "type": "image/x-icon"
-    }
-  ],
-  "categories": ["shopping", "lifestyle", "navigation"],
   "lang": "en-ZA",
-  "scope": "/"
+  "categories": ["navigation", "shopping", "lifestyle"],
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
 }

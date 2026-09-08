@@ -1,0 +1,13 @@
+{
+  "feed_contract_version": "1.0",
+  "feed_id": "parity-subset-json",
+  "feed_generated_at": "2026-07-31T09:00:00Z",
+  "retailer_name": "Parity Pilot",
+  "retailer_source_id": "parity-pilot",
+  "currency": "ZAR",
+  "products": [
+    { "itemRef": "PAR-1", "gtin": "6000000000001", "title": "Parity Widget A", "brandName": "ParityBrand", "size": "400ml", "department": "Home", "subDepartment": "Widgets", "pricing": { "sell": 79.99, "promo": { "active": false } }, "availability": { "channel": "online", "scope": "online_national", "stock": "in_stock", "stockQty": 10 }, "url": "https://parity.test/p/PAR-1", "observedAt": "2026-07-31T10:00:00Z" },
+    { "itemRef": "PAR-2", "gtin": "6000000000002", "title": "Parity Widget B", "brandName": "ParityBrand", "size": "1L", "department": "Home", "subDepartment": "Widgets", "pricing": { "sell": 59.99, "was": 89.99, "promo": { "active": true, "type": "discount", "label": "Save R30", "start": "2026-07-25T00:00:00Z", "end": "2026-08-05T00:00:00Z" } }, "availability": { "channel": "online", "scope": "online_national", "stock": "in_stock", "stockQty": 5 }, "url": "https://parity.test/p/PAR-2", "observedAt": "2026-07-31T10:00:00Z" },
+    { "itemRef": "PAR-3", "gtin": "6000000000003", "title": "Parity Widget C", "brandName": "ParityBrand", "size": "500ml", "department": "Home", "subDepartment": "Widgets", "pricing": { "sell": 120.00, "promo": { "active": false } }, "availability": { "channel": "branch", "scope": "branch_specific", "branchCode": "PAR-BR-1", "branchName": "Parity Branch 1", "mallCode": "MALL-REDS", "stock": "in_stock", "stockQty": 3 }, "url": "https://parity.test/p/PAR-3", "observedAt": "2026-07-31T10:00:00Z" }
+  ]
+}

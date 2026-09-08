@@ -1,0 +1,40 @@
+{
+  "sprint": "18C.5",
+  "mode": "DRY_RUN_ONLY",
+  "reality_label": "reference-led-proprietary-stub",
+  "asset_pack": "sandton-nms-lower",
+  "generated_at": "2026-06-07T18:32:04.522Z",
+  "safety": {
+    "writes_allowed": false,
+    "approved_env_present": false,
+    "supabase_url_present": false,
+    "service_role_key_present": false,
+    "writes_scope": "draft generated floorplan row only",
+    "will_overwrite_mall_nodes": false,
+    "will_overwrite_mall_edges": false,
+    "will_mark_verified_or_production": false
+  },
+  "validation": {
+    "svg_chars": 3506,
+    "layout_keys": [
+      "asset_id",
+      "status",
+      "reality_label",
+      "source_policy",
+      "viewBox",
+      "coordinate_system",
+      "known_target"
+    ],
+    "node_count": 5,
+    "edge_count": 4,
+    "target_node": "69 Belmont"
+  },
+  "draft_floorplan_row_preview": {
+    "mall_slug": "sandton-nms",
+    "floor_label": "lower",
+    "source_type": "mallmind-proprietary-reference-led-reconstruction",
+    "reality_label": "reference-led-proprietary-stub",
+    "status": "draft",
+    "svg_output_chars": 3506
+  }
+}

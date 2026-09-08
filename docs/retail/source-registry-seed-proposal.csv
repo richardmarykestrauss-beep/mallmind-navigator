@@ -1,0 +1,16 @@
+source_name,source_type,base_trust,legal_status,attribution_required,is_active,notes
+PROPOSAL ONLY - DO NOT APPLY. Columns align to retail_data_sources. Apply only via a future dry-run-first registry script after explicit approval.,,,,,,
+MallMind Phone Verification - Mall@Reds,manual,0.90,manual_fact_entry,false,true,Gold standard. Verifier named in verified_by. One call per product per verification.
+MallMind Store Visit Evidence,manual,0.90,manual_fact_entry,false,true,Shelf photo (hashed image snapshot) showing product + price legibly with date.
+MallMind Receipt Evidence,manual,0.95,manual_fact_entry,false,true,Price-paid proof. Card numbers and loyalty IDs must be redacted before storage.
+Retailer Website Public Page Evidence,manual,0.75,manual_fact_entry,false,true,Human check of retailer-owned public page. URL + snapshot. Online price is not an in-store guarantee.
+Retailer Flyer / PDF Evidence,flyer,0.80,manual_fact_entry,false,true,Extract facts only; never republish creative. Validity window from the artefact. National flyer does not prove mall shelf price.
+Dis-Chem Newsletter Evidence,flyer,0.80,manual_fact_entry,false,true,Human-forwarded or MallMind-owned subscribed inbox. PII-stripped original preserved as evidence. See source-registry-v1.md section 5.
+MallMind User Submissions,user_submission,0.40,user_supplied,false,true,Corroboration and leads only. Never publishes as Verified alone.
+MallMind Manual Admin Entry,manual,0.50,manual_fact_entry,false,true,Bootstrap only. csv_manual rows can never become Verified (existing hardened rule).
+Mall@Reds Official Directory,csv,0.65,manual_fact_entry,false,true,Shop existence/floor/unit staging via Mall Intelligence lane. Never price claims.
+Mall of Africa Official Directory,csv,0.65,manual_fact_entry,false,false,INACTIVE until multi-mall identity hardening (22H) and second-mall pilot approval.
+Sandton City Official Directory,csv,0.65,manual_fact_entry,false,false,INACTIVE. Flagship approached later with partner-grade posture.
+Affiliate Feed - Unlicensed Placeholder,affiliate_feed,0.70,needs_legal_review,true,false,INACTIVE placeholder documenting the rule: no licence recorded in license_note = no use.
+Public Catalogue Aggregators,partner_feed,0.40,reference_only,true,false,INACTIVE. Leads only if ever activated; never citable evidence; legal review first.
+Legacy Scraper Output - Quarantined,csv,0.30,needs_legal_review,false,false,INACTIVE permanently under this name. 22C quarantine. Any rebuilt scraper gets a NEW legally-reviewed registration.

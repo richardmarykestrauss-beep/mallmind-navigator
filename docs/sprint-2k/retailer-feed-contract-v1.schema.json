@@ -1,0 +1,68 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://mallmind.local/schemas/retailer-feed-contract-v1.schema.json",
+  "title": "RetailerFeedContractV1",
+  "description": "Retailer-neutral, permission-ready canonical feed record. Optional facts are nullable and MUST NOT be fabricated. Strict on enums/types; tolerant of legitimate nulls. Internal MallMind ids are never carried here.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "retailer_source_id", "product_name", "current_price", "currency",
+    "observed_at", "source_row_number", "source_content_hash"
+  ],
+  "anyOf": [
+    { "required": ["source_product_id"], "properties": { "source_product_id": { "type": "string", "minLength": 1 } } },
+    { "required": ["retailer_sku"], "properties": { "retailer_sku": { "type": "string", "minLength": 1 } } },
+    { "required": ["gtin"], "properties": { "gtin": { "type": "string", "minLength": 1 } } },
+    { "required": ["barcode"], "properties": { "barcode": { "type": "string", "minLength": 1 } } }
+  ],
+  "properties": {
+    "feed_contract_version": { "type": "string", "const": "1.0.0" },
+    "feed_id": { "type": ["string", "null"] },
+    "feed_generated_at": { "type": ["string", "null"], "format": "date-time" },
+    "retailer_name": { "type": ["string", "null"] },
+    "retailer_source_id": { "type": "string", "minLength": 1 },
+    "source_type": { "type": ["string", "null"], "enum": ["manual", "csv", "spreadsheet_csv", "json", "affiliate_feed", "partner_feed", "retailer_submission", null] },
+    "source_reference": { "type": ["string", "null"] },
+    "rights_review_state": { "type": ["string", "null"], "enum": ["unreviewed", "under_review", "approved", "restricted", "rejected", "expired", null] },
+    "legal_status": { "type": ["string", "null"], "enum": ["manual_fact_entry", "licensed_feed", "retailer_supplied", "user_supplied", "partner_licensed", "reference_only", "needs_legal_review", null] },
+
+    "source_product_id": { "type": ["string", "null"], "description": "String — leading zeros preserved." },
+    "retailer_sku": { "type": ["string", "null"] },
+    "gtin": { "type": ["string", "null"], "description": "GTIN as text; leading zeros preserved; never numeric." },
+    "barcode": { "type": ["string", "null"] },
+    "product_name": { "type": "string", "minLength": 1 },
+    "brand": { "type": ["string", "null"] },
+    "variant": { "type": ["string", "null"] },
+    "pack_size": { "type": ["string", "null"] },
+    "category": { "type": ["string", "null"] },
+    "subcategory": { "type": ["string", "null"] },
+
+    "currency": { "type": "string", "enum": ["ZAR"] },
+    "current_price": { "type": ["string", "number"], "description": "Exact as supplied; parsed decimal-safe to integer cents." },
+    "original_price": { "type": ["string", "number", "null"] },
+    "promotion_indicator": { "type": ["boolean", "string", "null"] },
+    "promotion_type": { "type": ["string", "null"], "enum": ["none", "discount", "multibuy", "bundle", "loyalty", "clearance", "deal", "unknown", null] },
+    "price_condition": { "type": ["string", "null"], "enum": ["standard", "loyalty", "promotional", "bulk", "bundle", "online_only", "unknown", null] },
+    "price_condition_label": { "type": ["string", "null"] },
+    "promotion_start_at": { "type": ["string", "null"], "format": "date-time" },
+    "promotion_end_at": { "type": ["string", "null"], "format": "date-time" },
+
+    "price_scope": { "type": ["string", "null"], "enum": ["online_national", "online_regional", "branch_specific", "catalogue_national", "unknown", null] },
+    "availability_scope": { "type": ["string", "null"], "enum": ["online", "delivery_area", "click_collect", "branch_confirmed", "unknown", "not_observed", null] },
+    "mall_external_id": { "type": ["string", "null"] },
+    "shop_external_id": { "type": ["string", "null"] },
+    "branch_external_id": { "type": ["string", "null"] },
+    "stock_status": { "type": ["string", "null"], "enum": ["in_stock", "out_of_stock", "low_stock", "unknown", "not_observed", null] },
+    "stock_quantity": { "type": ["integer", "string", "null"] },
+    "stock_observed_at": { "type": ["string", "null"], "format": "date-time" },
+
+    "canonical_source_url": { "type": ["string", "null"] },
+    "observed_at": { "type": "string", "minLength": 1 },
+    "source_updated_at": { "type": ["string", "null"], "format": "date-time" },
+    "source_row_number": { "type": "integer", "minimum": 1 },
+    "source_file_name": { "type": ["string", "null"] },
+    "source_content_hash": { "type": "string", "minLength": 1 },
+    "raw_source_reference": { "type": ["object", "null"], "additionalProperties": true, "description": "Original unmapped row, retained for audit." },
+    "parse_warnings": { "type": "array", "items": { "type": ["object", "string"] } }
+  }
+}

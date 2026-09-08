@@ -1,9 +1,20 @@
 import { createClient } from "@supabase/supabase-js";
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./env";
 
-const SUPABASE_URL = "https://qspsouemjtcdcfnivpnt.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFzcHNvdWVtanRjZGNmbml2cG50Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcxMTIzNTAsImV4cCI6MjA5MjY4ODM1MH0.f94Lbzo-EgmcMsklgYiWW6tNhM4hvGm2Z8_37Xp8nkg";
+/**
+ * True when the build carried VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY. A build without them
+ * (e.g. a published staging build whose backend config is deliberately not committed — see
+ * docs/environments/mallmind-environment-separation.md) must still boot: the SDK throws on an
+ * empty URL/key, which used to blank the WHOLE app at import time. Instead the client is created
+ * against a reserved, unresolvable host, so every backend call fails as an ordinary network error
+ * that callers already tolerate, while backend-free features (bundled wayfinding) keep working.
+ */
+export const SUPABASE_CONFIGURED = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
 
-export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+export const supabase = createClient(
+  SUPABASE_CONFIGURED ? SUPABASE_URL : "https://supabase.not-configured.invalid",
+  SUPABASE_CONFIGURED ? SUPABASE_ANON_KEY : "not-configured",
+);
 
 export type Mall = {
   id: string | number;
@@ -12,6 +23,7 @@ export type Mall = {
   province: string | null;
   lat: number | null;
   lng: number | null;
+  deleted_at: string | null;
 };
 
 export type Shop = {
@@ -21,7 +33,26 @@ export type Shop = {
   floor: string | null;
   unit_number: string | null;
   category: string | null;
+  opening_time: string | null;
+  closing_time: string | null;
   opening_hours: string | null;
+  deleted_at: string | null;
+  // Contact (columns exist since migration 001; now surfaced on the type).
+  phone?: string | null;
+  website?: string | null;
+  // Sprint 2G — mall directory truth fields (migration 035). All nullable:
+  // NULL means "not yet verified", never a fabricated value.
+  store_number?: string | null;
+  zone?: string | null;
+  branch_status?: string | null;         // operating | temporarily_closed | former | listed_current | unknown
+  verification_status?: string | null;   // official_directory | retailer_locator | third_party | user_submitted | unverified
+  confidence_score?: number | null;      // 0..1, or NULL when not scored
+  observed_at?: string | null;
+  last_verified_at?: string | null;
+  primary_source_url?: string | null;
+  source_owner?: string | null;
+  contradiction_notes?: string | null;
+  normalized_retailer_name?: string | null;
 };
 
 export type Product = {
@@ -39,6 +70,12 @@ export type Product = {
   image_url: string | null;
   in_stock: boolean;
   verified: boolean;
+  data_quality_status?: string | null;
+  price_verified_at?: string | null;
+  price_verification_method?: string | null;
+  data_source?: string | null;
+  verified_by?: string | null;
+  deleted_at: string | null;
   shops?: Shop;
 };
 
@@ -49,6 +86,7 @@ export type Profile = {
   xp: number;
   level: number;
   subscription_status: string;
+  is_admin: boolean;
 };
 
 export type ParkingSpot = {
@@ -83,4 +121,31 @@ export type BestDeal = {
   floor: string | null;
   unit_number: string | null;
   price_rank: number | null;
+};
+
+
+export type ImportJob = {
+  id: string;
+  created_at: string;
+  started_by: string | null;
+  mall_id: string | number | null;
+  shop_id: string | number | null;
+  status: "pending" | "processing" | "done" | "failed";
+  total_rows: number | null;
+  imported_rows: number | null;
+  skipped_rows: number | null;
+  error_summary: string | null;
+  source_file: string | null;
+  data_source: string | null;
+};
+
+export type AdminAuditLog = {
+  id: string;
+  created_at: string;
+  admin_id: string | null;
+  action: string;
+  table_name: string | null;
+  row_id: string | null;
+  old_values: Record<string, unknown> | null;
+  new_values: Record<string, unknown> | null;
 };
