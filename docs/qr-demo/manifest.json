@@ -1,0 +1,40 @@
+{
+  "generated_by": "scripts/navigation/generate-demo-qr.mjs",
+  "origin": "https://mallmind-navigator.lovable.app",
+  "origin_source": "VITE_PUBLIC_APP_ORIGIN (.env)",
+  "local_origin": false,
+  "label": "DEMO / PILOT QR — not official mall signage",
+  "note": "Origin comes from VITE_PUBLIC_APP_ORIGIN (or --origin). Regenerate whenever the published origin changes. The app validates mall + start on every scan.",
+  "anchors": [
+    {
+      "mallId": "garden-route-mall",
+      "mallName": "Garden Route Mall",
+      "anchorId": "grm-entrance-4",
+      "label": "Entrance 4",
+      "status": "source-backed · unscaled · awaiting field verification",
+      "url": "https://mallmind-navigator.lovable.app/navigate?mall=garden-route-mall&start=grm-entrance-4&via=qr",
+      "svg": "garden-route-mall--grm-entrance-4.svg",
+      "png": "garden-route-mall--grm-entrance-4.png"
+    },
+    {
+      "mallId": "menlyn-park",
+      "mallName": "Menlyn Park",
+      "anchorId": "menlyn-lf-entrance-13",
+      "label": "Entrance 13 (Lower First Level)",
+      "status": "source-backed · unscaled · not field verified",
+      "url": "https://mallmind-navigator.lovable.app/navigate?mall=menlyn-park&start=menlyn-lf-entrance-13&via=qr",
+      "svg": "menlyn-park--menlyn-lf-entrance-13.svg",
+      "png": "menlyn-park--menlyn-lf-entrance-13.png"
+    },
+    {
+      "mallId": "mallreds-pilot",
+      "mallName": "Mall@Reds",
+      "anchorId": "entrance-main",
+      "label": "Main Entrance",
+      "status": "schematic pilot · unverified geometry",
+      "url": "https://mallmind-navigator.lovable.app/navigate?mall=mallreds-pilot&start=entrance-main&via=qr",
+      "svg": "mallreds-pilot--entrance-main.svg",
+      "png": "mallreds-pilot--entrance-main.png"
+    }
+  ]
+}
