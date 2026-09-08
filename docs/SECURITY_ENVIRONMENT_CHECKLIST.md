@@ -175,6 +175,7 @@ Run this before any public launch:
 - [ ] **No hardcoded keys in source code** — `grep -r "supabase\.co" src/` should return zero results
 - [ ] **No service role key in frontend** — `grep -r "service_role" src/` should return zero results
 - [ ] **`.env.local` is gitignored** — `git status` should not show it
+- [ ] **`.env` (committed) holds PUBLIC build config only** — today just `VITE_PUBLIC_APP_ORIGIN`; no URL, key or token of any Supabase/GCP project (the hosted Lovable build reads it from the repo)
 - [ ] **`google-cloud-backend/.env` is gitignored** — `git status` should not show it
 - [ ] **`.env.example` is committed** — `git status` shows it tracked
 - [ ] **Admin route requires auth** — open `/admin` in an incognito tab → should show "Sign in required"
