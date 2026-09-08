@@ -28,7 +28,7 @@ describe("Mall@Reds navigation pilot — routing", () => {
       const r = pilotBuildRoute(NODES, EDGES, start, dest);
       expect(r.found && !r.fallback).toBe(true);
       expect(r.steps.length).toBeGreaterThanOrEqual(2);
-      expect(r.steps[r.steps.length - 1].instruction).toContain(`arrived at ${name}`);
+      expect(r.steps[r.steps.length - 1].instruction).toBe(`You’ve reached the mapped arrival point for ${name}.`); // schematic node → never "reached X"
       expect(r.total_distance_meters).toBeGreaterThan(0);
     }
   });

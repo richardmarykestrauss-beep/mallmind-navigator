@@ -118,7 +118,7 @@ describe("Mall@Reds spatial dataset — future real-map swap (structural proof)"
     const route = pilotBuildRoute(loaded.nodes, loaded.edges, "entrance-main", "clicks");
     expect(route.found && !route.fallback).toBe(true);
     expect(route.total_distance_meters).toBe(29); // 18 + 11, straight from the verified data
-    expect(route.steps[route.steps.length - 1].instruction).toContain("arrived at Clicks");
+    expect(route.steps[route.steps.length - 1].instruction).toBe("You’ve reached Clicks."); // on-site-verified node → plain arrival
   });
 
   it("the validator rejects a structurally broken dataset (dangling edge)", () => {

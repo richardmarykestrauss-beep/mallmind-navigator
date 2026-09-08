@@ -145,6 +145,11 @@ export interface BackendNodeLike {
   x_coordinate: number | null;
   y_coordinate: number | null;
   linked_shop_id?: string | null;
+  /**
+   * Spatial evidence for this node's position ("schematic" | "source-backed" | "on-site-verified").
+   * Absent for hosted backend nodes → treated as NOT verified (never overstated).
+   */
+  evidence?: string | null;
 }
 export interface BackendEdgeLike {
   id: string;

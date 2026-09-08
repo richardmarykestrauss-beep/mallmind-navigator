@@ -12,6 +12,8 @@ import IndoorMapCanvas from "@/components/navigation/IndoorMapCanvas";
 import WayfindingPilot from "@/components/navigation/WayfindingPilot";
 import { parseWayfindingAnchor } from "@/components/navigation/wayfindingAnchor";
 import { getWayfindingMall, DEFAULT_WAYFINDING_MALL_ID } from "@/components/navigation/mallDatasets";
+import { routeClaim } from "@/components/navigation/routeEvidence";
+import type { NavigationEvent } from "@/components/navigation/navigationEvents";
 import {
   toFloorplanModel, schematicModelFromRoute, buildRoutePolyline,
   routeFloors, normalizeFloorLabel, floorChip, type FloorplanModel,
@@ -259,7 +261,7 @@ const NavigateScreen = () => {
       <MobileShell>
         <ScreenHeader
           title="Navigate"
-          subtitle={`${wayfindingMall?.mallName ?? "Mall"} · ${wayfindingMall?.datasetStatus === "schematic" ? "pilot" : "source-backed preview"}`}
+          subtitle={`${wayfindingMall?.mallName ?? "Mall"} · ${wayfindingMall ? routeClaim(wayfindingMall).toLowerCase() : "no map yet"}`}
           back={false}
           right={
             (hasRealRoute || routeStops.length > 0) ? (
@@ -279,6 +281,7 @@ const NavigateScreen = () => {
           initialAnchor={linkAnchor.status === "ok" ? linkAnchor.anchor : null}
           anchorNotice={linkAnchor.status === "invalid" ? linkAnchor.reason : null}
           onOpenAssistant={() => navigate("/assistant")}
+          onEvent={(e: NavigationEvent) => trackEvent(e.name, { userId: user?.id ?? null, mallId: e.mallId, mallName: wayfindingMall?.mallName ?? null, metadata: e.detail })}
         />
       </MobileShell>
     );

@@ -11,10 +11,15 @@
  * measured `distance_meters`; otherwise `total_distance_meters` and `estimated_minutes` are null,
  * every step's `distance_meters` is null, and `metric` is false. Nothing here converts pixels to
  * metres. Never fabricates a route: no path → `fallback:true`; unknown tenant → `found:false`.
+ *
+ * ARRIVAL TRUTH. The final step's wording comes from the destination node's evidence
+ * (routeEvidence.ts): only an on-site-verified node says "You’ve reached X"; anything else says
+ * "You’ve reached the mapped arrival point for X" because the graph ends at a corridor point.
  */
 
 import type { BackendNodeLike, BackendEdgeLike } from "./floorplanModel";
 import type { RouteStep } from "@/context/ShoppingSessionContext";
+import { arrivalWording } from "./routeEvidence";
 
 /** Average indoor walking pace used for the time estimate (metres per minute). */
 export const WALK_METERS_PER_MINUTE = 72;
@@ -80,7 +85,10 @@ function instruction(from: BackendNodeLike, to: BackendNodeLike, edge: BackendEd
   // A dataset may supply the topological wording for a leg (e.g. "Continue straight across the
   // cross corridor; Clicks is on your right."). It is used verbatim — it never carries distances.
   const supplied = edge.instruction?.trim();
-  if (supplied) return first ? `Start at ${from.name}. ${supplied}` : supplied;
+  if (supplied) {
+    // Prefix the start only when the wording does not already name it ("Walk straight in from Entrance 4 …").
+    return first && !supplied.includes(from.name) ? `Start at ${from.name}. ${supplied}` : supplied;
+  }
   if (first) return isInternal(from) ? "Start and head into the concourse." : `Start at ${from.name} and head into the concourse.`;
   if (floorChange) return "Take the escalator or lift to the next level.";
   if (isInternal(to)) return "Continue along the concourse.";
@@ -135,7 +143,7 @@ export function pilotBuildRoute(
     });
   }
   steps.push({
-    step: steps.length + 1, instruction: `You’ve arrived at ${destNode.name}.`,
+    step: steps.length + 1, instruction: arrivalWording(destNode),
     node_id: destNode.id, node_name: destNode.name, floor: destNode.floor ?? "G",
     distance_meters: metric ? 0 : null, floor_change: false, cumulative_meters: metric ? total : null,
     x_coordinate: destNode.x_coordinate, y_coordinate: destNode.y_coordinate,

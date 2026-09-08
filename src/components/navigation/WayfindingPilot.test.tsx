@@ -1,9 +1,11 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup, within } from "@testing-library/react";
+import type React from "react";
 import WayfindingPilot from "./WayfindingPilot";
 import { anchorFromStart } from "./mallRedsPilotGraph";
+import { getWayfindingMall, anchorFor } from "./mallDatasets";
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); localStorage.clear(); });
 
 describe("WayfindingPilot — shopper wayfinding loop", () => {
   it("opens destination-first with search and every routable tenant/amenity", () => {
@@ -28,7 +30,7 @@ describe("WayfindingPilot — shopper wayfinding loop", () => {
     expect(screen.getByTestId("pilot-summary")).toHaveTextContent("distance");
     const steps = screen.getByTestId("pilot-steps");
     expect(within(steps).getAllByRole("listitem").length).toBeGreaterThanOrEqual(2);
-    expect(within(steps).getByText(/arrived at Clicks/)).toBeInTheDocument();
+    expect(within(steps).getByText(/mapped arrival point for Clicks/)).toBeInTheDocument();
     expect(screen.getByTestId("pilot-status-line")).toHaveTextContent("position is not tracked");
     // no simulated position marker / walk controls exist anywhere in this experience
     expect(screen.queryByText(/Start walk/i)).toBeNull();
@@ -66,16 +68,18 @@ describe("WayfindingPilot — shopper wayfinding loop", () => {
     expect(screen.getByTestId("pilot-summary")).toBeInTheDocument();
   });
 
-  it("step-by-step mode walks the instruction list with Previous/Next", () => {
+  it("Start navigation opens the focused step view; Previous/Next are the visitor's own taps", () => {
     render(<WayfindingPilot embedded />);
     fireEvent.click(within(screen.getByTestId("pilot-suggestions")).getByText("Game"));
-    fireEvent.click(screen.getByTestId("pilot-stepmode-toggle"));
-    const mode = screen.getByTestId("pilot-stepmode");
-    expect(mode).toHaveTextContent("Step 1 of");
-    fireEvent.click(within(mode).getByText("Next"));
-    expect(mode).toHaveTextContent("Step 2 of");
-    fireEvent.click(within(mode).getByText("Previous"));
-    expect(mode).toHaveTextContent("Step 1 of");
+    fireEvent.click(screen.getByTestId("pilot-start-navigation"));
+    const nav = screen.getByTestId("pilot-navigation");
+    expect(screen.getByTestId("pilot-step-counter")).toHaveTextContent("Step 1 of");
+    expect(screen.getByTestId("pilot-manual-note")).toHaveTextContent("does not track your movement");
+    fireEvent.click(within(nav).getByTestId("pilot-next"));
+    expect(screen.getByTestId("pilot-step-counter")).toHaveTextContent("Step 2 of");
+    fireEvent.click(within(nav).getByTestId("pilot-prev"));
+    expect(screen.getByTestId("pilot-step-counter")).toHaveTextContent("Step 1 of");
+    expect(screen.queryByText(/we detected/i)).toBeNull();
   });
 
   it("no-result state and the optional assistant escape hatch", () => {
@@ -160,5 +164,167 @@ describe("WayfindingPilot — Garden Route Mall (source-backed, unscaled, awaiti
     fireEvent.click(within(screen.getByTestId("pilot-suggestions")).getByText("Woolworths"));
     expect(within(screen.getByTestId("pilot-steps")).getAllByRole("listitem")).toHaveLength(3);
     expect(screen.getByTestId("pilot-summary-unscaled")).toHaveTextContent(/2\s*legs/);
+  });
+});
+
+describe("WayfindingPilot — navigation session (scan → search → walk → re-anchor → arrive)", () => {
+  const E4 = anchorFor(getWayfindingMall("garden-route-mall")!, "grm-entrance-4", "qr");
+
+  function startTo(name: string, props: Partial<React.ComponentProps<typeof WayfindingPilot>> = {}) {
+    const utils = render(<WayfindingPilot embedded mallId="garden-route-mall" initialAnchor={E4} {...props} />);
+    fireEvent.click(within(screen.getByTestId("pilot-suggestions")).getByText(name));
+    fireEvent.click(screen.getByTestId("pilot-start-navigation"));
+    return utils;
+  }
+
+  it("QR anchor lands on the finder labelled honestly; route_ready shows the evidence claim and a Start navigation control", () => {
+    render(<WayfindingPilot embedded mallId="garden-route-mall" initialAnchor={E4} />);
+    expect(screen.getByTestId("pilot-anchor-summary")).toHaveTextContent(/Starting from Entrance 4\s*· from the QR code you scanned/);
+    fireEvent.click(within(screen.getByTestId("pilot-suggestions")).getByText("Woolworths"));
+    expect(screen.getByTestId("mallreds-pilot")).toHaveAttribute("data-session-status", "route_ready");
+    expect(screen.getByTestId("pilot-route-claim")).toHaveTextContent("Source-backed route");
+    expect(screen.getByRole("button", { name: /start navigation/i })).toBeInTheDocument();
+    expect(screen.getByTestId("pilot-anchor-source")).toHaveTextContent("from the QR code you scanned");
+  });
+
+  it("Start → step view → Next through every step → arrival wording respects evidence; no metres or minutes anywhere", () => {
+    startTo("Woolworths");
+    expect(screen.getByTestId("mallreds-pilot")).toHaveAttribute("data-session-status", "navigating");
+    expect(screen.getByTestId("pilot-step-counter")).toHaveTextContent("Step 1 of 3");
+    expect(screen.getByTestId("pilot-step-counter")).toHaveTextContent("Floor Level 1");
+    expect(screen.getByTestId("pilot-step-current")).toHaveTextContent(/^Walk straight in from Entrance 4/);
+    expect(screen.getByTestId("pilot-step-next")).toHaveTextContent("Then: Cross the main walkway");
+    expect(screen.getByTestId("pilot-prev")).toBeDisabled();
+    expect(screen.queryByTestId("pilot-step-distance")).toBeNull();
+    fireEvent.click(screen.getByTestId("pilot-next"));
+    expect(screen.getByTestId("pilot-step-counter")).toHaveTextContent("Step 2 of 3");
+    expect(screen.getByTestId("pilot-next")).toHaveTextContent("I’m there");
+    fireEvent.click(screen.getByTestId("pilot-next"));
+    expect(screen.getByTestId("mallreds-pilot")).toHaveAttribute("data-session-status", "arrived");
+    expect(screen.getByTestId("pilot-arrival")).toHaveTextContent("You’ve reached the mapped arrival point for Woolworths.");
+    expect(screen.getByTestId("pilot-arrival-note")).toHaveTextContent("not at its door");
+    expect(screen.queryByTestId("pilot-next")).toBeNull();
+    expect(screen.getByTestId("pilot-new-destination")).toBeInTheDocument();
+    const text = screen.getByTestId("pilot-navigation").textContent ?? "";
+    expect(text).not.toMatch(/\d\s?m\b/i);
+    expect(text).not.toMatch(/\d\s?min/i);
+    expect(text).not.toMatch(/we detected|you have reached|you are here/i);
+    expect(screen.getByTestId("pilot-status-line")).toHaveTextContent("Source-backed route preview. Distance not yet measured. Your position is not tracked.");
+  });
+
+  it("Previous from arrival returns to the last leg; Restart returns to route_ready; New destination returns to the finder", () => {
+    startTo("Woolworths");
+    fireEvent.click(screen.getByTestId("pilot-next"));
+    fireEvent.click(screen.getByTestId("pilot-next"));
+    fireEvent.click(screen.getByTestId("pilot-prev"));
+    expect(screen.getByTestId("pilot-step-counter")).toHaveTextContent("Step 2 of 3");
+    fireEvent.click(screen.getByTestId("pilot-restart"));
+    expect(screen.getByTestId("mallreds-pilot")).toHaveAttribute("data-session-status", "route_ready");
+    fireEvent.click(screen.getByTestId("pilot-start-navigation"));
+    fireEvent.click(screen.getByTestId("pilot-next"));
+    fireEvent.click(screen.getByTestId("pilot-next"));
+    fireEvent.click(screen.getByTestId("pilot-new-destination"));
+    expect(screen.getByTestId("pilot-finder")).toBeInTheDocument();
+    expect(screen.getByTestId("pilot-anchor-summary")).toHaveTextContent("Entrance 4");
+  });
+
+  it("Update my location (manual re-anchor) keeps the destination, recalculates and announces the update", () => {
+    render(<WayfindingPilot embedded mallId="mallreds-pilot" />);
+    fireEvent.click(within(screen.getByTestId("pilot-suggestions")).getByText("Clicks"));
+    fireEvent.click(screen.getByTestId("pilot-start-navigation"));
+    fireEvent.click(screen.getByTestId("pilot-next"));
+    expect(screen.getByTestId("pilot-step-counter")).toHaveTextContent("Step 2 of");
+    fireEvent.click(screen.getByTestId("pilot-reanchor"));
+    const panel = screen.getByTestId("pilot-reanchor-panel");
+    expect(panel).toHaveTextContent("Where are you now?");
+    expect(within(panel).getByRole("button", { name: /Main Entrance/ })).toHaveAttribute("aria-current", "location");
+    fireEvent.click(within(panel).getByRole("button", { name: /Entrance 2/ }));
+    expect(screen.queryByTestId("pilot-reanchor-panel")).toBeNull();
+    expect(screen.getByTestId("pilot-dest-name")).toHaveTextContent("Clicks");
+    expect(screen.getByTestId("mallreds-pilot")).toHaveAttribute("data-session-status", "navigating");
+    expect(screen.getByTestId("pilot-step-counter")).toHaveTextContent("Step 1 of");
+    expect(screen.getByTestId("pilot-step-current")).toHaveTextContent("Entrance 2");
+    expect(screen.getByTestId("pilot-route-updated")).toHaveTextContent("Route updated — now starting from Entrance 2");
+    expect(screen.getByTestId("pilot-route-updated")).toHaveTextContent("Your steps start again from here");
+  });
+
+  it("a second QR / deep link arriving mid-route re-anchors in place: destination preserved, route recalculated", () => {
+    const reds = getWayfindingMall("mallreds-pilot")!;
+    const first = anchorFor(reds, "entrance-main", "qr");
+    const { rerender } = render(<WayfindingPilot embedded mallId="mallreds-pilot" initialAnchor={first} />);
+    fireEvent.click(within(screen.getByTestId("pilot-suggestions")).getByText("Game"));
+    fireEvent.click(screen.getByTestId("pilot-start-navigation"));
+    fireEvent.click(screen.getByTestId("pilot-next"));
+    rerender(<WayfindingPilot embedded mallId="mallreds-pilot" initialAnchor={anchorFor(reds, "info-desk", "qr")} />);
+    expect(screen.getByTestId("pilot-dest-name")).toHaveTextContent("Game");
+    expect(screen.getByTestId("pilot-step-counter")).toHaveTextContent("Step 1 of");
+    expect(screen.getByTestId("pilot-step-current")).toHaveTextContent("Information Desk");
+    expect(screen.getByTestId("pilot-route-updated")).toHaveTextContent("from the QR code you scanned");
+  });
+
+  it("deep-link RE-ENTRY on a fresh page load restores the remembered destination for the same mall only", () => {
+    const grm = getWayfindingMall("garden-route-mall")!;
+    startTo("Pick n Pay");
+    fireEvent.click(screen.getByTestId("pilot-next"));
+    cleanup(); // the phone camera opened the second QR → fresh page load
+    render(<WayfindingPilot embedded mallId="garden-route-mall" initialAnchor={anchorFor(grm, "grm-entrance-4", "qr")} />);
+    expect(screen.getByTestId("pilot-dest-name")).toHaveTextContent("Pick n Pay");
+    expect(screen.getByTestId("mallreds-pilot")).toHaveAttribute("data-session-status", "navigating");
+    expect(screen.getByTestId("pilot-step-counter")).toHaveTextContent("Step 1 of 9");
+    cleanup();
+    // a different mall's link never inherits it; a manual visit never restores it
+    render(<WayfindingPilot embedded mallId="menlyn-park" initialAnchor={anchorFor(getWayfindingMall("menlyn-park")!, "menlyn-lf-entrance-13", "qr")} />);
+    expect(screen.getByTestId("pilot-finder")).toBeInTheDocument();
+    cleanup();
+    render(<WayfindingPilot embedded mallId="garden-route-mall" />);
+    expect(screen.getByTestId("pilot-finder")).toBeInTheDocument();
+  });
+
+  it("unroutable destination shows an honest failure with a way out (change start); re-anchoring recovers", async () => {
+    const engine = await import("./pilotRoute");
+    const real = engine.pilotBuildRoute;
+    const spy = vi.spyOn(engine, "pilotBuildRoute").mockImplementation((nodes, edges, start, dest) =>
+      start === "entrance-2"
+        ? { found: true, fallback: true, steps: [], metric: false, total_distance_meters: null, estimated_minutes: null, message: "Clicks isn’t connected to this map yet." }
+        : real(nodes, edges, start, dest));
+    try {
+      render(<WayfindingPilot embedded mallId="mallreds-pilot" initialAnchor={anchorFromStart("entrance-2", "qr")} />);
+      fireEvent.click(within(screen.getByTestId("pilot-suggestions")).getByText("Clicks"));
+      expect(screen.getByTestId("mallreds-pilot")).toHaveAttribute("data-session-status", "unroutable");
+      expect(screen.getByRole("alert")).toHaveTextContent("Clicks isn’t connected to this map yet.");
+      expect(screen.getByRole("alert")).toHaveTextContent("Try another starting point");
+      expect(screen.queryByTestId("pilot-start-navigation")).toBeNull();
+      expect(screen.queryByTestId("pilot-steps")).toBeNull();
+      fireEvent.change(screen.getByTestId("pilot-start-select"), { target: { value: "entrance-main" } });
+      expect(screen.getByTestId("mallreds-pilot")).toHaveAttribute("data-session-status", "route_ready");
+      expect(screen.getByTestId("pilot-dest-name")).toHaveTextContent("Clicks");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("measured Mall@Reds keeps metres in the step view; evidence claim is schematic", () => {
+    render(<WayfindingPilot embedded mallId="mallreds-pilot" />);
+    fireEvent.click(within(screen.getByTestId("pilot-suggestions")).getByText("Clicks"));
+    expect(screen.getByTestId("pilot-route-claim")).toHaveTextContent("Schematic route preview");
+    fireEvent.click(screen.getByTestId("pilot-start-navigation"));
+    expect(screen.getByTestId("pilot-step-distance")).toHaveTextContent(/About \d+ m for this step/);
+    expect(screen.getByTestId("pilot-status-line")).toHaveTextContent("Route preview — your position is not tracked.");
+  });
+
+  it("emits lightweight session events through the seam and survives a throwing sink", () => {
+    const events: string[] = [];
+    startTo("Woolworths", { onEvent: (e) => { events.push(e.name); if (e.name === "navigation_arrived") throw new Error("sink down"); } });
+    fireEvent.click(screen.getByTestId("pilot-next"));
+    fireEvent.click(screen.getByTestId("pilot-prev"));
+    fireEvent.click(screen.getByTestId("pilot-reanchor"));
+    fireEvent.click(within(screen.getByTestId("pilot-reanchor-panel")).getByRole("button", { name: /Entrance 4/ }));
+    fireEvent.click(screen.getByTestId("pilot-next"));
+    fireEvent.click(screen.getByTestId("pilot-next"));
+    expect(events).toEqual([
+      "navigation_session_started", "navigation_step_advanced", "navigation_step_back", "navigation_reanchored",
+      "navigation_step_advanced", "navigation_step_advanced", "navigation_arrived",
+    ]);
+    expect(screen.getByTestId("mallreds-pilot")).toHaveAttribute("data-session-status", "arrived");
   });
 });

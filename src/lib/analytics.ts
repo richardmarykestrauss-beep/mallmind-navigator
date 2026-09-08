@@ -46,7 +46,14 @@ export type AppEventType =
   | "shopping_list_to_ai"
   | "deals_viewed"
   | "navigate_there_clicked"
-  | "session_start";
+  | "session_start"
+  // Navigation sessions (src/components/navigation/navigationEvents.ts) — lightweight, PII-free.
+  | "navigation_session_started"
+  | "navigation_step_advanced"
+  | "navigation_step_back"
+  | "navigation_reanchored"
+  | "navigation_arrived"
+  | "navigation_failed";
 
 export function trackEvent(
   eventType: AppEventType,
