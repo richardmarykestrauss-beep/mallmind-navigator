@@ -72,3 +72,23 @@ the `mallreds-pilot` test id.
 Verdict: navigation Core is venue-agnostic for bundled packs. Remaining venue-specific code is
 either a data list (R1), a test/demo fixture (R2, R3), or the legacy hosted-backend path (R4, R5),
 which the ingestion sprint must either convert to Venue Packs or retire.
+
+## Sprint 5 update (2026-09-13) — residuals resolved
+
+| # | Was | Now |
+|---|---|---|
+| R1 | `BUNDLED = [mallRedsPack, …]` import list in `registry.ts` | Registry globs `src/venue/packs/*.venue.json` and orders by `packs/bundle.json`; an unlisted or missing file is an error. `venue:publish --bundle` appends. No import list. |
+| R4 | `normalizeFloorLabel()` ("Ground Floor" for blank, `G`→"Ground Floor", `L1`→"Level 1"); `mapNodeType()` / `isInfraName()` substring heuristics | `floorKey()` uses the declared floor id verbatim (blank → "Floor not recorded"); `nodeTypeFor()` maps explicit kinds only; store anchors only from an explicit `linked_shop_id`; declared pack floors drive order and labels; canvas matches by floor id. Regression tests in `floorplanModel.test.ts`. |
+| R5 | `NavigateScreen` legacy mode fetched the hosted backend indoor-map graph (`getIndoorMapModel`) | The fetch is removed. The map is the Venue Pack graph when the selected mall has one, else a schematic from the route's own steps. Assistant routes still arrive from `/build-route` (stop list + coordinates); their map is honest schematic. |
+| R11 | Hard-coded `ANCHORS` in `generate-demo-qr.mjs` | Derived from the packs: every anchor with `qr_eligible: true` (validator: only on start-permitted anchors); the truth line under the code comes from the pack's headline evidence. |
+
+**Hosted backend graph path (§17 decision): retired for the frontend.** `google-cloud-backend`
+still exposes `/indoor-map-model` and the map-factory services (`mall_nodes` / `mall_edges`), but
+no shopper surface consumes them any more; Venue Packs produced by the Venue Pack Factory
+(`docs/venue-factory/README.md`) are the single spatial truth pipeline. Converting the backend
+map factory to emit Venue Packs (or deleting it) is a follow-up; nothing in the frontend depends
+on it.
+
+Remaining (unchanged, acceptable): R2 legacy test bindings, R3 canvas demo fixture, R6 walking
+pace constant, R7 amenity synonyms, R8 comments, R9 assistant copy, R10 retail floor text, R12
+one-direction Garden Route wording (now visible as a provenance gap in the factory dry run).
