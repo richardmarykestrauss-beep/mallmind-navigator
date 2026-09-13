@@ -15,7 +15,7 @@
 
 import { useMemo, type CSSProperties } from "react";
 import {
-  floorChip, normalizeFloorLabel, pointsForFloor, pointsBounds,
+  floorChip, floorKey, pointsForFloor, pointsBounds,
   type FloorplanModel, type FloorplanCoordinate, type RoutePolylinePoint,
 } from "./floorplanModel";
 
@@ -155,10 +155,14 @@ function prefersReducedMotion(): boolean {
 export default function IndoorMapCanvas({
   floorplan, activeFloor, routePolyline, completedStepIndices, currentStepIndex, simulatedPosition, isDemo, markerStyle = "position",
 }: IndoorMapCanvasProps) {
-  const target = normalizeFloorLabel(activeFloor);
+  // The active floor is a KEY (declared floor id). Match by id first; a label match is kept only for
+  // models that were built without declared floors (schematic fallback), never by inference.
+  const target = floorKey(activeFloor);
   const motion = !prefersReducedMotion();
   const floor = useMemo(
-    () => floorplan.floors.find((f) => normalizeFloorLabel(f.label) === target) ?? floorplan.floors[0] ?? null,
+    () => floorplan.floors.find((f) => floorKey(f.id) === target)
+      ?? floorplan.floors.find((f) => floorKey(f.label) === target)
+      ?? floorplan.floors[0] ?? null,
     [floorplan, target],
   );
 
@@ -175,8 +179,8 @@ export default function IndoorMapCanvas({
 
   const firstPt = routePolyline[0];
   const lastPt = routePolyline[routePolyline.length - 1];
-  const startOnFloor = firstPt && normalizeFloorLabel(firstPt.floor) === target ? firstPt : null;
-  const destOnFloor = lastPt && normalizeFloorLabel(lastPt.floor) === target ? lastPt : null;
+  const startOnFloor = firstPt && floorKey(firstPt.floor) === target ? firstPt : null;
+  const destOnFloor = lastPt && floorKey(lastPt.floor) === target ? lastPt : null;
   const destName = destOnFloor
     ? (floor?.stores.find((s) => s.shopId === destOnFloor.nodeId)?.name
        ?? floor?.nodes.find((n) => n.id === destOnFloor.nodeId)?.name

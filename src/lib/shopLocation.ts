@@ -8,12 +8,11 @@
  * "Ground Floor" or as the literal string "null". An unknown floor is shown as
  * "Floor not yet verified" (or omitted), never invented.
  *
- * This is DISTINCT from `normalizeFloorLabel()` in
- * components/navigation/floorplanModel.ts, which exists only to bucket a route
- * onto a geometric floor-plane (and defaults blank → "Ground Floor" for the map
- * model). That normalizer is for map geometry, NOT for making a provenance claim
- * about where a real store is. For shopper-facing store location text, use the
- * helpers here.
+ * This is DISTINCT from `floorKey()` in components/navigation/floorplanModel.ts,
+ * which exists only to bucket a route onto a geometric floor-plane using the
+ * floor id the data declares (a blank floor buckets as "not recorded"). That key
+ * is for map geometry, NOT for making a provenance claim about where a real
+ * store is. For shopper-facing store location text, use the helpers here.
  */
 
 /** True when a floor value carries no verified information. */
