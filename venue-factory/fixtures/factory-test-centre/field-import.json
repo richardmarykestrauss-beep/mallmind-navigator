@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "observer": "factory fixture surveyor",
+  "observed_at": "2026-09-14",
+  "source_id": "ftc-field",
+  "measurements": [
+    {
+      "id": "ftc-m-west-j1",
+      "edge": "ftc-e-west-j1",
+      "distance_m": 12.5,
+      "method": "laser distance meter, door threshold to junction centre"
+    },
+    {
+      "id": "ftc-m-j1-grocer",
+      "edge": "ftc-e-j1-grocer",
+      "distance_m": 8.2,
+      "method": "measuring wheel along the side aisle"
+    }
+  ],
+  "node_confirmations": [
+    {
+      "id": "ftc-c-west",
+      "node": "ftc-entrance-west",
+      "notes": "Entrance position confirmed on site; not re-placed."
+    }
+  ],
+  "door_confirmations": [
+    {
+      "id": "ftc-d-grocer",
+      "destination": "ftc-grocer",
+      "notes": "Public door faces the side aisle at the arrival point."
+    }
+  ],
+  "accessibility": [
+    {
+      "id": "ftc-a-venue",
+      "subject": "venue",
+      "step_free": true,
+      "notes": "Single level, no steps between entrances and units."
+    }
+  ]
+}

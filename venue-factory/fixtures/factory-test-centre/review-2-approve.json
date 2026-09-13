@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "reviewer": "factory fixture reviewer",
+  "reviewed_at": "2026-09-13T14:00:00Z",
+  "accept": [],
+  "reject": [],
+  "override": [],
+  "unresolved": [],
+  "decision": {
+    "action": "approve",
+    "reason": "Draft matches the plan and the directory; unresolved hours fact is non-blocking."
+  }
+}

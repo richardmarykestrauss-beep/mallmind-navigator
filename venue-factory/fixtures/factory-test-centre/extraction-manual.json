@@ -1,0 +1,587 @@
+{
+  "schema_version": 1,
+  "worker": {
+    "kind": "file",
+    "name": "factory-test-centre transcription",
+    "version": "1"
+  },
+  "source_ids": [
+    "ftc-map",
+    "ftc-directory",
+    "ftc-notes"
+  ],
+  "floors": [
+    {
+      "id": "g",
+      "source_id": "ftc-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.95,
+      "manual_review_required": false,
+      "label": "Ground",
+      "order": 0,
+      "aliases": [
+        "G"
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "id": "ftc-entrance-west",
+      "source_id": "ftc-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.9,
+      "manual_review_required": false,
+      "notes": "Gap in the west outline at the head of the main aisle.",
+      "name": "West Entrance",
+      "kind": "entrance",
+      "floor": "g",
+      "at": {
+        "image": "ftc-map",
+        "px_x": 30,
+        "px_y": 250
+      }
+    },
+    {
+      "id": "ftc-j1",
+      "source_id": "ftc-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.9,
+      "manual_review_required": false,
+      "name": "Junction 1",
+      "kind": "junction",
+      "floor": "g",
+      "at": {
+        "image": "ftc-map",
+        "px_x": 150,
+        "px_y": 250
+      }
+    },
+    {
+      "id": "ftc-j2",
+      "source_id": "ftc-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.9,
+      "manual_review_required": false,
+      "name": "Junction 2",
+      "kind": "junction",
+      "floor": "g",
+      "at": {
+        "image": "ftc-map",
+        "px_x": 300,
+        "px_y": 250
+      }
+    },
+    {
+      "id": "ftc-j3",
+      "source_id": "ftc-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.9,
+      "manual_review_required": false,
+      "name": "Junction 3",
+      "kind": "junction",
+      "floor": "g",
+      "at": {
+        "image": "ftc-map",
+        "px_x": 450,
+        "px_y": 250
+      }
+    },
+    {
+      "id": "ftc-entrance-east",
+      "source_id": "ftc-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.9,
+      "manual_review_required": false,
+      "notes": "Gap in the east outline at the end of the main aisle.",
+      "name": "East Entrance",
+      "kind": "entrance",
+      "floor": "g",
+      "at": {
+        "image": "ftc-map",
+        "px_x": 570,
+        "px_y": 250
+      }
+    },
+    {
+      "id": "ftc-arrival-grocer",
+      "source_id": "ftc-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.9,
+      "manual_review_required": false,
+      "notes": "Corridor point abreast of unit G01; door not drawn.",
+      "name": "Grocer",
+      "kind": "arrival",
+      "floor": "g",
+      "at": {
+        "image": "ftc-map",
+        "px_x": 150,
+        "px_y": 120
+      }
+    },
+    {
+      "id": "ftc-arrival-pharmacy",
+      "source_id": "ftc-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.9,
+      "manual_review_required": false,
+      "notes": "Corridor point abreast of unit G05; door not drawn.",
+      "name": "Pharmacy",
+      "kind": "arrival",
+      "floor": "g",
+      "at": {
+        "image": "ftc-map",
+        "px_x": 300,
+        "px_y": 120
+      }
+    },
+    {
+      "id": "ftc-arrival-cafe",
+      "source_id": "ftc-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.9,
+      "manual_review_required": false,
+      "notes": "Corridor point abreast of the cafe unit; door not drawn.",
+      "name": "Cafe",
+      "kind": "arrival",
+      "floor": "g",
+      "at": {
+        "image": "ftc-map",
+        "px_x": 450,
+        "px_y": 380
+      }
+    },
+    {
+      "id": "ftc-toilets",
+      "source_id": "ftc-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.9,
+      "manual_review_required": false,
+      "name": "Toilets",
+      "kind": "amenity",
+      "floor": "g",
+      "at": {
+        "image": "ftc-map",
+        "px_x": 300,
+        "px_y": 380
+      }
+    },
+    {
+      "id": "ftc-info",
+      "source_id": "ftc-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.9,
+      "manual_review_required": false,
+      "name": "Information point",
+      "kind": "landmark",
+      "floor": "g",
+      "at": {
+        "image": "ftc-map",
+        "px_x": 150,
+        "px_y": 380
+      }
+    }
+  ],
+  "unit_polygons": [
+    {
+      "id": "ftc-unit-g01",
+      "source_id": "ftc-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.9,
+      "manual_review_required": false,
+      "floor": "g",
+      "label": "G01",
+      "points": [
+        {
+          "image": "ftc-map",
+          "px_x": 90,
+          "px_y": 40
+        },
+        {
+          "image": "ftc-map",
+          "px_x": 210,
+          "px_y": 40
+        },
+        {
+          "image": "ftc-map",
+          "px_x": 210,
+          "px_y": 200
+        },
+        {
+          "image": "ftc-map",
+          "px_x": 90,
+          "px_y": 200
+        }
+      ]
+    }
+  ],
+  "store_labels": [
+    {
+      "id": "ftc-label-grocer",
+      "source_id": "ftc-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.9,
+      "manual_review_required": false,
+      "text": "G01",
+      "floor": "g",
+      "at": {
+        "image": "ftc-map",
+        "px_x": 150,
+        "px_y": 100
+      },
+      "unit": "G01"
+    }
+  ],
+  "corridor_centerlines": [
+    {
+      "id": "ftc-cl-main",
+      "source_id": "ftc-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.9,
+      "manual_review_required": false,
+      "floor": "g",
+      "points": [
+        {
+          "image": "ftc-map",
+          "px_x": 30,
+          "px_y": 250
+        },
+        {
+          "image": "ftc-map",
+          "px_x": 570,
+          "px_y": 250
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "id": "ftc-e-west-j1",
+      "source_id": "ftc-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.9,
+      "manual_review_required": false,
+      "from": "ftc-entrance-west",
+      "to": "ftc-j1",
+      "bidirectional": true,
+      "floor_change": false,
+      "length_px": 120
+    },
+    {
+      "id": "ftc-e-j1-j2",
+      "source_id": "ftc-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.9,
+      "manual_review_required": false,
+      "from": "ftc-j1",
+      "to": "ftc-j2",
+      "bidirectional": true,
+      "floor_change": false,
+      "length_px": 150
+    },
+    {
+      "id": "ftc-e-j2-j3",
+      "source_id": "ftc-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.9,
+      "manual_review_required": false,
+      "from": "ftc-j2",
+      "to": "ftc-j3",
+      "bidirectional": true,
+      "floor_change": false,
+      "length_px": 150
+    },
+    {
+      "id": "ftc-e-j3-east",
+      "source_id": "ftc-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.9,
+      "manual_review_required": false,
+      "from": "ftc-j3",
+      "to": "ftc-entrance-east",
+      "bidirectional": true,
+      "floor_change": false,
+      "length_px": 120
+    },
+    {
+      "id": "ftc-e-j1-grocer",
+      "source_id": "ftc-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.9,
+      "manual_review_required": false,
+      "from": "ftc-j1",
+      "to": "ftc-arrival-grocer",
+      "bidirectional": true,
+      "floor_change": false,
+      "length_px": 130
+    },
+    {
+      "id": "ftc-e-j2-pharmacy",
+      "source_id": "ftc-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.9,
+      "manual_review_required": false,
+      "from": "ftc-j2",
+      "to": "ftc-arrival-pharmacy",
+      "bidirectional": true,
+      "floor_change": false,
+      "length_px": 130
+    },
+    {
+      "id": "ftc-e-j3-cafe",
+      "source_id": "ftc-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.9,
+      "manual_review_required": false,
+      "from": "ftc-j3",
+      "to": "ftc-arrival-cafe",
+      "bidirectional": true,
+      "floor_change": false,
+      "length_px": 130
+    },
+    {
+      "id": "ftc-e-j2-toilets",
+      "source_id": "ftc-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.9,
+      "manual_review_required": false,
+      "from": "ftc-j2",
+      "to": "ftc-toilets",
+      "bidirectional": true,
+      "floor_change": false,
+      "length_px": 130
+    },
+    {
+      "id": "ftc-e-j1-info",
+      "source_id": "ftc-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.9,
+      "manual_review_required": false,
+      "from": "ftc-j1",
+      "to": "ftc-info",
+      "bidirectional": true,
+      "floor_change": false
+    }
+  ],
+  "instructions": [
+    {
+      "id": "ftc-i-west-j1-f",
+      "source_id": "ftc-notes",
+      "evidence_class": "manual_inference",
+      "confidence": 0.8,
+      "manual_review_required": false,
+      "edge": "ftc-e-west-j1",
+      "direction": "forward",
+      "text": "Walk straight in from the West Entrance to the first junction."
+    },
+    {
+      "id": "ftc-i-j1-j2-f",
+      "source_id": "ftc-notes",
+      "evidence_class": "manual_inference",
+      "confidence": 0.8,
+      "manual_review_required": false,
+      "edge": "ftc-e-j1-j2",
+      "direction": "forward",
+      "text": "Continue straight along the main aisle to the second junction."
+    },
+    {
+      "id": "ftc-i-j1-j2-r",
+      "source_id": "ftc-notes",
+      "evidence_class": "manual_inference",
+      "confidence": 0.8,
+      "manual_review_required": false,
+      "edge": "ftc-e-j1-j2",
+      "direction": "reverse",
+      "text": "Head back along the main aisle toward the West Entrance."
+    },
+    {
+      "id": "ftc-i-j2-j3-f",
+      "source_id": "ftc-notes",
+      "evidence_class": "manual_inference",
+      "confidence": 0.8,
+      "manual_review_required": false,
+      "edge": "ftc-e-j2-j3",
+      "direction": "forward",
+      "text": "Continue straight along the main aisle to the third junction."
+    },
+    {
+      "id": "ftc-i-j3-east-r",
+      "source_id": "ftc-notes",
+      "evidence_class": "manual_inference",
+      "confidence": 0.8,
+      "manual_review_required": false,
+      "edge": "ftc-e-j3-east",
+      "direction": "reverse",
+      "text": "Walk straight in from the East Entrance to the nearest junction."
+    },
+    {
+      "id": "ftc-i-j1-grocer-f",
+      "source_id": "ftc-notes",
+      "evidence_class": "manual_inference",
+      "confidence": 0.8,
+      "manual_review_required": false,
+      "edge": "ftc-e-j1-grocer",
+      "direction": "forward",
+      "text": "Turn left at the first junction; the Grocer is at the end of the side aisle."
+    },
+    {
+      "id": "ftc-i-j2-pharmacy-f",
+      "source_id": "ftc-notes",
+      "evidence_class": "manual_inference",
+      "confidence": 0.8,
+      "manual_review_required": false,
+      "edge": "ftc-e-j2-pharmacy",
+      "direction": "forward",
+      "text": "Turn left at the second junction; the Pharmacy is ahead."
+    },
+    {
+      "id": "ftc-i-j3-cafe-f",
+      "source_id": "ftc-notes",
+      "evidence_class": "manual_inference",
+      "confidence": 0.8,
+      "manual_review_required": false,
+      "edge": "ftc-e-j3-cafe",
+      "direction": "forward",
+      "text": "Turn right at the third junction; the Cafe is ahead."
+    }
+  ],
+  "destinations": [
+    {
+      "id": "ftc-grocer",
+      "source_id": "ftc-directory",
+      "evidence_class": "explicit_first_party",
+      "confidence": 0.95,
+      "manual_review_required": false,
+      "name": "Grocer",
+      "kind": "store",
+      "category": "grocery",
+      "arrival_node": "ftc-arrival-grocer",
+      "unit": "G01",
+      "aliases": [
+        "Supermarket"
+      ]
+    },
+    {
+      "id": "ftc-pharmacy",
+      "source_id": "ftc-directory",
+      "evidence_class": "explicit_first_party",
+      "confidence": 0.95,
+      "manual_review_required": false,
+      "name": "Pharmacy",
+      "kind": "store",
+      "category": "health",
+      "arrival_node": "ftc-arrival-pharmacy",
+      "unit": "G05",
+      "aliases": [
+        "Chemist"
+      ]
+    },
+    {
+      "id": "ftc-cafe",
+      "source_id": "ftc-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.7,
+      "manual_review_required": false,
+      "notes": "Unit number read as G12 on the plan; directory says G14.",
+      "name": "Cafe",
+      "kind": "food",
+      "category": "food",
+      "arrival_node": "ftc-arrival-cafe",
+      "unit": "G12",
+      "aliases": [
+        "Coffee"
+      ]
+    }
+  ],
+  "anchors": [
+    {
+      "id": "ftc-west",
+      "source_id": "ftc-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.9,
+      "manual_review_required": false,
+      "node": "ftc-entrance-west",
+      "label": "West Entrance",
+      "kind": "entrance",
+      "start_permitted": true,
+      "qr_eligible": true
+    },
+    {
+      "id": "ftc-east",
+      "source_id": "ftc-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.9,
+      "manual_review_required": false,
+      "node": "ftc-entrance-east",
+      "label": "East Entrance",
+      "kind": "entrance",
+      "start_permitted": true,
+      "qr_eligible": true
+    },
+    {
+      "id": "ftc-info-point",
+      "source_id": "ftc-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.7,
+      "manual_review_required": true,
+      "notes": "Landmark start: confirm the information desk is staffed before printing a QR.",
+      "node": "ftc-info",
+      "label": "Information point",
+      "kind": "landmark",
+      "start_permitted": true,
+      "qr_eligible": false
+    }
+  ],
+  "amenities": [
+    {
+      "id": "ftc-toilets-amenity",
+      "source_id": "ftc-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.9,
+      "manual_review_required": false,
+      "kind": "toilet",
+      "name": "Toilets",
+      "node": "ftc-toilets",
+      "routable": true,
+      "aliases": [
+        "Restrooms"
+      ]
+    },
+    {
+      "id": "ftc-info-amenity",
+      "source_id": "ftc-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.9,
+      "manual_review_required": false,
+      "kind": "information",
+      "name": "Information point",
+      "node": "ftc-info",
+      "routable": false
+    }
+  ],
+  "facts": [
+    {
+      "id": "ftc-fact-grocer-phone",
+      "source_id": "ftc-directory",
+      "evidence_class": "explicit_first_party",
+      "confidence": 0.95,
+      "manual_review_required": false,
+      "subject": "destination:ftc-grocer",
+      "predicate": "directory_entry",
+      "value": {
+        "unit": "G01",
+        "phone": "000 000 0001"
+      }
+    },
+    {
+      "id": "ftc-fact-hours",
+      "source_id": "ftc-directory",
+      "evidence_class": "secondary_corroboration",
+      "confidence": 0.5,
+      "manual_review_required": false,
+      "notes": "Hours not confirmed with the centre.",
+      "subject": "venue",
+      "predicate": "opening_hours",
+      "value": "Mon-Sun 09:00-18:00"
+    }
+  ]
+}

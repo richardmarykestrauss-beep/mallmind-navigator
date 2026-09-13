@@ -1,0 +1,15 @@
+{
+  "id": "factory-test-centre",
+  "name": "Factory Test Centre",
+  "short_name": "FTC",
+  "deployment": { "state": "internal-pilot", "official": false, "label": "Synthetic factory fixture — never a real venue" },
+  "distance_unit": "px",
+  "policies": {
+    "start": { "default_anchor": "ftc-west", "allowed_anchor_kinds": ["entrance", "landmark"] },
+    "destinations": { "include_routable_amenities": true },
+    "floors": { "display": "label" },
+    "metrics": { "show": "when-measured" },
+    "instructions": { "generic_fallback": true, "start_prefix": true }
+  },
+  "notes": "Synthetic venue used to prove the Venue Pack Factory end to end. Geometry is invented for testing and must never ship as a real venue."
+}

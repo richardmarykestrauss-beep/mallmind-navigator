@@ -38,3 +38,9 @@ supabase/.temp/
 
 # Sprint 2K local dry-run reports (not committed)
 /artifacts/
+
+# Venue Pack Factory — job working directories are transient (inputs live in
+# venue-factory/fixtures and venue-factory/dry-runs; published packs are copied
+# into src/venue/packs by venue:publish --bundle).
+venue-factory/jobs/*
+!venue-factory/jobs/.gitkeep

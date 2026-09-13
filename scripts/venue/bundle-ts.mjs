@@ -8,8 +8,11 @@
  */
 
 import { build } from "esbuild";
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync, readdirSync, writeFileSync, mkdirSync } from "node:fs";
 import { resolve, dirname, join } from "node:path";
+import { tmpdir } from "node:os";
+import { createHash } from "node:crypto";
+import { pathToFileURL } from "node:url";
 
 const globPlugin = {
   name: "vite-import-meta-glob",
@@ -49,5 +52,10 @@ export async function importTs(entry) {
     alias: { "@": resolve("src") },
   });
   const code = result.outputFiles[0].text;
-  return import(`data:text/javascript;base64,${Buffer.from(code).toString("base64")}`);
+  // Written to a temp file (not a data: URL) so stack traces stay readable.
+  const dir = join(tmpdir(), "mallmind-bundle-ts");
+  mkdirSync(dir, { recursive: true });
+  const file = join(dir, `${createHash("sha256").update(code).digest("hex").slice(0, 16)}.mjs`);
+  writeFileSync(file, code);
+  return import(pathToFileURL(file).href);
 }

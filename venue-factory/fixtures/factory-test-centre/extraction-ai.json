@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "worker": {
+    "kind": "ai",
+    "name": "synthetic-vision-stub",
+    "model": "none (stub output written by hand to exercise the AI seam)"
+  },
+  "source_ids": [
+    "ftc-map"
+  ],
+  "floors": [],
+  "nodes": [
+    {
+      "id": "ftc-j4-ghost",
+      "source_id": "ftc-map",
+      "evidence_class": "ai_inference",
+      "confidence": 0.35,
+      "manual_review_required": false,
+      "notes": "Model guessed a fourth junction; nothing on the plan supports it.",
+      "name": "Possible junction",
+      "kind": "junction",
+      "floor": "g",
+      "at": {
+        "image": "ftc-map",
+        "px_x": 380,
+        "px_y": 250
+      }
+    }
+  ],
+  "unit_polygons": [],
+  "store_labels": [
+    {
+      "id": "ftc-ai-label-pharmacy",
+      "source_id": "ftc-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.6,
+      "manual_review_required": true,
+      "notes": "Model read the text PHARMACY at this spot; a human must confirm.",
+      "text": "PHARMACY",
+      "floor": "g",
+      "at": {
+        "image": "ftc-map",
+        "px_x": 300,
+        "px_y": 100
+      },
+      "unit": "G05"
+    }
+  ],
+  "corridor_centerlines": [],
+  "edges": [
+    {
+      "id": "ftc-shortcut-j2-cafe",
+      "source_id": "ftc-map",
+      "evidence_class": "ai_inference",
+      "confidence": 0.4,
+      "manual_review_required": false,
+      "notes": "Model proposed a diagonal shortcut through the toilets block.",
+      "from": "ftc-j2",
+      "to": "ftc-arrival-cafe",
+      "bidirectional": true,
+      "floor_change": false,
+      "length_px": 200
+    }
+  ],
+  "instructions": [],
+  "destinations": [],
+  "anchors": [],
+  "amenities": [],
+  "facts": [
+    {
+      "id": "ftc-ai-fact-levels",
+      "source_id": "ftc-map",
+      "evidence_class": "ai_inference",
+      "confidence": 0.3,
+      "manual_review_required": false,
+      "subject": "venue",
+      "predicate": "level_count",
+      "value": 1
+    }
+  ]
+}
