@@ -99,7 +99,7 @@ describe("Mall@Reds navigation pilot — anchor abstraction (positioning seam)",
 
   it("anchorFromStart carries the label and a decoupled source", () => {
     const a = anchorFromStart("info-desk", "qr");
-    expect(a).toEqual({ nodeId: "info-desk", label: "Information Desk", source: "qr" });
+    expect(a).toMatchObject({ nodeId: "info-desk", label: "Information Desk", source: "qr" });
     // the route consumes only nodeId — source never reaches the router
     const r = pilotBuildRoute(NODES, EDGES, a.nodeId, "clicks");
     expect(r.found && !r.fallback).toBe(true);

@@ -1,10 +1,8 @@
 /**
- * MallRedsPilot.tsx — standalone mount of the shared wayfinding experience at
- * /pilot, kept for controlled testing (no app shell, no bottom nav). The same
- * component powers the shopper Navigate tab (see NavigateScreen.tsx), so the
- * two can never diverge. Accepts the same QR-ready link parameters:
- *
- *   /pilot?mall=mallreds-pilot&start=entrance-main   or   /pilot?mall=menlyn-park
+ * WayfindingPilotPage.tsx — standalone mount of the shared wayfinding experience at /pilot, kept
+ * for controlled testing (no app shell, no bottom nav). The same component powers the shopper
+ * Navigate tab (see NavigateScreen.tsx), so the two can never diverge. Accepts the same QR-ready
+ * link parameters: /pilot?mall=<venue-id>&start=<anchor-id>[&via=qr]
  */
 
 import { useMemo } from "react";
@@ -14,7 +12,7 @@ import { parseWayfindingAnchor } from "@/components/navigation/wayfindingAnchor"
 import { DEFAULT_WAYFINDING_MALL_ID } from "@/components/navigation/mallDatasets";
 import { trackEvent } from "@/lib/analytics";
 
-export default function MallRedsPilot() {
+export default function WayfindingPilotPage() {
   const { search } = useLocation();
   const parsed = useMemo(() => parseWayfindingAnchor(search), [search]);
 

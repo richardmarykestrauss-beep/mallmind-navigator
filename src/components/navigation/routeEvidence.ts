@@ -1,46 +1,31 @@
 /**
- * routeEvidence.ts — the evidence boundary between "what the data supports" and "what MallMind
- * claims". Field verification is an EXTERNAL evidence upgrade: it changes the wording produced
- * here, never how a navigation session operates.
- *
- * Uses the existing dataset contract (`dataset_status`, `field_verified`, per-node `evidence`);
- * no parallel flags are introduced.
+ * routeEvidence.ts — compatibility surface over src/venue/evidence.ts for loaded venues and nodes.
+ * Field verification is an EXTERNAL evidence upgrade: it changes the wording produced here, never
+ * how a navigation session operates.
  */
 
 import type { BackendNodeLike } from "./floorplanModel";
-import type { LoadedPilotDataset } from "./mallRedsPilotDataset";
+import type { LoadedVenue } from "@/venue/load";
+import { routeEvidenceTier as tierOf, routeClaim as claimOf, arrivalWording as wordingOf, type RouteEvidenceTier } from "@/venue/evidence";
+import type { ArrivalEvidence } from "@/venue/contract";
 
-export type RouteEvidenceTier = "schematic" | "source-backed" | "field-verified";
+export type { RouteEvidenceTier };
 
-/** Collapse the dataset's truth flags into the tier that decides the route claim. */
-export function routeEvidenceTier(g: Pick<LoadedPilotDataset, "datasetStatus" | "fieldVerified">): RouteEvidenceTier {
-  if (g.datasetStatus === "on-site-verified" || g.fieldVerified) return "field-verified";
-  if (g.datasetStatus === "source-backed") return "source-backed";
-  return "schematic";
+export function routeEvidenceTier(venue: Pick<LoadedVenue, "evidence">): RouteEvidenceTier {
+  return tierOf(venue.evidence);
 }
-
-const CLAIM: Record<RouteEvidenceTier, string> = {
-  schematic: "Schematic route preview",
-  "source-backed": "Source-backed route",
-  "field-verified": "Field-verified route",
-};
 
 /** The one-line claim shown with a route ("Schematic route preview" / "Source-backed route" / …). */
-export function routeClaim(g: Pick<LoadedPilotDataset, "datasetStatus" | "fieldVerified">): string {
-  return CLAIM[routeEvidenceTier(g)];
+export function routeClaim(venue: Pick<LoadedVenue, "evidence">): string {
+  return claimOf(venue.evidence);
 }
 
-/** True only when the node's own position was verified on site (a real doorway, not a corridor point). */
-export function isArrivalVerified(node: Pick<BackendNodeLike, "evidence">): boolean {
-  return node.evidence === "on-site-verified";
+/** True only when the destination's arrival evidence is a verified public door. */
+export function isArrivalVerified(node: Pick<BackendNodeLike, "arrival_evidence">): boolean {
+  return node.arrival_evidence === "verified_public_door";
 }
 
-/**
- * Arrival wording that respects evidence: a verified node is "reached"; an unverified one is the
- * "mapped arrival point" (the graph terminates at a corridor point abreast of the frontage).
- */
-export function arrivalWording(node: Pick<BackendNodeLike, "name" | "evidence">): string {
-  return isArrivalVerified(node)
-    ? `You’ve reached ${node.name}.`
-    : `You’ve reached the mapped arrival point for ${node.name}.`;
+/** Arrival wording from the node's own arrival evidence (a corridor point is never "reached X"). */
+export function arrivalWording(node: Pick<BackendNodeLike, "name" | "arrival_evidence">): string {
+  return wordingOf(node.name, (node.arrival_evidence as ArrivalEvidence | null) ?? undefined);
 }

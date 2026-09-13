@@ -103,8 +103,8 @@ describe("WayfindingPilot — shopper wayfinding loop", () => {
 describe("WayfindingPilot — unscaled source-backed dataset (Menlyn Park)", () => {
   it("routes Entrance 13 → Clicks with topology only: NO metres, NO minutes, honest status", () => {
     render(<WayfindingPilot embedded mallId="menlyn-park" />);
-    expect(screen.getByTestId("mallreds-pilot")).toHaveAttribute("data-mall-id", "menlyn-park");
-    expect(screen.getByTestId("mallreds-pilot")).toHaveAttribute("data-metric", "false");
+    expect(screen.getByTestId("wayfinding-pilot")).toHaveAttribute("data-mall-id", "menlyn-park");
+    expect(screen.getByTestId("wayfinding-pilot")).toHaveAttribute("data-metric", "false");
     expect(screen.getByTestId("pilot-anchor-summary")).toHaveTextContent("Entrance 13");
     fireEvent.click(within(screen.getByTestId("pilot-suggestions")).getByText("Clicks"));
     expect(screen.getByTestId("pilot-dest-name")).toHaveTextContent("Clicks");
@@ -129,7 +129,7 @@ describe("WayfindingPilot — unscaled source-backed dataset (Menlyn Park)", () 
     expect(screen.getByTestId("pilot-summary")).toHaveTextContent(/\d+ m/);
     expect(screen.getByTestId("pilot-summary")).toHaveTextContent(/\d+ min/);
     expect(screen.queryByTestId("pilot-summary-unscaled")).toBeNull();
-    expect(screen.getByTestId("mallreds-pilot")).toHaveAttribute("data-metric", "true");
+    expect(screen.getByTestId("wayfinding-pilot")).toHaveAttribute("data-metric", "true");
   });
 
   it("an unknown mall id renders a safe 'no map' notice, never a fabricated map", () => {
@@ -142,7 +142,7 @@ describe("WayfindingPilot — unscaled source-backed dataset (Menlyn Park)", () 
 describe("WayfindingPilot — Garden Route Mall (source-backed, unscaled, awaiting field verification)", () => {
   it("Entrance 4 → Pick n Pay renders topology only with the Garden Route status wording", () => {
     render(<WayfindingPilot embedded mallId="garden-route-mall" />);
-    expect(screen.getByTestId("mallreds-pilot")).toHaveAttribute("data-mall-id", "garden-route-mall");
+    expect(screen.getByTestId("wayfinding-pilot")).toHaveAttribute("data-mall-id", "garden-route-mall");
     expect(screen.getByTestId("pilot-anchor-summary")).toHaveTextContent("Entrance 4");
     const list = screen.getByTestId("pilot-suggestions");
     for (const name of ["Woolworths", "Clicks", "Pick n Pay"]) expect(within(list).getByText(name)).toBeInTheDocument();
@@ -181,7 +181,7 @@ describe("WayfindingPilot — navigation session (scan → search → walk → r
     render(<WayfindingPilot embedded mallId="garden-route-mall" initialAnchor={E4} />);
     expect(screen.getByTestId("pilot-anchor-summary")).toHaveTextContent(/Starting from Entrance 4\s*· from the QR code you scanned/);
     fireEvent.click(within(screen.getByTestId("pilot-suggestions")).getByText("Woolworths"));
-    expect(screen.getByTestId("mallreds-pilot")).toHaveAttribute("data-session-status", "route_ready");
+    expect(screen.getByTestId("wayfinding-pilot")).toHaveAttribute("data-session-status", "route_ready");
     expect(screen.getByTestId("pilot-route-claim")).toHaveTextContent("Source-backed route");
     expect(screen.getByRole("button", { name: /start navigation/i })).toBeInTheDocument();
     expect(screen.getByTestId("pilot-anchor-source")).toHaveTextContent("from the QR code you scanned");
@@ -189,9 +189,9 @@ describe("WayfindingPilot — navigation session (scan → search → walk → r
 
   it("Start → step view → Next through every step → arrival wording respects evidence; no metres or minutes anywhere", () => {
     startTo("Woolworths");
-    expect(screen.getByTestId("mallreds-pilot")).toHaveAttribute("data-session-status", "navigating");
+    expect(screen.getByTestId("wayfinding-pilot")).toHaveAttribute("data-session-status", "navigating");
     expect(screen.getByTestId("pilot-step-counter")).toHaveTextContent("Step 1 of 3");
-    expect(screen.getByTestId("pilot-step-counter")).toHaveTextContent("Floor Level 1");
+    expect(screen.getByTestId("pilot-step-counter")).toHaveTextContent("Floor Mall level (single sheet)"); // label from the Venue Pack, not invented from the id
     expect(screen.getByTestId("pilot-step-current")).toHaveTextContent(/^Walk straight in from Entrance 4/);
     expect(screen.getByTestId("pilot-step-next")).toHaveTextContent("Then: Cross the main walkway");
     expect(screen.getByTestId("pilot-prev")).toBeDisabled();
@@ -200,7 +200,7 @@ describe("WayfindingPilot — navigation session (scan → search → walk → r
     expect(screen.getByTestId("pilot-step-counter")).toHaveTextContent("Step 2 of 3");
     expect(screen.getByTestId("pilot-next")).toHaveTextContent("I’m there");
     fireEvent.click(screen.getByTestId("pilot-next"));
-    expect(screen.getByTestId("mallreds-pilot")).toHaveAttribute("data-session-status", "arrived");
+    expect(screen.getByTestId("wayfinding-pilot")).toHaveAttribute("data-session-status", "arrived");
     expect(screen.getByTestId("pilot-arrival")).toHaveTextContent("You’ve reached the mapped arrival point for Woolworths.");
     expect(screen.getByTestId("pilot-arrival-note")).toHaveTextContent("not at its door");
     expect(screen.queryByTestId("pilot-next")).toBeNull();
@@ -219,7 +219,7 @@ describe("WayfindingPilot — navigation session (scan → search → walk → r
     fireEvent.click(screen.getByTestId("pilot-prev"));
     expect(screen.getByTestId("pilot-step-counter")).toHaveTextContent("Step 2 of 3");
     fireEvent.click(screen.getByTestId("pilot-restart"));
-    expect(screen.getByTestId("mallreds-pilot")).toHaveAttribute("data-session-status", "route_ready");
+    expect(screen.getByTestId("wayfinding-pilot")).toHaveAttribute("data-session-status", "route_ready");
     fireEvent.click(screen.getByTestId("pilot-start-navigation"));
     fireEvent.click(screen.getByTestId("pilot-next"));
     fireEvent.click(screen.getByTestId("pilot-next"));
@@ -241,7 +241,7 @@ describe("WayfindingPilot — navigation session (scan → search → walk → r
     fireEvent.click(within(panel).getByRole("button", { name: /Entrance 2/ }));
     expect(screen.queryByTestId("pilot-reanchor-panel")).toBeNull();
     expect(screen.getByTestId("pilot-dest-name")).toHaveTextContent("Clicks");
-    expect(screen.getByTestId("mallreds-pilot")).toHaveAttribute("data-session-status", "navigating");
+    expect(screen.getByTestId("wayfinding-pilot")).toHaveAttribute("data-session-status", "navigating");
     expect(screen.getByTestId("pilot-step-counter")).toHaveTextContent("Step 1 of");
     expect(screen.getByTestId("pilot-step-current")).toHaveTextContent("Entrance 2");
     expect(screen.getByTestId("pilot-route-updated")).toHaveTextContent("Route updated — now starting from Entrance 2");
@@ -269,7 +269,7 @@ describe("WayfindingPilot — navigation session (scan → search → walk → r
     cleanup(); // the phone camera opened the second QR → fresh page load
     render(<WayfindingPilot embedded mallId="garden-route-mall" initialAnchor={anchorFor(grm, "grm-entrance-4", "qr")} />);
     expect(screen.getByTestId("pilot-dest-name")).toHaveTextContent("Pick n Pay");
-    expect(screen.getByTestId("mallreds-pilot")).toHaveAttribute("data-session-status", "navigating");
+    expect(screen.getByTestId("wayfinding-pilot")).toHaveAttribute("data-session-status", "navigating");
     expect(screen.getByTestId("pilot-step-counter")).toHaveTextContent("Step 1 of 9");
     cleanup();
     // a different mall's link never inherits it; a manual visit never restores it
@@ -281,22 +281,22 @@ describe("WayfindingPilot — navigation session (scan → search → walk → r
   });
 
   it("unroutable destination shows an honest failure with a way out (change start); re-anchoring recovers", async () => {
-    const engine = await import("./pilotRoute");
-    const real = engine.pilotBuildRoute;
-    const spy = vi.spyOn(engine, "pilotBuildRoute").mockImplementation((nodes, edges, start, dest) =>
+    const engine = await import("@/venue/route");
+    const real = engine.buildRoute;
+    const spy = vi.spyOn(engine, "buildRoute").mockImplementation((graph, start, dest) =>
       start === "entrance-2"
         ? { found: true, fallback: true, steps: [], metric: false, total_distance_meters: null, estimated_minutes: null, message: "Clicks isn’t connected to this map yet." }
-        : real(nodes, edges, start, dest));
+        : real(graph, start, dest));
     try {
       render(<WayfindingPilot embedded mallId="mallreds-pilot" initialAnchor={anchorFromStart("entrance-2", "qr")} />);
       fireEvent.click(within(screen.getByTestId("pilot-suggestions")).getByText("Clicks"));
-      expect(screen.getByTestId("mallreds-pilot")).toHaveAttribute("data-session-status", "unroutable");
+      expect(screen.getByTestId("wayfinding-pilot")).toHaveAttribute("data-session-status", "unroutable");
       expect(screen.getByRole("alert")).toHaveTextContent("Clicks isn’t connected to this map yet.");
       expect(screen.getByRole("alert")).toHaveTextContent("Try another starting point");
       expect(screen.queryByTestId("pilot-start-navigation")).toBeNull();
       expect(screen.queryByTestId("pilot-steps")).toBeNull();
       fireEvent.change(screen.getByTestId("pilot-start-select"), { target: { value: "entrance-main" } });
-      expect(screen.getByTestId("mallreds-pilot")).toHaveAttribute("data-session-status", "route_ready");
+      expect(screen.getByTestId("wayfinding-pilot")).toHaveAttribute("data-session-status", "route_ready");
       expect(screen.getByTestId("pilot-dest-name")).toHaveTextContent("Clicks");
     } finally {
       spy.mockRestore();
@@ -325,6 +325,6 @@ describe("WayfindingPilot — navigation session (scan → search → walk → r
       "navigation_session_started", "navigation_step_advanced", "navigation_step_back", "navigation_reanchored",
       "navigation_step_advanced", "navigation_step_advanced", "navigation_arrived",
     ]);
-    expect(screen.getByTestId("mallreds-pilot")).toHaveAttribute("data-session-status", "arrived");
+    expect(screen.getByTestId("wayfinding-pilot")).toHaveAttribute("data-session-status", "arrived");
   });
 });

@@ -11,7 +11,7 @@
  */
 
 import type { BackendNodeLike, BackendEdgeLike, FloorImageMap } from "./floorplanModel";
-import type { DatasetStatus, EvidenceStatus } from "./mallRedsPilotDataset";
+import type { DatasetStatus } from "./mallDatasets";
 import {
   getWayfindingMall, pointsOfInterest, searchPois, startOptions, defaultAnchor, anchorFor,
   DEFAULT_WAYFINDING_MALL_ID,
@@ -20,10 +20,10 @@ import {
 
 export type { PilotPoi, PilotPoiKind, PilotAnchor, PilotAnchorSource };
 
-const PILOT = getWayfindingMall(DEFAULT_WAYFINDING_MALL_ID)!;
+const PILOT = getWayfindingMall("mallreds-pilot") ?? getWayfindingMall(DEFAULT_WAYFINDING_MALL_ID)!;
 
-export const MALL_REDS_PILOT_MALL_ID = PILOT.mallId;
-export const MALL_REDS_PILOT_MALL_NAME = PILOT.mallName;
+export const MALL_REDS_PILOT_MALL_ID = PILOT.id;
+export const MALL_REDS_PILOT_MALL_NAME = PILOT.name;
 
 /** Pilot nodes derived from the spatial dataset (entrances, amenities, corridor spine, tenants). */
 export const MALL_REDS_PILOT_NODES: BackendNodeLike[] = PILOT.nodes;
@@ -35,8 +35,9 @@ export const MALL_REDS_PILOT_EDGES: BackendEdgeLike[] = PILOT.edges;
 export const MALL_REDS_PILOT_FLOOR_IMAGES: FloorImageMap = PILOT.floorImages;
 
 /** The dataset's self-declared truth level — schematic/unverified until real geometry is loaded. */
-export function pilotDatasetStatus(): { datasetStatus: DatasetStatus; evidenceStatus: EvidenceStatus } {
-  return { datasetStatus: PILOT.datasetStatus, evidenceStatus: PILOT.evidenceStatus };
+export function pilotDatasetStatus(): { datasetStatus: DatasetStatus; evidenceStatus: "unverified" | "source-backed" | "field-verified" } {
+  const geometry = PILOT.evidence.geometry;
+  return { datasetStatus: geometry, evidenceStatus: geometry === "schematic" ? "unverified" : geometry };
 }
 
 /** All routable destinations (real tenants + amenities), honestly limited to connected nodes. */

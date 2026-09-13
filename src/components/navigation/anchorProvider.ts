@@ -29,7 +29,10 @@ export const FUTURE_ANCHOR_SOURCES: readonly AnchorSource[] = ["native", "wifi_r
 /** A start position MallMind is allowed to trust: validated against the registry, never guessed. */
 export interface TrustedAnchor {
   mallId: string;
+  /** The venue's anchor id (what a QR encodes). */
   anchorId: string;
+  /** Graph node the anchor stands at (what routing consumes). */
+  nodeId: string;
   label: string;
   source: AnchorSource;
   /** When the anchor was resolved (ms since epoch); useful for "how stale is this start?". */
@@ -70,12 +73,13 @@ export function validateAnchor(mallId: string, anchorId: string, source: AnchorS
   if (!mall) return { status: "failed", code: "malformed", mallId: null, reason: ANCHOR_REASONS.noMall };
   const graph = ID_PATTERN.test(mall) ? getWayfindingMall(mall) : null;
   if (!graph) return { status: "failed", code: "unknown_mall", mallId: null, reason: ANCHOR_REASONS.unknownMall };
-  if (!id || !ID_PATTERN.test(id) || !graph.nodes.some((n) => n.id === id)) {
+  if (!id || !ID_PATTERN.test(id) || !(graph.anchorById.has(id) || graph.nodeById.has(id))) {
     return { status: "failed", code: "unknown_anchor", mallId: mall, reason: ANCHOR_REASONS.notAStart };
   }
-  const start = startOptions(graph).find((s) => s.id === id);
+  // A QR/link may carry the anchor id or (older links) the anchor's node id; both must be start-permitted.
+  const start = startOptions(graph).find((s) => s.id === id) ?? startOptions(graph).find((s) => s.nodeId === id);
   if (!start) return { status: "failed", code: "not_a_start", mallId: mall, reason: ANCHOR_REASONS.notAStart };
-  return { status: "ok", anchor: { mallId: mall, anchorId: id, label: start.label, source, resolvedAt: now, evidence: "registry" } };
+  return { status: "ok", anchor: { mallId: mall, anchorId: start.id, nodeId: start.nodeId, label: start.label, source, resolvedAt: now, evidence: "registry" } };
 }
 
 /** The visitor chose a start point in the UI. */
@@ -128,5 +132,5 @@ export function anchorProviderFor(source: AnchorSource): AnchorProvider<never> |
 
 /** The route/session consume the lighter `PilotAnchor`; only `nodeId` drives routing. */
 export function toPilotAnchor(a: TrustedAnchor): PilotAnchor {
-  return { nodeId: a.anchorId, label: a.label, source: a.source };
+  return { nodeId: a.nodeId, label: a.label, source: a.source, anchorId: a.anchorId };
 }

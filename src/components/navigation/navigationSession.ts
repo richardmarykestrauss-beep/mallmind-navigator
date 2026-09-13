@@ -12,18 +12,18 @@
  * infers movement. Re-anchoring replaces the trusted start, keeps the destination, recalculates
  * the route and resets step progress — it is a discrete, visitor-initiated event, not tracking.
  *
- * Routing reuses pilotBuildRoute over the registry graph; evidence (schematic / source-backed /
- * field-verified) never changes how this reducer behaves — only what the UI claims.
+ * Routing reuses the generic Venue Pack router (src/venue/route.ts); evidence (schematic /
+ * source-backed / field-verified) never changes how this reducer behaves — only what the UI claims.
  */
 
-import type { BackendNodeLike, BackendEdgeLike } from "./floorplanModel";
-import { pilotBuildRoute, type PilotRouteResult } from "./pilotRoute";
+import { buildRoute, type RouteResult as PilotRouteResult, type RoutableGraph } from "@/venue/route";
 import type { PilotAnchor, PilotPoi } from "./mallDatasets";
 import type { RouteStep } from "@/context/ShoppingSessionContext";
 
 export type NavigationStatus = "destination_selection" | "route_ready" | "navigating" | "arrived" | "unroutable";
 
-export interface NavigationGraph { nodes: BackendNodeLike[]; edges: BackendEdgeLike[] }
+/** Anything routable: a LoadedVenue (with floors + policies) or a bare graph in tests. */
+export type NavigationGraph = RoutableGraph;
 
 export interface NavigationSession {
   mallId: string;
@@ -64,7 +64,7 @@ export function createNavigationSession(mallId: string, anchor: PilotAnchor): Na
 
 function withRoute(graph: NavigationGraph, s: NavigationSession, resume: boolean): NavigationSession {
   if (!s.destination) return { ...s, route: null, stepIndex: 0, completedSteps: [], status: "destination_selection" };
-  const route = pilotBuildRoute(graph.nodes, graph.edges, s.anchor.nodeId, s.destination.id);
+  const route = buildRoute(graph, s.anchor.nodeId, s.destination.id);
   const ok = routable(route);
   return {
     ...s,

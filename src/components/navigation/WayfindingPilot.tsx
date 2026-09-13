@@ -3,7 +3,7 @@
  *
  * One implementation, two mounts:
  *   • /navigate (NavigateScreen) — embedded inside MobileShell for shoppers.
- *   • /pilot (MallRedsPilot)     — standalone, for controlled testing.
+ *   • /pilot (WayfindingPilotPage) — standalone, for controlled testing.
  *
  * Journey (navigationSession.ts): scan QR / open link → mall + trusted start anchor → "Where do
  * you want to go?" → route calculated → START NAVIGATION → focused instruction view with MANUAL
@@ -32,7 +32,9 @@ import {
   getWayfindingMall, startOptions, searchPois, defaultAnchor, anchorFor, pointsOfInterest, DEFAULT_WAYFINDING_MALL_ID,
   type PilotPoi, type PilotAnchor,
 } from "@/components/navigation/mallDatasets";
-import type { LoadedPilotDataset } from "@/components/navigation/mallRedsPilotDataset";
+import type { LoadedPilotDataset } from "@/components/navigation/mallDatasets";
+import { truthCopy as venueTruthCopy } from "@/venue/evidence";
+import { floorLabelFor } from "@/venue/instructions";
 import {
   createNavigationSession, navigationReducer, sessionSteps, currentStep, upcomingStep, isRoutable,
   type NavigationSession, type NavigationAction,
@@ -49,39 +51,13 @@ const ANCHOR_SOURCE_LABEL: Partial<Record<PilotAnchor["source"], string>> = {
   qr: "from the QR code you scanned",
 };
 
-/** Honest status wording derived from the DATA, never from the UI's optimism. */
+/** Honest status wording derived from the Venue Pack's evidence, never from the UI's optimism. */
 function truthCopy(g: LoadedPilotDataset): { summary: string; statusLine: string; details: string[] } {
-  const measured = g.metric ? "" : " Distance not yet measured.";
-  const tier = routeEvidenceTier(g);
-  if (tier === "schematic") {
-    return {
-      summary: "Pilot schematic · not an official floorplan · route preview only",
-      statusLine: `Route preview — your position is not tracked.${measured}`,
-      details: [
-        "Pilot schematic — route geometry awaits on-site verification.",
-        `Not an official ${g.mallName} floorplan.`,
-        "Route preview only — live indoor positioning is not active.",
-        "Not accessibility-verified. Not for emergency or evacuation use.",
-      ],
-    };
-  }
-  const verified = tier === "field-verified" ? "walked on site" : "not yet walked on site";
-  const claim = tier === "field-verified" ? "Field-verified route" : "Source-backed route preview";
-  return {
-    summary: `${claim} · ${verified}${g.metric ? "" : " · distance not measured"}`,
-    statusLine: `${claim}.${measured} Your position is not tracked.`,
-    details: [
-      `Route traced from ${g.mallName}'s published floor plan; ${verified}.`,
-      `Not an official ${g.mallName} deployment. Controlled pilot only.`,
-      g.metric ? "Distances are measured." : "Distance not yet measured — no walking time is shown.",
-      "Store entrances shown as the nearest corridor point, not the door.",
-      "Not accessibility-verified. Not for emergency or evacuation use.",
-    ],
-  };
+  return venueTruthCopy(g.pack.venue, g.metric);
 }
 
 export interface WayfindingPilotProps {
-  /** Which bundled mall dataset to route over; defaults to the Mall@Reds pilot. */
+  /** Which registered venue to route over; defaults to the registry's first bundled venue. */
   mallId?: string;
   /** Start anchor resolved from a link / QR (same model as manual selection). */
   initialAnchor?: PilotAnchor | null;
@@ -108,7 +84,7 @@ export default function WayfindingPilot({ mallId, ...rest }: WayfindingPilotProp
       </div>
     );
   }
-  return <WayfindingPilotView key={graph.mallId} graph={graph} {...rest} />;
+  return <WayfindingPilotView key={graph.id} graph={graph} {...rest} />;
 }
 
 /**
@@ -118,14 +94,14 @@ export default function WayfindingPilot({ mallId, ...rest }: WayfindingPilotProp
  */
 function initialSession(graph: LoadedPilotDataset, initialAnchor: PilotAnchor | null | undefined, remember: boolean): NavigationSession {
   const anchor = initialAnchor ?? defaultAnchor(graph);
-  const fresh = createNavigationSession(graph.mallId, anchor);
+  const fresh = createNavigationSession(graph.id, anchor);
   if (!remember || !initialAnchor || (initialAnchor.source !== "url" && initialAnchor.source !== "qr")) return fresh;
-  const saved = loadPersistedNavigationSession(graph.mallId);
+  const saved = loadPersistedNavigationSession(graph.id);
   if (!saved) return fresh;
   const destination = pointsOfInterest(graph).find((p) => p.id === saved.destinationId);
   if (!destination) return fresh;
   // Replay: previous anchor → destination → (walking?) → re-anchor at the scanned start.
-  let s = createNavigationSession(graph.mallId, anchorFor(graph, saved.anchorNodeId, "manual"));
+  let s = createNavigationSession(graph.id, anchorFor(graph, saved.anchorNodeId, "manual"));
   s = navigationReducer(graph, s, { type: "select_destination", destination });
   if (saved.status === "navigating" || saved.status === "arrived") s = navigationReducer(graph, s, { type: "start_navigation" });
   if (saved.anchorNodeId === initialAnchor.nodeId) return { ...s, anchor: initialAnchor };
@@ -136,7 +112,7 @@ function WayfindingPilotView({ graph, initialAnchor, anchorNotice, embedded, onO
   const starts = useMemo(() => startOptions(graph), [graph]);
   const floorplan = useMemo(
     () => attachFloorImages(
-      toFloorplanModel({ nodes: graph.nodes, edges: graph.edges }, { mallId: graph.mallId, mallName: graph.mallName }),
+      toFloorplanModel({ nodes: graph.nodes, edges: graph.edges }, { mallId: graph.id, mallName: graph.name }),
       graph.floorImages,
     ),
     [graph],
@@ -157,21 +133,21 @@ function WayfindingPilotView({ graph, initialAnchor, anchorNotice, embedded, onO
     const base = { destination: next.destination?.id ?? null, anchor: next.anchor.nodeId, anchorSource: next.anchor.source, evidence: routeEvidenceTier(graph) };
     switch (action.type) {
       case "select_destination":
-        if (next.status === "unroutable") emit({ name: "navigation_failed", mallId: graph.mallId, detail: { ...base, reason: next.route?.message ?? "unroutable" } });
+        if (next.status === "unroutable") emit({ name: "navigation_failed", mallId: graph.id, detail: { ...base, reason: next.route?.message ?? "unroutable" } });
         break;
       case "start_navigation":
-        if (next.status !== session.status) emit({ name: "navigation_session_started", mallId: graph.mallId, detail: { ...base, steps: sessionSteps(next).length, metric: Boolean(next.route?.metric) } });
+        if (next.status !== session.status) emit({ name: "navigation_session_started", mallId: graph.id, detail: { ...base, steps: sessionSteps(next).length, metric: Boolean(next.route?.metric) } });
         break;
       case "next_step":
-        if (next.stepIndex !== session.stepIndex) emit({ name: "navigation_step_advanced", mallId: graph.mallId, detail: { ...base, step: next.stepIndex + 1 } });
-        if (next.status === "arrived" && session.status !== "arrived") emit({ name: "navigation_arrived", mallId: graph.mallId, detail: base });
+        if (next.stepIndex !== session.stepIndex) emit({ name: "navigation_step_advanced", mallId: graph.id, detail: { ...base, step: next.stepIndex + 1 } });
+        if (next.status === "arrived" && session.status !== "arrived") emit({ name: "navigation_arrived", mallId: graph.id, detail: base });
         break;
       case "previous_step":
-        if (next.stepIndex !== session.stepIndex) emit({ name: "navigation_step_back", mallId: graph.mallId, detail: { ...base, step: next.stepIndex + 1 } });
+        if (next.stepIndex !== session.stepIndex) emit({ name: "navigation_step_back", mallId: graph.id, detail: { ...base, step: next.stepIndex + 1 } });
         break;
       case "reanchor":
-        emit({ name: "navigation_reanchored", mallId: graph.mallId, detail: { ...base, from: session.anchor.nodeId, routable: isRoutable(next) } });
-        if (next.status === "unroutable") emit({ name: "navigation_failed", mallId: graph.mallId, detail: { ...base, reason: next.route?.message ?? "unroutable" } });
+        emit({ name: "navigation_reanchored", mallId: graph.id, detail: { ...base, from: session.anchor.nodeId, routable: isRoutable(next) } });
+        if (next.status === "unroutable") emit({ name: "navigation_failed", mallId: graph.id, detail: { ...base, reason: next.route?.message ?? "unroutable" } });
         break;
       default:
         break;
@@ -213,7 +189,10 @@ function WayfindingPilotView({ graph, initialAnchor, anchorNotice, embedded, onO
     return buildRoutePolyline([...lead, ...steps]);
   }, [hasRoute, graph, anchor.nodeId, steps]);
   const navigating = status === "navigating" || status === "arrived";
-  const activeFloor = normalizeFloorLabel(steps[navigating ? session.stepIndex : 0]?.floor ?? graph.dataset.floors[0]?.id ?? "G");
+  // Canvas floor KEY (bucketing only); display labels come from the pack's floors.
+  const activeFloor = normalizeFloorLabel(steps[navigating ? session.stepIndex : 0]?.floor ?? graph.floors[0]?.id);
+  const floorLabel = (id: string | null | undefined) => floorLabelFor(graph.floors, id ?? graph.floors[0]?.id, graph.policies.floors.display);
+  const currentAnchorId = anchor.anchorId ?? starts.find((s) => s.nodeId === anchor.nodeId)?.id ?? anchor.nodeId;
   const anchorSourceLabel = ANCHOR_SOURCE_LABEL[anchor.source] ?? null;
   const showMetrics = Boolean(hasRoute && route!.metric && route!.total_distance_meters !== null && route!.estimated_minutes !== null);
   const exampleNames = useMemo(() => searchPois(graph, "").slice(0, 5).map((p) => p.name).join(", "), [graph]);
@@ -235,7 +214,7 @@ function WayfindingPilotView({ graph, initialAnchor, anchorNotice, embedded, onO
         </button>
       )}
       <div className="min-w-0">
-        <h1 className="truncate text-base font-semibold leading-tight">{graph.mallName} · Wayfinding</h1>
+        <h1 className="truncate text-base font-semibold leading-tight">{graph.name} · Wayfinding</h1>
         <p className="truncate text-xs text-muted-foreground">Find a shop or facility and get walked there</p>
       </div>
     </header>
@@ -258,12 +237,12 @@ function WayfindingPilotView({ graph, initialAnchor, anchorNotice, embedded, onO
             <button
               type="button"
               onClick={() => changeAnchor(s.id, "manual")}
-              aria-current={s.id === anchor.nodeId ? "location" : undefined}
-              className={`flex min-h-11 w-full items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm ${s.id === anchor.nodeId ? "border-primary/50 bg-primary/5 font-medium" : ""}`}
+              aria-current={s.id === currentAnchorId ? "location" : undefined}
+              className={`flex min-h-11 w-full items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm ${s.id === currentAnchorId ? "border-primary/50 bg-primary/5 font-medium" : ""}`}
             >
               <MapPin className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
               <span className="flex-1">{s.label}</span>
-              {s.id === anchor.nodeId && <span className="text-[11px] text-muted-foreground">current start</span>}
+              {s.id === currentAnchorId && <span className="text-[11px] text-muted-foreground">current start</span>}
             </button>
           </li>
         ))}
@@ -278,9 +257,9 @@ function WayfindingPilotView({ graph, initialAnchor, anchorNotice, embedded, onO
   return (
     <div
       className={embedded ? "flex flex-col" : "mx-auto flex min-h-[100dvh] max-w-md flex-col bg-background"}
-      data-testid="mallreds-pilot"
-      data-mall-id={graph.mallId}
-      data-dataset-status={graph.datasetStatus}
+      data-testid="wayfinding-pilot"
+      data-mall-id={graph.id}
+      data-dataset-status={routeEvidenceTier(graph)}
       data-metric={graph.metric ? "true" : "false"}
       data-session-status={status}
     >
@@ -385,7 +364,7 @@ function WayfindingPilotView({ graph, initialAnchor, anchorNotice, embedded, onO
                   <p className="text-xs text-muted-foreground" data-testid="pilot-step-counter">
                     Step {session.stepIndex + 1} of {steps.length}
                     <span aria-hidden> · </span>
-                    <span>Floor {normalizeFloorLabel(currentStep(session)?.floor ?? "G")}</span>
+                    <span>Floor {floorLabel(currentStep(session)?.floor)}</span>
                   </p>
                   <p className="mt-1 text-lg font-medium leading-snug" data-testid="pilot-step-current">{currentStep(session)?.instruction}</p>
                 </div>
@@ -443,7 +422,7 @@ function WayfindingPilotView({ graph, initialAnchor, anchorNotice, embedded, onO
                 currentStepIndex={session.stepIndex}
                 markerStyle="step"
                 simulatedPosition={null}
-                isDemo={graph.datasetStatus === "schematic"}
+                isDemo={routeEvidenceTier(graph) === "schematic"}
               />
             </div>
             <p className="text-xs text-muted-foreground" data-testid="pilot-status-line">{copy.statusLine}</p>
@@ -473,7 +452,7 @@ function WayfindingPilotView({ graph, initialAnchor, anchorNotice, embedded, onO
                 <span className="text-xs text-muted-foreground">Starting from</span>
                 <select
                   className="ml-auto min-h-9 flex-1 rounded-md border bg-background px-2 py-1 text-sm"
-                  value={anchor.nodeId}
+                  value={currentAnchorId}
                   onChange={(e) => changeAnchor(e.target.value)}
                   aria-label="Starting point"
                   data-testid="pilot-start-select"
@@ -500,12 +479,12 @@ function WayfindingPilotView({ graph, initialAnchor, anchorNotice, embedded, onO
                   <div className="grid grid-cols-3 gap-2 text-center" data-testid="pilot-summary">
                     <div className="rounded-lg border py-2"><div className="text-lg font-semibold">{route!.total_distance_meters}<span className="text-xs font-normal"> m</span></div><div className="text-[11px] text-muted-foreground">distance</div></div>
                     <div className="rounded-lg border py-2"><div className="text-lg font-semibold">{route!.estimated_minutes}<span className="text-xs font-normal"> min</span></div><div className="text-[11px] text-muted-foreground">walk</div></div>
-                    <div className="rounded-lg border py-2"><div className="text-lg font-semibold">{steps[0]?.floor ?? "G"}</div><div className="text-[11px] text-muted-foreground">floor</div></div>
+                    <div className="rounded-lg border py-2"><div className="text-lg font-semibold">{floorLabel(steps[0]?.floor)}</div><div className="text-[11px] text-muted-foreground">floor</div></div>
                   </div>
                 ) : (
                   <div className="grid grid-cols-2 gap-2 text-center" data-testid="pilot-summary-unscaled">
                     <div className="rounded-lg border py-2"><div className="text-lg font-semibold">{steps.length - 1}</div><div className="text-[11px] text-muted-foreground">{steps.length - 1 === 1 ? "leg" : "legs"}</div></div>
-                    <div className="rounded-lg border py-2"><div className="text-lg font-semibold">{steps[0]?.floor ?? "G"}</div><div className="text-[11px] text-muted-foreground">floor</div></div>
+                    <div className="rounded-lg border py-2"><div className="text-lg font-semibold">{floorLabel(steps[0]?.floor)}</div><div className="text-[11px] text-muted-foreground">floor</div></div>
                     <p className="col-span-2 text-xs text-muted-foreground" data-testid="pilot-distance-unmeasured">Distance not yet measured — no walking time shown.</p>
                   </div>
                 )}
@@ -523,7 +502,7 @@ function WayfindingPilotView({ graph, initialAnchor, anchorNotice, embedded, onO
                     completedStepIndices={new Set<number>()}
                     currentStepIndex={-1}
                     simulatedPosition={null}
-                    isDemo={graph.datasetStatus === "schematic"}
+                    isDemo={routeEvidenceTier(graph) === "schematic"}
                   />
                 </div>
 

@@ -18,7 +18,7 @@ const SearchPage    = lazy(() => import("./pages/SearchPage.tsx"));
 const ShoppingList  = lazy(() => import("./pages/ShoppingList.tsx"));
 const Deals         = lazy(() => import("./pages/Deals.tsx"));
 const NavigateScreen= lazy(() => import("./pages/NavigateScreen.tsx"));
-const MallRedsPilot = lazy(() => import("./pages/MallRedsPilot.tsx"));
+const WayfindingPilotPage = lazy(() => import("./pages/WayfindingPilotPage.tsx"));
 const Parking       = lazy(() => import("./pages/Parking.tsx"));
 const Rewards       = lazy(() => import("./pages/Rewards.tsx"));
 const Profile       = lazy(() => import("./pages/Profile.tsx"));
@@ -50,7 +50,7 @@ const App = () => (
                 <Route path="/assistant" element={<AssistantPage />} />
                 <Route path="/auth" element={<AuthPage />} />
                 <Route path="/navigate" element={<NavigateScreen />} />
-                <Route path="/pilot" element={<MallRedsPilot />} />
+                <Route path="/pilot" element={<WayfindingPilotPage />} />
                 <Route path="/parking" element={<Parking />} />
                 <Route path="/rewards" element={<Rewards />} />
                 <Route path="/profile" element={<Profile />} />
