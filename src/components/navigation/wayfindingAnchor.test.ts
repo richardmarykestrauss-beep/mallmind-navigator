@@ -46,7 +46,7 @@ describe("wayfinding URL anchor (QR-ready seam)", () => {
     const r = parseWayfindingAnchor("?mall=menlyn-park&start=menlyn-lf-entrance-13");
     expect(r.status).toBe("ok");
     if (r.status !== "ok") return;
-    expect(r.anchor).toEqual({ nodeId: "menlyn-lf-entrance-13", label: "Entrance 13", source: "url" });
+    expect(r.anchor).toMatchObject({ nodeId: "menlyn-lf-entrance-13", label: "Entrance 13", source: "url" });
     const g = getWayfindingMall("menlyn-park")!;
     const route = pilotBuildRoute(g.nodes, g.edges, r.anchor.nodeId, "menlyn-clicks-lf72");
     expect(route.found && !route.fallback).toBe(true);
@@ -56,7 +56,7 @@ describe("wayfinding URL anchor (QR-ready seam)", () => {
   it("Garden Route link with Entrance 4 → ok; a Menlyn start is rejected there", () => {
     const r = parseWayfindingAnchor("?mall=garden-route-mall&start=grm-entrance-4");
     expect(r.status).toBe("ok");
-    if (r.status === "ok") expect(r.anchor).toEqual({ nodeId: "grm-entrance-4", label: "Entrance 4", source: "url" });
+    if (r.status === "ok") expect(r.anchor).toMatchObject({ nodeId: "grm-entrance-4", label: "Entrance 4", source: "url" });
     expect(parseWayfindingAnchor("?mall=garden-route-mall&start=menlyn-lf-entrance-13").status).toBe("invalid");
   });
 

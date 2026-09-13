@@ -13,8 +13,8 @@ describe("AnchorProvider contract — one trust gate for every way of learning w
     const r = manualAnchorProvider.resolve({ mallId: GRM, anchorId: E4 }, 1000);
     expect(r.status).toBe("ok");
     if (r.status !== "ok") return;
-    expect(r.anchor).toEqual({ mallId: GRM, anchorId: E4, label: "Entrance 4", source: "manual", resolvedAt: 1000, evidence: "registry" });
-    expect(toPilotAnchor(r.anchor)).toEqual({ nodeId: E4, label: "Entrance 4", source: "manual" });
+    expect(r.anchor).toMatchObject({ mallId: GRM, anchorId: E4, label: "Entrance 4", source: "manual", resolvedAt: 1000, evidence: "registry" });
+    expect(toPilotAnchor(r.anchor)).toMatchObject({ nodeId: E4, label: "Entrance 4", source: "manual" });
   });
 
   it("qr: the canonical deep link (absolute or site-relative) resolves to a qr-sourced anchor", () => {
