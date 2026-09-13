@@ -3,6 +3,8 @@
   "venue": {
     "id": "menlyn-park",
     "name": "Menlyn Park",
+    "pack_version": 1,
+    "revision_note": "Initial pack, migrated faithfully from the pre-Sprint-4 dataset (7d638f9).",
     "short_name": "Menlyn Park",
     "city": "Pretoria",
     "country": "South Africa",

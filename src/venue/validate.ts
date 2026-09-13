@@ -97,6 +97,8 @@ export function validateVenuePack(input: unknown): VenueValidation {
   const venue = isRec(p.venue) ? p.venue : (c.fail("$.venue", "required object is missing"), {} as Rec);
   c.id("$.venue.id", venue.id);
   c.text("$.venue.name", venue.name, true, 120);
+  c.num("$.venue.pack_version", venue.pack_version, { min: 1, integer: true });
+  c.text("$.venue.revision_note", venue.revision_note, false, 600);
   c.text("$.venue.short_name", venue.short_name, false, 60);
   c.text("$.venue.city", venue.city, false, 80);
   c.text("$.venue.country", venue.country, false, 80);

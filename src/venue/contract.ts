@@ -60,6 +60,10 @@ export const DEPLOYMENT_STATES: readonly DeploymentState[] = ["internal-pilot", 
 export interface VenueMeta {
   id: string;
   name: string;
+  /** Revision of THIS venue's pack (1, 2, …) — independent of schema_version. A field survey bumps it. */
+  pack_version: number;
+  /** What changed in this revision (plain text). */
+  revision_note?: string;
   short_name?: string;
   city?: string;
   country?: string;

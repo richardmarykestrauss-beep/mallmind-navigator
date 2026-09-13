@@ -3,6 +3,8 @@
   "venue": {
     "id": "mallreds-pilot",
     "name": "Mall@Reds",
+    "pack_version": 1,
+    "revision_note": "Initial pack, migrated faithfully from the pre-Sprint-4 dataset (7d638f9).",
     "short_name": "Mall@Reds",
     "city": "Centurion",
     "country": "South Africa",
