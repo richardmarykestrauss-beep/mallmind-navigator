@@ -8,53 +8,53 @@
   ],
   "accept": [
     {
-      "fact_id": "ftc-info-point",
+      "fact_id": "anchor:ftc-info-point",
       "reason": "Information desk confirmed as a permitted manual start (landmark); QR not eligible."
     },
     {
-      "fact_id": "ftc-ai-label-pharmacy",
+      "fact_id": "label:ftc-ai-label-pharmacy",
       "reason": "Label text confirmed against the plan by the reviewer."
     },
     {
-      "fact_id": "ftc-i-west-j1-f",
+      "fact_id": "instruction:ftc-i-west-j1-f",
       "reason": "Wording checked against the plan geometry for this direction only."
     },
     {
-      "fact_id": "ftc-i-j1-j2-f",
+      "fact_id": "instruction:ftc-i-j1-j2-f",
       "reason": "Wording checked against the plan geometry for this direction only."
     },
     {
-      "fact_id": "ftc-i-j1-j2-r",
+      "fact_id": "instruction:ftc-i-j1-j2-r",
       "reason": "Wording checked against the plan geometry for this direction only."
     },
     {
-      "fact_id": "ftc-i-j2-j3-f",
+      "fact_id": "instruction:ftc-i-j2-j3-f",
       "reason": "Wording checked against the plan geometry for this direction only."
     },
     {
-      "fact_id": "ftc-i-j3-east-r",
+      "fact_id": "instruction:ftc-i-j3-east-r",
       "reason": "Wording checked against the plan geometry for this direction only."
     },
     {
-      "fact_id": "ftc-i-j1-grocer-f",
+      "fact_id": "instruction:ftc-i-j1-grocer-f",
       "reason": "Wording checked against the plan geometry for this direction only."
     },
     {
-      "fact_id": "ftc-i-j2-pharmacy-f",
+      "fact_id": "instruction:ftc-i-j2-pharmacy-f",
       "reason": "Wording checked against the plan geometry for this direction only."
     },
     {
-      "fact_id": "ftc-i-j3-cafe-f",
+      "fact_id": "instruction:ftc-i-j3-cafe-f",
       "reason": "Wording checked against the plan geometry for this direction only."
     }
   ],
   "reject": [
     {
-      "fact_id": "ftc-shortcut-j2-cafe",
+      "fact_id": "edge:ftc-shortcut-j2-cafe",
       "reason": "No such passage on the plan: the model drew a line through the toilets block."
     },
     {
-      "fact_id": "ftc-j4-ghost",
+      "fact_id": "node:ftc-j4-ghost",
       "reason": "Nothing on the plan supports a fourth junction."
     },
     {
@@ -64,7 +64,7 @@
   ],
   "override": [
     {
-      "fact_id": "ftc-cafe",
+      "fact_id": "destination:ftc-cafe",
       "value": {
         "name": "Cafe",
         "kind": "food",

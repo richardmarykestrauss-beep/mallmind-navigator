@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "reviewer": "dry-run transcriber (Sprint 5)",
+  "reviewed_at": "2026-09-13T15:00:00Z",
+  "accept_all_of_class": [
+    "visual_first_party",
+    "secondary_corroboration"
+  ],
+  "accept": [
+    {
+      "fact_id": "instruction:grm-i-1",
+      "reason": "Wording exists only in the legacy dataset (7d638f9); carried over unchanged for the Entrance 4 → south direction. Not research-backed — provenance gap recorded."
+    },
+    {
+      "fact_id": "instruction:grm-i-2",
+      "reason": "Wording exists only in the legacy dataset (7d638f9); carried over unchanged for the Entrance 4 → south direction. Not research-backed — provenance gap recorded."
+    },
+    {
+      "fact_id": "instruction:grm-i-3",
+      "reason": "Wording exists only in the legacy dataset (7d638f9); carried over unchanged for the Entrance 4 → south direction. Not research-backed — provenance gap recorded."
+    },
+    {
+      "fact_id": "instruction:grm-i-4",
+      "reason": "Wording exists only in the legacy dataset (7d638f9); carried over unchanged for the Entrance 4 → south direction. Not research-backed — provenance gap recorded."
+    },
+    {
+      "fact_id": "instruction:grm-i-5",
+      "reason": "Wording exists only in the legacy dataset (7d638f9); carried over unchanged for the Entrance 4 → south direction. Not research-backed — provenance gap recorded."
+    },
+    {
+      "fact_id": "instruction:grm-i-6",
+      "reason": "Wording exists only in the legacy dataset (7d638f9); carried over unchanged for the Entrance 4 → south direction. Not research-backed — provenance gap recorded."
+    },
+    {
+      "fact_id": "instruction:grm-i-7",
+      "reason": "Wording exists only in the legacy dataset (7d638f9); carried over unchanged for the Entrance 4 → south direction. Not research-backed — provenance gap recorded."
+    },
+    {
+      "fact_id": "instruction:grm-i-8",
+      "reason": "Wording exists only in the legacy dataset (7d638f9); carried over unchanged for the Entrance 4 → south direction. Not research-backed — provenance gap recorded."
+    },
+    {
+      "fact_id": "instruction:grm-i-9",
+      "reason": "Wording exists only in the legacy dataset (7d638f9); carried over unchanged for the Entrance 4 → south direction. Not research-backed — provenance gap recorded."
+    }
+  ],
+  "reject": [],
+  "override": [],
+  "unresolved": [
+    {
+      "fact_id": "G12",
+      "reason": "Research ledger status UNKNOWN; not needed for the pilot route."
+    },
+    {
+      "fact_id": "G19",
+      "reason": "Research ledger status UNKNOWN; the pack stays unscaled (px)."
+    }
+  ]
+}

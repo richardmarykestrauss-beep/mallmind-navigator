@@ -36,6 +36,12 @@ export interface JobVenueConfig {
   deployment: { state: DeploymentState; official: boolean; label?: string };
   /** Graph unit the compiled pack must use. "m" requires an accepted measurement for EVERY edge. */
   distance_unit: DistanceUnit;
+  /**
+   * Headline field-verification state while NO field fact exists: "not-started" (default) or
+   * "pending" (a survey is planned). A statement of intent, never evidence — as soon as field facts
+   * are accepted the compiler derives partial / verified itself and this value is ignored.
+   */
+  field_verification_intent?: "not-started" | "pending";
   policies: VenuePolicies;
   notes?: string;
 }
@@ -285,5 +291,6 @@ export interface PackDiff {
 
 export const JOB_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
 export const SOURCE_ID_PATTERN = /^[a-z0-9][a-z0-9_-]{0,63}$/;
-export const FACT_ID_PATTERN = /^[a-z0-9][a-z0-9_:.~-]{0,127}$/;
-export const CANDIDATE_ID_PATTERN = /^[a-z0-9][a-z0-9_-]{0,127}$/;
+/** Candidate / fact ids: node, edge, destination, anchor and amenity ids still have to satisfy the pack's slug rule at compile time; floor ids and free fact ids (e.g. "LF", "G01") may carry capitals. */
+export const FACT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_:.~-]{0,127}$/;
+export const CANDIDATE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;

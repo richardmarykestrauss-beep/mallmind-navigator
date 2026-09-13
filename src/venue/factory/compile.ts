@@ -223,7 +223,7 @@ export function compileDraft(job: IngestionJob, ledger: EvidenceLedger, sources:
   const geometry: GeometryEvidence = geometries.length ? geometries.reduce((w, t) => (GEOMETRY_RANK[t] < GEOMETRY_RANK[w] ? t : w)) : "schematic";
   const measurement = edges.length > 0 && edges.every((e) => e.evidence.measurement === "measured") ? "measured" : "unmeasured";
   const fieldFacts = accepted.filter((f) => f.evidence_class === "field_verified");
-  const field_verification = fieldFacts.length === 0 ? "not-started" : geometry === "field-verified" && measurement === "measured" ? "verified" : "partial";
+  const field_verification = fieldFacts.length === 0 ? (job.venue.field_verification_intent ?? "not-started") : geometry === "field-verified" && measurement === "measured" ? "verified" : "partial";
   const venueAcc = statusOf("venue", "accessibility").fact;
   const accessibility = venueAcc && venueAcc.evidence_class === "field_verified" ? "verified" : "unverified";
   const noteFact = statusOf("venue", "note").fact;

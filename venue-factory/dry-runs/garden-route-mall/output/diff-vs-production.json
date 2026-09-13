@@ -1,0 +1,57 @@
+{
+  "from": {
+    "id": "garden-route-mall",
+    "pack_version": 1
+  },
+  "to": {
+    "id": "garden-route-mall",
+    "pack_version": 1
+  },
+  "floors": {
+    "added": [],
+    "removed": [],
+    "relabelled": []
+  },
+  "nodes": {
+    "added": [],
+    "removed": [],
+    "moved": [],
+    "renamed": [],
+    "evidence_changed": [],
+    "floor_changed": []
+  },
+  "edges": {
+    "added": [],
+    "removed": [],
+    "measured": [],
+    "unmeasured": [],
+    "instruction_changed": [],
+    "topology_changed": []
+  },
+  "destinations": {
+    "added": [],
+    "removed": [],
+    "arrival_changed": [],
+    "identity_changed": [],
+    "renamed": []
+  },
+  "anchors": {
+    "added": [],
+    "removed": [],
+    "changed": []
+  },
+  "amenities": {
+    "added": [],
+    "removed": [],
+    "changed": []
+  },
+  "venue": {
+    "evidence_changed": [],
+    "unit_changed": null,
+    "policies_changed": false
+  },
+  "summary": [
+    "garden-route-mall: v1 → v1",
+    "no changes"
+  ]
+}

@@ -1,0 +1,113 @@
+{
+  "schema_version": 1,
+  "job_id": "menlyn-park-dryrun",
+  "venue_id": "menlyn-park",
+  "created_at": "2026-09-13T15:00:00Z",
+  "status": "published",
+  "venue": {
+    "id": "menlyn-park",
+    "name": "Menlyn Park",
+    "short_name": "Menlyn Park",
+    "city": "Pretoria",
+    "country": "South Africa",
+    "deployment": {
+      "state": "controlled-pilot",
+      "official": false,
+      "label": "Controlled pilot — source-backed, unscaled, not field verified"
+    },
+    "distance_unit": "px",
+    "policies": {
+      "start": {
+        "allowed_anchor_kinds": [
+          "entrance",
+          "landmark"
+        ]
+      },
+      "destinations": {
+        "include_routable_amenities": true
+      },
+      "floors": {
+        "display": "label"
+      },
+      "metrics": {
+        "show": "when-measured"
+      },
+      "instructions": {
+        "generic_fallback": true,
+        "start_prefix": true
+      }
+    },
+    "notes": "Tenant identity (Clicks = LF 72, nearest Entrance 13, Orange Parking, Atterbury Road) is FIRST_PARTY_EXPLICIT from https://www.menlynpark.co.za/stores/clicks/ (re-verified 2026-09-03). Spatial positions are FIRST_PARTY_VISUAL from the LF map. Edge length_px values are pixels on the 1280-wide rendering and serve only as shortest-path weights.",
+    "field_verification_intent": "pending"
+  },
+  "pack_version": 1,
+  "revision_note": "Initial pack compiled by the Venue Pack Factory (job menlyn-park-dryrun).",
+  "sources": "sources.json",
+  "extraction_outputs": [
+    "extractions/01-extraction-research.json"
+  ],
+  "evidence_ledger": "ledger.json",
+  "reviews": [
+    "reviews/01-review-1-facts.json",
+    "reviews/02-review-2-approve.json"
+  ],
+  "draft_pack": "draft/menlyn-park.draft.venue.json",
+  "validation_result": {
+    "at": "2026-09-13T15:00:00Z",
+    "status": "ok",
+    "errors": [],
+    "warnings": []
+  },
+  "approval_state": {
+    "decision": "approve",
+    "reviewer": "dry-run transcriber (Sprint 5)",
+    "at": "2026-09-13T15:30:00Z",
+    "reason": "Dry run only: draft reproduces the research geometry; not for publication into the app bundle.",
+    "draft_sha256": "7b704200f828aafe0bb312cf85b66f616a3255c416bf13e5c4bb021f71a6775b"
+  },
+  "published_pack_version": 1,
+  "published_pack": "published/menlyn-park.v1.venue.json",
+  "base_pack": null,
+  "history": [
+    {
+      "at": "2026-09-13T15:00:00Z",
+      "status": "created",
+      "note": "new venue job"
+    },
+    {
+      "at": "2026-09-13T15:00:00Z",
+      "status": "sources_registered",
+      "note": "4 source(s) registered"
+    },
+    {
+      "at": "2026-09-13T15:00:00Z",
+      "status": "extracting",
+      "note": "extractions/01-extraction-research.json: 17 proposed fact(s) from file worker \"transcription of research/menlyn-spatial-poc (menlyn-lf-route-candidate.json + evidence-ledger F09–F12); no new facts\""
+    },
+    {
+      "at": "2026-09-13T15:00:00Z",
+      "status": "extracting",
+      "note": "reviews/01-review-1-facts.json: 17 fact decision(s), 0 override(s) by dry-run transcriber (Sprint 5)"
+    },
+    {
+      "at": "2026-09-13T15:00:00Z",
+      "status": "draft_ready",
+      "note": "draft compiled from 14 accepted fact(s) (3 not used) in 2.9 ms; sha256 7b704200f828aafe0bb312cf85b66f616a3255c416bf13e5c4bb021f71a6775b"
+    },
+    {
+      "at": "2026-09-13T15:00:00Z",
+      "status": "awaiting_review",
+      "note": "draft validated by the app validator; awaiting human approval"
+    },
+    {
+      "at": "2026-09-13T15:00:00Z",
+      "status": "approved",
+      "note": "reviews/02-review-2-approve.json: approved by dry-run transcriber (Sprint 5) — Dry run only: draft reproduces the research geometry; not for publication into the app bundle."
+    },
+    {
+      "at": "2026-09-13T15:00:00Z",
+      "status": "published",
+      "note": "published published/menlyn-park.v1.venue.json (sha256 7b704200f828aafe0bb312cf85b66f616a3255c416bf13e5c4bb021f71a6775b)"
+    }
+  ]
+}

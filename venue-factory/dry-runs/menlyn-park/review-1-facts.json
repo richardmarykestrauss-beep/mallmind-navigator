@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "reviewer": "dry-run transcriber (Sprint 5)",
+  "reviewed_at": "2026-09-13T15:00:00Z",
+  "accept_all_of_class": [
+    "visual_first_party",
+    "explicit_first_party"
+  ],
+  "accept": [
+    {
+      "fact_id": "instruction:menlyn-i-1",
+      "reason": "Wording from the legacy dataset (7d638f9), consistent with the research route_sequence line 2; forward direction only."
+    },
+    {
+      "fact_id": "instruction:menlyn-i-2",
+      "reason": "Wording from the legacy dataset (7d638f9), consistent with the research route_sequence lines 3–4; forward direction only."
+    }
+  ],
+  "reject": [],
+  "override": [],
+  "unresolved": [
+    {
+      "fact_id": "F13",
+      "reason": "UNKNOWN in the research ledger; destination stays a corridor arrival."
+    },
+    {
+      "fact_id": "F14",
+      "reason": "UNKNOWN; pack stays unscaled (px)."
+    },
+    {
+      "fact_id": "F17",
+      "reason": "UNKNOWN; accessibility stays unverified."
+    }
+  ]
+}

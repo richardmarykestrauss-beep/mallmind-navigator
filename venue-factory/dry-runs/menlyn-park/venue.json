@@ -1,0 +1,36 @@
+{
+  "id": "menlyn-park",
+  "name": "Menlyn Park",
+  "short_name": "Menlyn Park",
+  "city": "Pretoria",
+  "country": "South Africa",
+  "deployment": {
+    "state": "controlled-pilot",
+    "official": false,
+    "label": "Controlled pilot — source-backed, unscaled, not field verified"
+  },
+  "distance_unit": "px",
+  "policies": {
+    "start": {
+      "allowed_anchor_kinds": [
+        "entrance",
+        "landmark"
+      ]
+    },
+    "destinations": {
+      "include_routable_amenities": true
+    },
+    "floors": {
+      "display": "label"
+    },
+    "metrics": {
+      "show": "when-measured"
+    },
+    "instructions": {
+      "generic_fallback": true,
+      "start_prefix": true
+    }
+  },
+  "notes": "Tenant identity (Clicks = LF 72, nearest Entrance 13, Orange Parking, Atterbury Road) is FIRST_PARTY_EXPLICIT from https://www.menlynpark.co.za/stores/clicks/ (re-verified 2026-09-03). Spatial positions are FIRST_PARTY_VISUAL from the LF map. Edge length_px values are pixels on the 1280-wide rendering and serve only as shortest-path weights.",
+  "field_verification_intent": "pending"
+}

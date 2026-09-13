@@ -51,33 +51,35 @@ const scalarOf = (v: unknown): string | number | boolean | null => (typeof v ===
 
 /**
  * Turn a validated extraction into proposed facts. Every candidate becomes exactly one fact whose
- * fact_id is the candidate id (so a review addresses candidates directly); free facts get their own
- * ids. Points are normalised here so the ledger holds plane coordinates plus pixel provenance.
+ * fact_id is "<kind>:<candidate id>" (node:…, edge:…, instruction:…, anchor:… — the same text as
+ * the subject for spatial objects, so a review addresses candidates unambiguously and an anchor may
+ * share its node's id); free facts keep their own ids. Points are normalised here so the ledger
+ * holds plane coordinates plus pixel provenance.
  */
 export function factsFromExtraction(extraction: CandidateExtraction, proposedBy: string, sources: ReadonlyMap<string, SourceEntry>): { status: "ok"; facts: EvidenceFact[] } | { status: "failed"; errors: Issue[] } {
   const errors: Issue[] = [];
   const facts: EvidenceFact[] = [];
-  const base = (c: { id: string; source_id: string; evidence_class: EvidenceClass; confidence: number; manual_review_required: boolean; notes?: string }) => ({
-    fact_id: c.id, source_id: c.source_id, evidence_class: c.evidence_class, confidence: c.confidence, status: "proposed" as const,
+  const base = (kind: string, c: { id: string; source_id: string; evidence_class: EvidenceClass; confidence: number; manual_review_required: boolean; notes?: string }) => ({
+    fact_id: kind ? `${kind}:${c.id}` : c.id, source_id: c.source_id, evidence_class: c.evidence_class, confidence: c.confidence, status: "proposed" as const,
     proposed_by: proposedBy, manual_review_required: c.manual_review_required || INFERENCE_CLASSES.includes(c.evidence_class), ...(c.notes ? { notes: c.notes } : {}),
   });
   const pt = (path: string, at: CandidatePoint) => { const n = normalizePoint(at, sources); if (n.status === "failed") { errors.push({ path, message: n.message }); return null; } return n; };
   const pts = (path: string, list: CandidatePoint[]) => list.map((p, i) => pt(`${path}[${i}]`, p)).filter((p): p is NonNullable<typeof p> => p !== null).map((p) => ({ x_percent: p.x_percent, y_percent: p.y_percent, ...p.provenance }));
 
-  extraction.floors.forEach((f) => facts.push({ ...base(f), subject: `floor:${f.id}`, predicate: "floor", value: { label: f.label, order: f.order, aliases: (f.aliases ?? []).join("|") } }));
+  extraction.floors.forEach((f) => facts.push({ ...base("floor", f), subject: `floor:${f.id}`, predicate: "floor", value: { label: f.label, order: f.order, aliases: (f.aliases ?? []).join("|") } }));
   extraction.nodes.forEach((n, i) => {
     const p = pt(`$.nodes[${i}].at`, n.at); if (!p) return;
-    facts.push({ ...base(n), subject: `node:${n.id}`, predicate: "geometry", value: { name: n.name, kind: n.kind, floor: n.floor, x_percent: p.x_percent, y_percent: p.y_percent, ...p.provenance } });
+    facts.push({ ...base("node", n), subject: `node:${n.id}`, predicate: "geometry", value: { name: n.name, kind: n.kind, floor: n.floor, x_percent: p.x_percent, y_percent: p.y_percent, ...p.provenance } });
   });
-  extraction.unit_polygons.forEach((u, i) => facts.push({ ...base(u), subject: `unit:${u.id}`, predicate: "unit_polygon", value: [{ floor: u.floor, label: u.label ?? null }, ...pts(`$.unit_polygons[${i}].points`, u.points)] }));
-  extraction.store_labels.forEach((l, i) => { const p = pt(`$.store_labels[${i}].at`, l.at); if (!p) return; facts.push({ ...base(l), subject: `label:${l.id}`, predicate: "store_label", value: { text: l.text, floor: l.floor, unit: l.unit ?? null, x_percent: p.x_percent, y_percent: p.y_percent, ...p.provenance } }); });
-  extraction.corridor_centerlines.forEach((c, i) => facts.push({ ...base(c), subject: `centerline:${c.id}`, predicate: "corridor_centerline", value: [{ floor: c.floor }, ...pts(`$.corridor_centerlines[${i}].points`, c.points)] }));
-  extraction.edges.forEach((e) => facts.push({ ...base(e), subject: `edge:${e.id}`, predicate: "edge", value: { from: e.from, to: e.to, bidirectional: e.bidirectional ?? true, floor_change: e.floor_change ?? false, vertical_kind: e.vertical_kind ?? null, length_px: e.length_px ?? null } }));
-  extraction.instructions.forEach((s) => facts.push({ ...base(s), subject: `edge:${s.edge}`, predicate: `instruction_${s.direction}`, value: s.text }));
-  extraction.destinations.forEach((d) => facts.push({ ...base(d), subject: `destination:${d.id}`, predicate: "destination", value: { name: d.name, kind: d.kind, category: d.category ?? null, arrival_node: d.arrival_node, unit: d.unit ?? null, aliases: (d.aliases ?? []).join("|") } }));
-  extraction.anchors.forEach((a) => facts.push({ ...base(a), subject: `anchor:${a.id}`, predicate: "anchor", value: { node: a.node, label: a.label, kind: a.kind, start_permitted: a.start_permitted, qr_eligible: a.qr_eligible ?? a.start_permitted } }));
-  extraction.amenities.forEach((a) => facts.push({ ...base(a), subject: `amenity:${a.id}`, predicate: "amenity", value: { kind: a.kind, name: a.name, node: a.node, routable: a.routable, aliases: (a.aliases ?? []).join("|") } }));
-  extraction.facts.forEach((f) => facts.push({ ...base(f), subject: f.subject, predicate: f.predicate, value: f.value }));
+  extraction.unit_polygons.forEach((u, i) => facts.push({ ...base("unit", u), subject: `unit:${u.id}`, predicate: "unit_polygon", value: [{ floor: u.floor, label: u.label ?? null }, ...pts(`$.unit_polygons[${i}].points`, u.points)] }));
+  extraction.store_labels.forEach((l, i) => { const p = pt(`$.store_labels[${i}].at`, l.at); if (!p) return; facts.push({ ...base("label", l), subject: `label:${l.id}`, predicate: "store_label", value: { text: l.text, floor: l.floor, unit: l.unit ?? null, x_percent: p.x_percent, y_percent: p.y_percent, ...p.provenance } }); });
+  extraction.corridor_centerlines.forEach((c, i) => facts.push({ ...base("centerline", c), subject: `centerline:${c.id}`, predicate: "corridor_centerline", value: [{ floor: c.floor }, ...pts(`$.corridor_centerlines[${i}].points`, c.points)] }));
+  extraction.edges.forEach((e) => facts.push({ ...base("edge", e), subject: `edge:${e.id}`, predicate: "edge", value: { from: e.from, to: e.to, bidirectional: e.bidirectional ?? true, floor_change: e.floor_change ?? false, vertical_kind: e.vertical_kind ?? null, length_px: e.length_px ?? null } }));
+  extraction.instructions.forEach((s) => facts.push({ ...base("instruction", s), subject: `edge:${s.edge}`, predicate: `instruction_${s.direction}`, value: s.text }));
+  extraction.destinations.forEach((d) => facts.push({ ...base("destination", d), subject: `destination:${d.id}`, predicate: "destination", value: { name: d.name, kind: d.kind, category: d.category ?? null, arrival_node: d.arrival_node, unit: d.unit ?? null, aliases: (d.aliases ?? []).join("|") } }));
+  extraction.anchors.forEach((a) => facts.push({ ...base("anchor", a), subject: `anchor:${a.id}`, predicate: "anchor", value: { node: a.node, label: a.label, kind: a.kind, start_permitted: a.start_permitted, qr_eligible: a.qr_eligible ?? a.start_permitted } }));
+  extraction.amenities.forEach((a) => facts.push({ ...base("amenity", a), subject: `amenity:${a.id}`, predicate: "amenity", value: { kind: a.kind, name: a.name, node: a.node, routable: a.routable, aliases: (a.aliases ?? []).join("|") } }));
+  extraction.facts.forEach((f) => facts.push({ ...base("", f), subject: f.subject, predicate: f.predicate, value: f.value }));
   return errors.length ? { status: "failed", errors } : { status: "ok", facts };
 }
 
@@ -88,15 +90,15 @@ export function factsFromFieldImport(fi: FieldImport, proposedBy: string, source
   const src = sources.get(fi.source_id);
   if (!src) errors.push({ path: "$.source_id", message: `source "${fi.source_id}" is not in the manifest` });
   else if (src.type !== "field_measurement" && src.type !== "field_photo") errors.push({ path: "$.source_id", message: `field data must cite a field_measurement or field_photo source (got ${src.type})` });
-  const base = (id: string, notes?: string) => ({ fact_id: id, source_id: fi.source_id, evidence_class: "field_verified" as const, confidence: 1, status: "proposed" as const, proposed_by: proposedBy, manual_review_required: true, ...(notes ? { notes } : {}) });
-  fi.measurements.forEach((m) => facts.push({ ...base(m.id, m.notes), subject: `edge:${m.edge}`, predicate: "measurement", value: { distance_m: m.distance_m, method: m.method, observer: fi.observer, observed_at: fi.observed_at } }));
+  const base = (kind: string, id: string, notes?: string) => ({ fact_id: `${kind}:${id}`, source_id: fi.source_id, evidence_class: "field_verified" as const, confidence: 1, status: "proposed" as const, proposed_by: proposedBy, manual_review_required: true, ...(notes ? { notes } : {}) });
+  fi.measurements.forEach((m) => facts.push({ ...base("measurement", m.id, m.notes), subject: `edge:${m.edge}`, predicate: "measurement", value: { distance_m: m.distance_m, method: m.method, observer: fi.observer, observed_at: fi.observed_at } }));
   fi.node_confirmations.forEach((n, i) => {
     let value: FactValue = { observer: fi.observer, observed_at: fi.observed_at };
     if (n.at) { const p = normalizePoint(n.at, sources); if (p.status === "failed") { errors.push({ path: `$.node_confirmations[${i}].at`, message: p.message }); return; } value = { ...value, x_percent: p.x_percent, y_percent: p.y_percent, ...p.provenance }; }
-    facts.push({ ...base(n.id, n.notes), subject: `node:${n.node}`, predicate: "field_confirmation", value });
+    facts.push({ ...base("confirmation", n.id, n.notes), subject: `node:${n.node}`, predicate: "field_confirmation", value });
   });
-  fi.door_confirmations.forEach((d) => facts.push({ ...base(d.id, d.notes), subject: `destination:${d.destination}`, predicate: "arrival", value: "verified_public_door" }));
-  fi.accessibility.forEach((a) => facts.push({ ...base(a.id, a.notes), subject: a.subject, predicate: "accessibility", value: { step_free: a.step_free, observer: fi.observer, observed_at: fi.observed_at } }));
+  fi.door_confirmations.forEach((d) => facts.push({ ...base("door", d.id, d.notes), subject: `destination:${d.destination}`, predicate: "arrival", value: "verified_public_door" }));
+  fi.accessibility.forEach((a) => facts.push({ ...base("accessibility", a.id, a.notes), subject: a.subject, predicate: "accessibility", value: { step_free: a.step_free, observer: fi.observer, observed_at: fi.observed_at } }));
   return errors.length ? { status: "failed", errors } : { status: "ok", facts };
 }
 

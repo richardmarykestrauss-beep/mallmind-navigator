@@ -1,0 +1,560 @@
+{
+  "schema_version": 1,
+  "venue": {
+    "id": "garden-route-mall",
+    "name": "Garden Route Mall",
+    "pack_version": 1,
+    "revision_note": "Initial pack compiled by the Venue Pack Factory (job garden-route-mall-dryrun).",
+    "short_name": "Garden Route Mall",
+    "city": "George",
+    "country": "South Africa",
+    "deployment": {
+      "state": "controlled-pilot",
+      "official": false,
+      "label": "Controlled pilot — source-backed, unscaled, awaiting field verification"
+    },
+    "evidence": {
+      "geometry": "source-backed",
+      "measurement": "unmeasured",
+      "field_verification": "pending",
+      "accessibility": "unverified",
+      "note": "Compiled by the Venue Pack Factory from 37 accepted facts (job garden-route-mall-dryrun). Geometry tier is the weakest accepted node/edge evidence; metres exist only where a field measurement was accepted."
+    },
+    "sources": [
+      {
+        "kind": "secondary_reference",
+        "reference": "https://clicks.co.za/store/Garden-Route-Mall/261",
+        "retrieved": "2026-09-03",
+        "note": "Clicks store page (Garden Route Mall, store 261) — corroborates Shop 37 · secondary · rights public_no_reuse: Snippet only."
+      },
+      {
+        "kind": "official_directory",
+        "reference": "https://www.gardenroutemall.co.za/garden-route-mall-shops and /garden-route-mall---department-stores",
+        "retrieved": "2026-09-03",
+        "note": "Official Garden Route Mall shop directory pages (web-search snippets; pages themselves blocked) · first_party · rights public_no_reuse: Text facts (store numbers) only; public availability is not reuse permission."
+      },
+      {
+        "kind": "manual_note",
+        "reference": "repository history 7d638f9: src/components/navigation/gardenRouteMall.dataset.json edge.instruction",
+        "retrieved": "2026-09-06",
+        "note": "Route wording authored in the legacy dataset (git 7d638f9, garden-route-mall.dataset.json) — not present in any research artifact · derived · rights permitted: Authored in-house."
+      },
+      {
+        "kind": "official_map_image",
+        "reference": "https://www.gardenroutemall.co.za/garden-route-mall-shops (lightbox asset; CDN blocked from the session; image uploaded by the owner)",
+        "retrieved": "2026-09-03",
+        "note": "Official Garden Route Mall mall map (Webflow lightbox image on the shops page), original supplied by the mission owner 2026-09-03 · first_party · rights unknown: Copyright presumed the mall/owner. Artwork is NOT stored in the repository; only facts traced from it are used (research manifest garden-route-mall-field-pilot-sources-v2)."
+      }
+    ],
+    "notes": "The map is a single sheet with no level labels; the pilot is modelled as one level ('L1', as drawn). Entrances visible on the sheet: 3, 4, 5, 6, 7 (all on the east side, facing parking). Entrances 1 and 2 are not visible, so the 'Centre Management near Entrance 2' landmark cannot be used. Only Entrance 4 is a start; instructions are written for the Entrance 4 → south direction only."
+  },
+  "floors": [
+    {
+      "id": "L1",
+      "label": "Mall level (single sheet)",
+      "order": 0,
+      "plan_image": null
+    }
+  ],
+  "graph": {
+    "distance_unit": "px",
+    "plane": {
+      "width": 1000,
+      "height": 620
+    },
+    "nodes": [
+      {
+        "id": "grm-clicks-arrival",
+        "name": "Clicks",
+        "kind": "arrival",
+        "floor": "L1",
+        "x_percent": 49.76,
+        "y_percent": 88.63,
+        "evidence": {
+          "geometry": "source-backed"
+        },
+        "source": "Official Garden Route Mall mall map (Webflow lightbox image on the shops page), original supplied by the mission owner 2026-09-03 [grm-map] (visual_first_party, confidence 0.7)",
+        "notes": "README row 9 / G18: yellow unit labelled '37/38' on the west side of the walkway's southern end, just before Pick n Pay; the map shows the unit number, identity comes from the directory. Corridor ARRIVAL point, NOT the door.",
+        "provenance": {
+          "fact_id": "node:grm-clicks-arrival",
+          "evidence_class": "visual_first_party",
+          "confidence": 0.7,
+          "source_image": "grm-map",
+          "source_px_x": 205,
+          "source_px_y": 787,
+          "source_width_px": 417,
+          "source_height_px": 888,
+          "source_fit": "pad-to-plane",
+          "x_percent_source": 49.16,
+          "y_percent_source": 88.63
+        }
+      },
+      {
+        "id": "grm-entrance-4",
+        "name": "Entrance 4",
+        "kind": "entrance",
+        "floor": "L1",
+        "x_percent": 50.24,
+        "y_percent": 38.06,
+        "evidence": {
+          "geometry": "source-backed"
+        },
+        "source": "Official Garden Route Mall mall map (Webflow lightbox image on the shops page), original supplied by the mission owner 2026-09-03 [grm-map] (visual_first_party, confidence 0.8)",
+        "notes": "README forensics row 1 / ledger G14: 'Entrance ④' label at ≈(245,342), circle marker ≈(272,342); door = facade gap between purple units 7/8 and 110/112 where ATM markers 2b/2d sit. Exact door FIELD_VERIFICATION_REQUIRED.",
+        "provenance": {
+          "fact_id": "node:grm-entrance-4",
+          "evidence_class": "visual_first_party",
+          "confidence": 0.8,
+          "source_image": "grm-map",
+          "source_px_x": 212,
+          "source_px_y": 338,
+          "source_width_px": 417,
+          "source_height_px": 888,
+          "source_fit": "pad-to-plane",
+          "x_percent_source": 50.84,
+          "y_percent_source": 38.06
+        }
+      },
+      {
+        "id": "grm-picknpay-arrival",
+        "name": "Pick n Pay",
+        "kind": "arrival",
+        "floor": "L1",
+        "x_percent": 50.66,
+        "y_percent": 90.77,
+        "evidence": {
+          "geometry": "source-backed"
+        },
+        "source": "Official Garden Route Mall mall map (Webflow lightbox image on the shops page), original supplied by the mission owner 2026-09-03 [grm-map] (visual_first_party, confidence 0.8)",
+        "notes": "README row 10 / G17: 'Pick n Pay ㊶' block at the southern end of the walkway; the walkway ends at its north-west frontage. Corridor ARRIVAL point, NOT the door.",
+        "provenance": {
+          "fact_id": "node:grm-picknpay-arrival",
+          "evidence_class": "visual_first_party",
+          "confidence": 0.8,
+          "source_image": "grm-map",
+          "source_px_x": 218,
+          "source_px_y": 806,
+          "source_width_px": 417,
+          "source_height_px": 888,
+          "source_fit": "pad-to-plane",
+          "x_percent_source": 52.28,
+          "y_percent_source": 90.77
+        }
+      },
+      {
+        "id": "grm-walkway-bend-edgars",
+        "name": "Walkway bend near Edgars",
+        "kind": "corridor",
+        "floor": "L1",
+        "x_percent": 45.36,
+        "y_percent": 74.55,
+        "evidence": {
+          "geometry": "source-backed"
+        },
+        "source": "Official Garden Route Mall mall map (Webflow lightbox image on the shops page), original supplied by the mission owner 2026-09-03 [grm-map] (visual_first_party, confidence 0.75)",
+        "notes": "README row 6 / G15: the walkway bends south-east between yellow 26/27 (west) and blue 71/69 (east), just north of Edgars.",
+        "provenance": {
+          "fact_id": "node:grm-walkway-bend-edgars",
+          "evidence_class": "visual_first_party",
+          "confidence": 0.75,
+          "source_image": "grm-map",
+          "source_px_x": 142,
+          "source_px_y": 662,
+          "source_width_px": 417,
+          "source_height_px": 888,
+          "source_fit": "pad-to-plane",
+          "x_percent_source": 34.05,
+          "y_percent_source": 74.55
+        }
+      },
+      {
+        "id": "grm-walkway-bend-toilets",
+        "name": "Walkway bend at the toilets",
+        "kind": "corridor",
+        "floor": "L1",
+        "x_percent": 48.43,
+        "y_percent": 84.68,
+        "evidence": {
+          "geometry": "source-backed"
+        },
+        "source": "Official Garden Route Mall mall map (Webflow lightbox image on the shops page), original supplied by the mission owner 2026-09-03 [grm-map] (visual_first_party, confidence 0.75)",
+        "notes": "README row 8 / G15: the walkway bends further south-east between yellow 33/34 (west) and blue 54/56 (east); toilet symbol ≈(248,745) on the east side.",
+        "provenance": {
+          "fact_id": "node:grm-walkway-bend-toilets",
+          "evidence_class": "visual_first_party",
+          "confidence": 0.75,
+          "source_image": "grm-map",
+          "source_px_x": 186,
+          "source_px_y": 752,
+          "source_width_px": 417,
+          "source_height_px": 888,
+          "source_fit": "pad-to-plane",
+          "x_percent_source": 44.6,
+          "y_percent_source": 84.68
+        }
+      },
+      {
+        "id": "grm-walkway-e4",
+        "name": "Main walkway at the Entrance 4 passage",
+        "kind": "corridor",
+        "floor": "L1",
+        "x_percent": 45.92,
+        "y_percent": 38.85,
+        "evidence": {
+          "geometry": "source-backed"
+        },
+        "source": "Official Garden Route Mall mall map (Webflow lightbox image on the shops page), original supplied by the mission owner 2026-09-03 [grm-map] (visual_first_party, confidence 0.75)",
+        "notes": "README row 2 / G15: Entrance 4 passage meets the main north–south walkway (black channel between the red west column and the purple east column).",
+        "provenance": {
+          "fact_id": "node:grm-walkway-e4",
+          "evidence_class": "visual_first_party",
+          "confidence": 0.75,
+          "source_image": "grm-map",
+          "source_px_x": 150,
+          "source_px_y": 345,
+          "source_width_px": 417,
+          "source_height_px": 888,
+          "source_fit": "pad-to-plane",
+          "x_percent_source": 35.97,
+          "y_percent_source": 38.85
+        }
+      },
+      {
+        "id": "grm-walkway-e5",
+        "name": "Main walkway at the Entrance 5 passage",
+        "kind": "corridor",
+        "floor": "L1",
+        "x_percent": 45.08,
+        "y_percent": 52.7,
+        "evidence": {
+          "geometry": "source-backed"
+        },
+        "source": "Official Garden Route Mall mall map (Webflow lightbox image on the shops page), original supplied by the mission owner 2026-09-03 [grm-map] (visual_first_party, confidence 0.75)",
+        "notes": "README row 4 / G13: 'Entrance ⑤' label ≈(220,463); its passage runs west between purple 102 and blue 92b/87 to the walkway.",
+        "provenance": {
+          "fact_id": "node:grm-walkway-e5",
+          "evidence_class": "visual_first_party",
+          "confidence": 0.75,
+          "source_image": "grm-map",
+          "source_px_x": 138,
+          "source_px_y": 468,
+          "source_width_px": 417,
+          "source_height_px": 888,
+          "source_fit": "pad-to-plane",
+          "x_percent_source": 33.09,
+          "y_percent_source": 52.7
+        }
+      },
+      {
+        "id": "grm-walkway-e6",
+        "name": "Main walkway at the Entrance 6 passage",
+        "kind": "corridor",
+        "floor": "L1",
+        "x_percent": 44.73,
+        "y_percent": 68.47,
+        "evidence": {
+          "geometry": "source-backed"
+        },
+        "source": "Official Garden Route Mall mall map (Webflow lightbox image on the shops page), original supplied by the mission owner 2026-09-03 [grm-map] (visual_first_party, confidence 0.75)",
+        "notes": "README row 5 / G13: 'Entrance ⑥' label ≈(215,608); passage runs west between blue 65a and 74 to the walkway.",
+        "provenance": {
+          "fact_id": "node:grm-walkway-e6",
+          "evidence_class": "visual_first_party",
+          "confidence": 0.75,
+          "source_image": "grm-map",
+          "source_px_x": 133,
+          "source_px_y": 608,
+          "source_width_px": 417,
+          "source_height_px": 888,
+          "source_fit": "pad-to-plane",
+          "x_percent_source": 31.89,
+          "y_percent_source": 68.47
+        }
+      },
+      {
+        "id": "grm-walkway-e7",
+        "name": "Main walkway at the Entrance 7 passage",
+        "kind": "corridor",
+        "floor": "L1",
+        "x_percent": 46.96,
+        "y_percent": 79.39,
+        "evidence": {
+          "geometry": "source-backed"
+        },
+        "source": "Official Garden Route Mall mall map (Webflow lightbox image on the shops page), original supplied by the mission owner 2026-09-03 [grm-map] (visual_first_party, confidence 0.75)",
+        "notes": "README row 7 / G13: 'Entrance ⑦' label ≈(262,700); digit read with the enhanced copy (ambiguous 1/7 on the original) — FIELD_VERIFICATION_REQUIRED; the junction position does not depend on the digit.",
+        "provenance": {
+          "fact_id": "node:grm-walkway-e7",
+          "evidence_class": "visual_first_party",
+          "confidence": 0.75,
+          "source_image": "grm-map",
+          "source_px_x": 165,
+          "source_px_y": 705,
+          "source_width_px": 417,
+          "source_height_px": 888,
+          "source_fit": "pad-to-plane",
+          "x_percent_source": 39.57,
+          "y_percent_source": 79.39
+        }
+      },
+      {
+        "id": "grm-woolworths-arrival",
+        "name": "Woolworths",
+        "kind": "arrival",
+        "floor": "L1",
+        "x_percent": 45.64,
+        "y_percent": 37.16,
+        "evidence": {
+          "geometry": "source-backed"
+        },
+        "source": "Official Garden Route Mall mall map (Webflow lightbox image on the shops page), original supplied by the mission owner 2026-09-03 [grm-map] (visual_first_party, confidence 0.8)",
+        "notes": "README row 3 / G16: corridor ARRIVAL point abreast of the Woolworths ⑨ frontage, NOT the door. Door position FIELD_VERIFICATION_REQUIRED.",
+        "provenance": {
+          "fact_id": "node:grm-woolworths-arrival",
+          "evidence_class": "visual_first_party",
+          "confidence": 0.8,
+          "source_image": "grm-map",
+          "source_px_x": 146,
+          "source_px_y": 330,
+          "source_width_px": 417,
+          "source_height_px": 888,
+          "source_fit": "pad-to-plane",
+          "x_percent_source": 35.01,
+          "y_percent_source": 37.16
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "grm-clicks-arrival__grm-picknpay-arrival",
+        "from": "grm-clicks-arrival",
+        "to": "grm-picknpay-arrival",
+        "bidirectional": true,
+        "floor_change": false,
+        "length_px": 23,
+        "evidence": {
+          "geometry": "source-backed",
+          "measurement": "unmeasured"
+        },
+        "instructions": {
+          "forward": "Pick n Pay is straight ahead at the end of the walkway."
+        },
+        "source": "Official Garden Route Mall mall map (Webflow lightbox image on the shops page), original supplied by the mission owner 2026-09-03 [grm-map] (visual_first_party, confidence 0.75)",
+        "notes": "the walkway ends at the Pick n Pay block. length_px = Euclidean pixel distance between the two source-pixel positions on the 417×888 rendering (G19); shortest-path weight only, never a distance claim."
+      },
+      {
+        "id": "grm-entrance-4__grm-walkway-e4",
+        "from": "grm-entrance-4",
+        "to": "grm-walkway-e4",
+        "bidirectional": true,
+        "floor_change": false,
+        "length_px": 62,
+        "evidence": {
+          "geometry": "source-backed",
+          "measurement": "unmeasured"
+        },
+        "instructions": {
+          "forward": "Walk straight in from Entrance 4, past the ATMs on your left, until you reach the main walkway."
+        },
+        "source": "Official Garden Route Mall mall map (Webflow lightbox image on the shops page), original supplied by the mission owner 2026-09-03 [grm-map] (visual_first_party, confidence 0.75)",
+        "notes": "inside the Entrance 4 passage between purple units 7/8 and 110/112; ATM markers 2b/2d lie in it. length_px = Euclidean pixel distance between the two source-pixel positions on the 417×888 rendering (G19); shortest-path weight only, never a distance claim."
+      },
+      {
+        "id": "grm-walkway-bend-edgars__grm-walkway-e7",
+        "from": "grm-walkway-bend-edgars",
+        "to": "grm-walkway-e7",
+        "bidirectional": true,
+        "floor_change": false,
+        "length_px": 49,
+        "evidence": {
+          "geometry": "source-backed",
+          "measurement": "unmeasured"
+        },
+        "instructions": {
+          "forward": "Continue along the walkway; the side passage on your left leads to Entrance 7."
+        },
+        "source": "Official Garden Route Mall mall map (Webflow lightbox image on the shops page), original supplied by the mission owner 2026-09-03 [grm-map] (visual_first_party, confidence 0.75)",
+        "notes": "channel between yellow Edgars/30 (west) and blue 61/62 (east). length_px = Euclidean pixel distance between the two source-pixel positions on the 417×888 rendering (G19); shortest-path weight only, never a distance claim."
+      },
+      {
+        "id": "grm-walkway-bend-toilets__grm-clicks-arrival",
+        "from": "grm-walkway-bend-toilets",
+        "to": "grm-clicks-arrival",
+        "bidirectional": true,
+        "floor_change": false,
+        "length_px": 40,
+        "evidence": {
+          "geometry": "source-backed",
+          "measurement": "unmeasured"
+        },
+        "instructions": {
+          "forward": "Continue towards the end of the walkway; Clicks (37/38) is on your right just before Pick n Pay."
+        },
+        "source": "Official Garden Route Mall mall map (Webflow lightbox image on the shops page), original supplied by the mission owner 2026-09-03 [grm-map] (visual_first_party, confidence 0.75)",
+        "notes": "channel between yellow 37/38 (west) and blue 45/50 (east). length_px = Euclidean pixel distance between the two source-pixel positions on the 417×888 rendering (G19); shortest-path weight only, never a distance claim."
+      },
+      {
+        "id": "grm-walkway-e4__grm-walkway-e5",
+        "from": "grm-walkway-e4",
+        "to": "grm-walkway-e5",
+        "bidirectional": true,
+        "floor_change": false,
+        "length_px": 124,
+        "evidence": {
+          "geometry": "source-backed",
+          "measurement": "unmeasured"
+        },
+        "instructions": {
+          "forward": "Turn left onto the main walkway and follow it, shops on both sides, until the first side passage on your left (it leads to Entrance 5)."
+        },
+        "source": "Official Garden Route Mall mall map (Webflow lightbox image on the shops page), original supplied by the mission owner 2026-09-03 [grm-map] (visual_first_party, confidence 0.75)",
+        "notes": "the walkway channel between red 12–16 (west) and purple 106–102 (east); continuous, no crossing. length_px = Euclidean pixel distance between the two source-pixel positions on the 417×888 rendering (G19); shortest-path weight only, never a distance claim."
+      },
+      {
+        "id": "grm-walkway-e4__grm-woolworths-arrival",
+        "from": "grm-walkway-e4",
+        "to": "grm-woolworths-arrival",
+        "bidirectional": true,
+        "floor_change": false,
+        "length_px": 16,
+        "evidence": {
+          "geometry": "source-backed",
+          "measurement": "unmeasured"
+        },
+        "instructions": {
+          "forward": "Cross the main walkway. Woolworths is directly ahead on the far side."
+        },
+        "source": "Official Garden Route Mall mall map (Webflow lightbox image on the shops page), original supplied by the mission owner 2026-09-03 [grm-map] (visual_first_party, confidence 0.75)",
+        "notes": "Woolworths' east frontage faces the walkway opposite the passage; no store or wall is crossed. length_px = Euclidean pixel distance between the two source-pixel positions on the 417×888 rendering (G19); shortest-path weight only, never a distance claim."
+      },
+      {
+        "id": "grm-walkway-e5__grm-walkway-e6",
+        "from": "grm-walkway-e5",
+        "to": "grm-walkway-e6",
+        "bidirectional": true,
+        "floor_change": false,
+        "length_px": 140,
+        "evidence": {
+          "geometry": "source-backed",
+          "measurement": "unmeasured"
+        },
+        "instructions": {
+          "forward": "Continue straight along the walkway; the next side passage on your left leads to Entrance 6 and the cinema side."
+        },
+        "source": "Official Garden Route Mall mall map (Webflow lightbox image on the shops page), original supplied by the mission owner 2026-09-03 [grm-map] (visual_first_party, confidence 0.75)",
+        "notes": "channel between red 17–19 / yellow 20–24 (west) and blue 92, 72, 74 (east); continuous. length_px = Euclidean pixel distance between the two source-pixel positions on the 417×888 rendering (G19); shortest-path weight only, never a distance claim."
+      },
+      {
+        "id": "grm-walkway-e6__grm-walkway-bend-edgars",
+        "from": "grm-walkway-e6",
+        "to": "grm-walkway-bend-edgars",
+        "bidirectional": true,
+        "floor_change": false,
+        "length_px": 55,
+        "evidence": {
+          "geometry": "source-backed",
+          "measurement": "unmeasured"
+        },
+        "instructions": {
+          "forward": "Keep following the walkway as it bends gently left; Edgars is on your right."
+        },
+        "source": "Official Garden Route Mall mall map (Webflow lightbox image on the shops page), original supplied by the mission owner 2026-09-03 [grm-map] (visual_first_party, confidence 0.75)",
+        "notes": "channel between yellow 26/27 (west) and blue 71/69 (east). length_px = Euclidean pixel distance between the two source-pixel positions on the 417×888 rendering (G19); shortest-path weight only, never a distance claim."
+      },
+      {
+        "id": "grm-walkway-e7__grm-walkway-bend-toilets",
+        "from": "grm-walkway-e7",
+        "to": "grm-walkway-bend-toilets",
+        "bidirectional": true,
+        "floor_change": false,
+        "length_px": 51,
+        "evidence": {
+          "geometry": "source-backed",
+          "measurement": "unmeasured"
+        },
+        "instructions": {
+          "forward": "Keep going as the walkway bends left again, with the toilets on your left."
+        },
+        "source": "Official Garden Route Mall mall map (Webflow lightbox image on the shops page), original supplied by the mission owner 2026-09-03 [grm-map] (visual_first_party, confidence 0.75)",
+        "notes": "channel between yellow 33/34 (west) and blue 54/56 (east); toilet symbol on the east side. length_px = Euclidean pixel distance between the two source-pixel positions on the 417×888 rendering (G19); shortest-path weight only, never a distance claim."
+      }
+    ]
+  },
+  "destinations": [
+    {
+      "id": "grm-clicks-37",
+      "name": "Clicks",
+      "kind": "store",
+      "arrival_node": "grm-clicks-arrival",
+      "unit": "37",
+      "evidence": {
+        "identity": "source-backed",
+        "arrival": "corridor_arrival",
+        "identity_source": "Official Garden Route Mall shop directory pages (web-search snippets; pages themselves blocked) [grm-directory] (secondary_corroboration, confidence 0.75)"
+      },
+      "notes": "G01: Clicks is Store 37 (directory snippet) + clicks.co.za store 261 'Shop 37'; map label '37/38'."
+    },
+    {
+      "id": "grm-picknpay-41",
+      "name": "Pick n Pay",
+      "kind": "store",
+      "arrival_node": "grm-picknpay-arrival",
+      "unit": "41",
+      "evidence": {
+        "identity": "source-backed",
+        "arrival": "corridor_arrival",
+        "identity_source": "Official Garden Route Mall shop directory pages (web-search snippets; pages themselves blocked) [grm-directory] (secondary_corroboration, confidence 0.7)"
+      },
+      "notes": "G02: Pick n Pay is Store 41 (directory snippet); map label 'Pick n Pay ㊶'."
+    },
+    {
+      "id": "grm-woolworths-9",
+      "name": "Woolworths",
+      "kind": "store",
+      "arrival_node": "grm-woolworths-arrival",
+      "unit": "9",
+      "evidence": {
+        "identity": "source-backed",
+        "arrival": "corridor_arrival",
+        "identity_source": "Official Garden Route Mall shop directory pages (web-search snippets; pages themselves blocked) [grm-directory] (secondary_corroboration, confidence 0.7)"
+      },
+      "notes": "G03: Woolworths is Store 9 (search snippet of the first-party directory); map label 'Woolworths ⑨'."
+    }
+  ],
+  "anchors": [
+    {
+      "id": "grm-entrance-4",
+      "node": "grm-entrance-4",
+      "label": "Entrance 4",
+      "kind": "entrance",
+      "start_permitted": true,
+      "qr_eligible": true,
+      "evidence": {
+        "geometry": "source-backed"
+      },
+      "notes": "G13/G14: Entrance 4 is the only start in the pilot."
+    }
+  ],
+  "amenities": [],
+  "policies": {
+    "start": {
+      "allowed_anchor_kinds": [
+        "entrance",
+        "landmark"
+      ]
+    },
+    "destinations": {
+      "include_routable_amenities": true
+    },
+    "floors": {
+      "display": "label"
+    },
+    "metrics": {
+      "show": "when-measured"
+    },
+    "instructions": {
+      "generic_fallback": true,
+      "start_prefix": true
+    }
+  }
+}

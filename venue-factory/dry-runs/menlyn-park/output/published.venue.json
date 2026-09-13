@@ -1,0 +1,233 @@
+{
+  "schema_version": 1,
+  "venue": {
+    "id": "menlyn-park",
+    "name": "Menlyn Park",
+    "pack_version": 1,
+    "revision_note": "Initial pack compiled by the Venue Pack Factory (job menlyn-park-dryrun).",
+    "short_name": "Menlyn Park",
+    "city": "Pretoria",
+    "country": "South Africa",
+    "deployment": {
+      "state": "controlled-pilot",
+      "official": false,
+      "label": "Controlled pilot — source-backed, unscaled, not field verified"
+    },
+    "evidence": {
+      "geometry": "source-backed",
+      "measurement": "unmeasured",
+      "field_verification": "pending",
+      "accessibility": "unverified",
+      "note": "Compiled by the Venue Pack Factory from 14 accepted facts (job menlyn-park-dryrun). Geometry tier is the weakest accepted node/edge evidence; metres exist only where a field measurement was accepted."
+    },
+    "sources": [
+      {
+        "kind": "secondary_reference",
+        "reference": "https://clicks.co.za/store/Menlyn-Park/365",
+        "retrieved": "2026-09-03",
+        "note": "Clicks retailer store page (store 365, 'Shop LF72') · secondary · rights public_no_reuse: Snippet only."
+      },
+      {
+        "kind": "official_webpage",
+        "reference": "https://www.menlynpark.co.za/stores/clicks/",
+        "retrieved": "2026-09-03",
+        "note": "Official Clicks tenant page (Store Code LF 72, Nearest Entrance 13, Orange Parking, Atterbury Road) · first_party · rights public_no_reuse: Text facts only; re-verified by the mission owner 2026-09-03 (page blocked from the session)."
+      },
+      {
+        "kind": "manual_note",
+        "reference": "repository history 7d638f9 + research/menlyn-spatial-poc/menlyn-lf-route-candidate.json route_sequence",
+        "retrieved": "2026-09-06",
+        "note": "Route wording authored in the legacy dataset (git 7d638f9, menlyn-park-lf-pilot.dataset.json) and the research candidate route_sequence · derived · rights permitted: Authored in-house."
+      },
+      {
+        "kind": "official_map_image",
+        "reference": "https://www.menlynpark.co.za/wp-content/uploads/2023/07/Lower-First-Level-Map.jpg",
+        "retrieved": "2026-09-03",
+        "note": "Official Menlyn Park 'LOWER FIRST LEVEL' map (JPG), supplied by the mission owner 2026-09-03 · first_party · rights unknown: Copyright presumed Pareto / centre management; map reuse terms unknown (research ledger F06). Artwork NOT stored in the repository; only traced facts are used."
+      }
+    ],
+    "notes": "Tenant identity (Clicks = LF 72, nearest Entrance 13, Orange Parking, Atterbury Road) is FIRST_PARTY_EXPLICIT from https://www.menlynpark.co.za/stores/clicks/ (re-verified 2026-09-03). Spatial positions are FIRST_PARTY_VISUAL from the LF map. Edge length_px values are pixels on the 1280-wide rendering and serve only as shortest-path weights."
+  },
+  "floors": [
+    {
+      "id": "LF",
+      "label": "Lower First Level",
+      "order": 0,
+      "plan_image": null
+    }
+  ],
+  "graph": {
+    "distance_unit": "px",
+    "plane": {
+      "width": 1000,
+      "height": 620
+    },
+    "nodes": [
+      {
+        "id": "menlyn-lf-clicks-lf72-arrival",
+        "name": "Clicks",
+        "kind": "arrival",
+        "floor": "LF",
+        "x_percent": 49.71,
+        "y_percent": 48.65,
+        "evidence": {
+          "geometry": "source-backed"
+        },
+        "source": "Official Menlyn Park 'LOWER FIRST LEVEL' map (JPG), supplied by the mission owner 2026-09-03 [menlyn-lf-map] (visual_first_party, confidence 0.8)",
+        "notes": "F12: public-corridor point abreast of the Clicks block (logo centroid source px 590,415). Corridor ARRIVAL point, not the storefront door (F13: door not depicted; field verification required). Clicks lies west of the corridor: on the shopper's right when walking in from Entrance 13.",
+        "provenance": {
+          "fact_id": "node:menlyn-lf-clicks-lf72-arrival",
+          "evidence_class": "visual_first_party",
+          "confidence": 0.8,
+          "source_image": "menlyn-lf-map",
+          "source_px_x": 636,
+          "source_px_y": 415,
+          "source_width_px": 1280,
+          "source_height_px": 853,
+          "source_fit": "pad-to-plane",
+          "x_percent_source": 49.69,
+          "y_percent_source": 48.65
+        }
+      },
+      {
+        "id": "menlyn-lf-entrance-13",
+        "name": "Entrance 13",
+        "kind": "entrance",
+        "floor": "LF",
+        "x_percent": 49.71,
+        "y_percent": 22.98,
+        "evidence": {
+          "geometry": "source-backed"
+        },
+        "source": "Official Menlyn Park 'LOWER FIRST LEVEL' map (JPG), supplied by the mission owner 2026-09-03 [menlyn-lf-map] (visual_first_party, confidence 0.8)",
+        "notes": "F09/F10: circled '13' marker on the mall boundary below the orange P5 parking, at the head of a corridor; drawn on the LF sheet → opens onto LF, no floor transition. Orange Parking / Atterbury Road side.",
+        "provenance": {
+          "fact_id": "node:menlyn-lf-entrance-13",
+          "evidence_class": "visual_first_party",
+          "confidence": 0.8,
+          "source_image": "menlyn-lf-map",
+          "source_px_x": 636,
+          "source_px_y": 196,
+          "source_width_px": 1280,
+          "source_height_px": 853,
+          "source_fit": "pad-to-plane",
+          "x_percent_source": 49.69,
+          "y_percent_source": 22.98
+        }
+      },
+      {
+        "id": "menlyn-lf-spine-x-upper",
+        "name": "Cross corridor",
+        "kind": "corridor",
+        "floor": "LF",
+        "x_percent": 49.71,
+        "y_percent": 41.62,
+        "evidence": {
+          "geometry": "source-backed"
+        },
+        "source": "Official Menlyn Park 'LOWER FIRST LEVEL' map (JPG), supplied by the mission owner 2026-09-03 [menlyn-lf-map] (visual_first_party, confidence 0.8)",
+        "notes": "F11: junction of the north–south corridor from Entrance 13 with the east–west public corridor; no other cross corridor between the entrance and this junction.",
+        "provenance": {
+          "fact_id": "node:menlyn-lf-spine-x-upper",
+          "evidence_class": "visual_first_party",
+          "confidence": 0.8,
+          "source_image": "menlyn-lf-map",
+          "source_px_x": 636,
+          "source_px_y": 355,
+          "source_width_px": 1280,
+          "source_height_px": 853,
+          "source_fit": "pad-to-plane",
+          "x_percent_source": 49.69,
+          "y_percent_source": 41.62
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "menlyn-lf-e13-to-x-upper",
+        "from": "menlyn-lf-entrance-13",
+        "to": "menlyn-lf-spine-x-upper",
+        "bidirectional": true,
+        "floor_change": false,
+        "length_px": 159,
+        "evidence": {
+          "geometry": "source-backed",
+          "measurement": "unmeasured"
+        },
+        "instructions": {
+          "forward": "Walk straight into the mall along the corridor until you reach the cross corridor."
+        },
+        "source": "Official Menlyn Park 'LOWER FIRST LEVEL' map (JPG), supplied by the mission owner 2026-09-03 [menlyn-lf-map] (visual_first_party, confidence 0.8)",
+        "notes": "Inside the public corridor between the mr price home block (west) and the Ackermans block (east); vertical, no diagonal, crosses no wall or store. length_px on the 1280-wide rendering (F14)."
+      },
+      {
+        "id": "menlyn-lf-x-upper-to-clicks",
+        "from": "menlyn-lf-spine-x-upper",
+        "to": "menlyn-lf-clicks-lf72-arrival",
+        "bidirectional": true,
+        "floor_change": false,
+        "length_px": 60,
+        "evidence": {
+          "geometry": "source-backed",
+          "measurement": "unmeasured"
+        },
+        "instructions": {
+          "forward": "Continue straight across the cross corridor. Clicks is on your right, just past the crossing."
+        },
+        "source": "Official Menlyn Park 'LOWER FIRST LEVEL' map (JPG), supplied by the mission owner 2026-09-03 [menlyn-lf-map] (visual_first_party, confidence 0.8)",
+        "notes": "Same corridor continuing south of the cross corridor; Clicks block on the west side. length_px on the 1280-wide rendering (F14)."
+      }
+    ]
+  },
+  "destinations": [
+    {
+      "id": "menlyn-clicks-lf72",
+      "name": "Clicks",
+      "kind": "store",
+      "arrival_node": "menlyn-lf-clicks-lf72-arrival",
+      "unit": "LF 72",
+      "evidence": {
+        "identity": "source-backed",
+        "arrival": "corridor_arrival",
+        "identity_source": "Official Clicks tenant page (Store Code LF 72, Nearest Entrance 13, Orange Parking, Atterbury Road) [menlyn-clicks-tenant-page] (explicit_first_party, confidence 0.95)"
+      },
+      "notes": "F01/F02: Store Code LF 72, Nearest Entrance 13, Orange Parking, Atterbury Road, 012 348 6161 (re-verified 2026-09-03); corroborated by clicks.co.za store 365 (F16)."
+    }
+  ],
+  "anchors": [
+    {
+      "id": "menlyn-lf-entrance-13",
+      "node": "menlyn-lf-entrance-13",
+      "label": "Entrance 13",
+      "kind": "entrance",
+      "start_permitted": true,
+      "qr_eligible": true,
+      "evidence": {
+        "geometry": "source-backed"
+      },
+      "notes": "F09: Entrance 13 opens onto LF."
+    }
+  ],
+  "amenities": [],
+  "policies": {
+    "start": {
+      "allowed_anchor_kinds": [
+        "entrance",
+        "landmark"
+      ]
+    },
+    "destinations": {
+      "include_routable_amenities": true
+    },
+    "floors": {
+      "display": "label"
+    },
+    "metrics": {
+      "show": "when-measured"
+    },
+    "instructions": {
+      "generic_fallback": true,
+      "start_prefix": true
+    }
+  }
+}

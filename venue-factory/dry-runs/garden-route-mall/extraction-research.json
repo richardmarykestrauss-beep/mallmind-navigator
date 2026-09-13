@@ -1,0 +1,580 @@
+{
+  "schema_version": 1,
+  "worker": {
+    "kind": "file",
+    "name": "transcription of research/garden-route-mall-field-pilot (README forensics table + evidence-ledger G13–G20); no new facts",
+    "version": "2026-09-13"
+  },
+  "source_ids": [
+    "grm-map",
+    "grm-directory",
+    "grm-clicks-page",
+    "grm-legacy-wording"
+  ],
+  "floors": [
+    {
+      "id": "L1",
+      "source_id": "grm-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.7,
+      "manual_review_required": false,
+      "notes": "G20: the map is a single sheet with no level labels; the pilot models one level. Absence of an upper level is not proven by the sheet.",
+      "label": "Mall level (single sheet)",
+      "order": 0
+    }
+  ],
+  "nodes": [
+    {
+      "id": "grm-entrance-4",
+      "source_id": "grm-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.8,
+      "manual_review_required": false,
+      "notes": "README forensics row 1 / ledger G14: 'Entrance ④' label at ≈(245,342), circle marker ≈(272,342); door = facade gap between purple units 7/8 and 110/112 where ATM markers 2b/2d sit. Exact door FIELD_VERIFICATION_REQUIRED.",
+      "name": "Entrance 4",
+      "kind": "entrance",
+      "floor": "L1",
+      "at": {
+        "image": "grm-map",
+        "px_x": 212,
+        "px_y": 338
+      }
+    },
+    {
+      "id": "grm-walkway-e4",
+      "source_id": "grm-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.75,
+      "manual_review_required": false,
+      "notes": "README row 2 / G15: Entrance 4 passage meets the main north–south walkway (black channel between the red west column and the purple east column).",
+      "name": "Main walkway at the Entrance 4 passage",
+      "kind": "corridor",
+      "floor": "L1",
+      "at": {
+        "image": "grm-map",
+        "px_x": 150,
+        "px_y": 345
+      }
+    },
+    {
+      "id": "grm-woolworths-arrival",
+      "source_id": "grm-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.8,
+      "manual_review_required": false,
+      "notes": "README row 3 / G16: corridor ARRIVAL point abreast of the Woolworths ⑨ frontage, NOT the door. Door position FIELD_VERIFICATION_REQUIRED.",
+      "name": "Woolworths",
+      "kind": "arrival",
+      "floor": "L1",
+      "at": {
+        "image": "grm-map",
+        "px_x": 146,
+        "px_y": 330
+      }
+    },
+    {
+      "id": "grm-walkway-e5",
+      "source_id": "grm-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.75,
+      "manual_review_required": false,
+      "notes": "README row 4 / G13: 'Entrance ⑤' label ≈(220,463); its passage runs west between purple 102 and blue 92b/87 to the walkway.",
+      "name": "Main walkway at the Entrance 5 passage",
+      "kind": "corridor",
+      "floor": "L1",
+      "at": {
+        "image": "grm-map",
+        "px_x": 138,
+        "px_y": 468
+      }
+    },
+    {
+      "id": "grm-walkway-e6",
+      "source_id": "grm-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.75,
+      "manual_review_required": false,
+      "notes": "README row 5 / G13: 'Entrance ⑥' label ≈(215,608); passage runs west between blue 65a and 74 to the walkway.",
+      "name": "Main walkway at the Entrance 6 passage",
+      "kind": "corridor",
+      "floor": "L1",
+      "at": {
+        "image": "grm-map",
+        "px_x": 133,
+        "px_y": 608
+      }
+    },
+    {
+      "id": "grm-walkway-bend-edgars",
+      "source_id": "grm-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.75,
+      "manual_review_required": false,
+      "notes": "README row 6 / G15: the walkway bends south-east between yellow 26/27 (west) and blue 71/69 (east), just north of Edgars.",
+      "name": "Walkway bend near Edgars",
+      "kind": "corridor",
+      "floor": "L1",
+      "at": {
+        "image": "grm-map",
+        "px_x": 142,
+        "px_y": 662
+      }
+    },
+    {
+      "id": "grm-walkway-e7",
+      "source_id": "grm-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.75,
+      "manual_review_required": false,
+      "notes": "README row 7 / G13: 'Entrance ⑦' label ≈(262,700); digit read with the enhanced copy (ambiguous 1/7 on the original) — FIELD_VERIFICATION_REQUIRED; the junction position does not depend on the digit.",
+      "name": "Main walkway at the Entrance 7 passage",
+      "kind": "corridor",
+      "floor": "L1",
+      "at": {
+        "image": "grm-map",
+        "px_x": 165,
+        "px_y": 705
+      }
+    },
+    {
+      "id": "grm-walkway-bend-toilets",
+      "source_id": "grm-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.75,
+      "manual_review_required": false,
+      "notes": "README row 8 / G15: the walkway bends further south-east between yellow 33/34 (west) and blue 54/56 (east); toilet symbol ≈(248,745) on the east side.",
+      "name": "Walkway bend at the toilets",
+      "kind": "corridor",
+      "floor": "L1",
+      "at": {
+        "image": "grm-map",
+        "px_x": 186,
+        "px_y": 752
+      }
+    },
+    {
+      "id": "grm-clicks-arrival",
+      "source_id": "grm-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.7,
+      "manual_review_required": false,
+      "notes": "README row 9 / G18: yellow unit labelled '37/38' on the west side of the walkway's southern end, just before Pick n Pay; the map shows the unit number, identity comes from the directory. Corridor ARRIVAL point, NOT the door.",
+      "name": "Clicks",
+      "kind": "arrival",
+      "floor": "L1",
+      "at": {
+        "image": "grm-map",
+        "px_x": 205,
+        "px_y": 787
+      }
+    },
+    {
+      "id": "grm-picknpay-arrival",
+      "source_id": "grm-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.8,
+      "manual_review_required": false,
+      "notes": "README row 10 / G17: 'Pick n Pay ㊶' block at the southern end of the walkway; the walkway ends at its north-west frontage. Corridor ARRIVAL point, NOT the door.",
+      "name": "Pick n Pay",
+      "kind": "arrival",
+      "floor": "L1",
+      "at": {
+        "image": "grm-map",
+        "px_x": 218,
+        "px_y": 806
+      }
+    }
+  ],
+  "unit_polygons": [],
+  "store_labels": [],
+  "corridor_centerlines": [
+    {
+      "id": "grm-cl-main-walkway",
+      "source_id": "grm-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.75,
+      "manual_review_required": false,
+      "notes": "G15: single continuous main walkway from the Entrance 4 passage south to the Pick n Pay block; centreline positions approximate (channel drawn narrow, not to scale).",
+      "floor": "L1",
+      "points": [
+        {
+          "image": "grm-map",
+          "px_x": 150,
+          "px_y": 345
+        },
+        {
+          "image": "grm-map",
+          "px_x": 138,
+          "px_y": 468
+        },
+        {
+          "image": "grm-map",
+          "px_x": 133,
+          "px_y": 608
+        },
+        {
+          "image": "grm-map",
+          "px_x": 142,
+          "px_y": 662
+        },
+        {
+          "image": "grm-map",
+          "px_x": 165,
+          "px_y": 705
+        },
+        {
+          "image": "grm-map",
+          "px_x": 186,
+          "px_y": 752
+        },
+        {
+          "image": "grm-map",
+          "px_x": 205,
+          "px_y": 787
+        },
+        {
+          "image": "grm-map",
+          "px_x": 218,
+          "px_y": 806
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "id": "grm-entrance-4__grm-walkway-e4",
+      "source_id": "grm-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.75,
+      "manual_review_required": false,
+      "notes": "inside the Entrance 4 passage between purple units 7/8 and 110/112; ATM markers 2b/2d lie in it. length_px = Euclidean pixel distance between the two source-pixel positions on the 417×888 rendering (G19); shortest-path weight only, never a distance claim.",
+      "from": "grm-entrance-4",
+      "to": "grm-walkway-e4",
+      "bidirectional": true,
+      "floor_change": false,
+      "length_px": 62
+    },
+    {
+      "id": "grm-walkway-e4__grm-woolworths-arrival",
+      "source_id": "grm-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.75,
+      "manual_review_required": false,
+      "notes": "Woolworths' east frontage faces the walkway opposite the passage; no store or wall is crossed. length_px = Euclidean pixel distance between the two source-pixel positions on the 417×888 rendering (G19); shortest-path weight only, never a distance claim.",
+      "from": "grm-walkway-e4",
+      "to": "grm-woolworths-arrival",
+      "bidirectional": true,
+      "floor_change": false,
+      "length_px": 16
+    },
+    {
+      "id": "grm-walkway-e4__grm-walkway-e5",
+      "source_id": "grm-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.75,
+      "manual_review_required": false,
+      "notes": "the walkway channel between red 12–16 (west) and purple 106–102 (east); continuous, no crossing. length_px = Euclidean pixel distance between the two source-pixel positions on the 417×888 rendering (G19); shortest-path weight only, never a distance claim.",
+      "from": "grm-walkway-e4",
+      "to": "grm-walkway-e5",
+      "bidirectional": true,
+      "floor_change": false,
+      "length_px": 124
+    },
+    {
+      "id": "grm-walkway-e5__grm-walkway-e6",
+      "source_id": "grm-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.75,
+      "manual_review_required": false,
+      "notes": "channel between red 17–19 / yellow 20–24 (west) and blue 92, 72, 74 (east); continuous. length_px = Euclidean pixel distance between the two source-pixel positions on the 417×888 rendering (G19); shortest-path weight only, never a distance claim.",
+      "from": "grm-walkway-e5",
+      "to": "grm-walkway-e6",
+      "bidirectional": true,
+      "floor_change": false,
+      "length_px": 140
+    },
+    {
+      "id": "grm-walkway-e6__grm-walkway-bend-edgars",
+      "source_id": "grm-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.75,
+      "manual_review_required": false,
+      "notes": "channel between yellow 26/27 (west) and blue 71/69 (east). length_px = Euclidean pixel distance between the two source-pixel positions on the 417×888 rendering (G19); shortest-path weight only, never a distance claim.",
+      "from": "grm-walkway-e6",
+      "to": "grm-walkway-bend-edgars",
+      "bidirectional": true,
+      "floor_change": false,
+      "length_px": 55
+    },
+    {
+      "id": "grm-walkway-bend-edgars__grm-walkway-e7",
+      "source_id": "grm-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.75,
+      "manual_review_required": false,
+      "notes": "channel between yellow Edgars/30 (west) and blue 61/62 (east). length_px = Euclidean pixel distance between the two source-pixel positions on the 417×888 rendering (G19); shortest-path weight only, never a distance claim.",
+      "from": "grm-walkway-bend-edgars",
+      "to": "grm-walkway-e7",
+      "bidirectional": true,
+      "floor_change": false,
+      "length_px": 49
+    },
+    {
+      "id": "grm-walkway-e7__grm-walkway-bend-toilets",
+      "source_id": "grm-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.75,
+      "manual_review_required": false,
+      "notes": "channel between yellow 33/34 (west) and blue 54/56 (east); toilet symbol on the east side. length_px = Euclidean pixel distance between the two source-pixel positions on the 417×888 rendering (G19); shortest-path weight only, never a distance claim.",
+      "from": "grm-walkway-e7",
+      "to": "grm-walkway-bend-toilets",
+      "bidirectional": true,
+      "floor_change": false,
+      "length_px": 51
+    },
+    {
+      "id": "grm-walkway-bend-toilets__grm-clicks-arrival",
+      "source_id": "grm-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.75,
+      "manual_review_required": false,
+      "notes": "channel between yellow 37/38 (west) and blue 45/50 (east). length_px = Euclidean pixel distance between the two source-pixel positions on the 417×888 rendering (G19); shortest-path weight only, never a distance claim.",
+      "from": "grm-walkway-bend-toilets",
+      "to": "grm-clicks-arrival",
+      "bidirectional": true,
+      "floor_change": false,
+      "length_px": 40
+    },
+    {
+      "id": "grm-clicks-arrival__grm-picknpay-arrival",
+      "source_id": "grm-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.75,
+      "manual_review_required": false,
+      "notes": "the walkway ends at the Pick n Pay block. length_px = Euclidean pixel distance between the two source-pixel positions on the 417×888 rendering (G19); shortest-path weight only, never a distance claim.",
+      "from": "grm-clicks-arrival",
+      "to": "grm-picknpay-arrival",
+      "bidirectional": true,
+      "floor_change": false,
+      "length_px": 23
+    }
+  ],
+  "instructions": [
+    {
+      "id": "grm-i-1",
+      "source_id": "grm-legacy-wording",
+      "evidence_class": "manual_inference",
+      "confidence": 0.6,
+      "manual_review_required": false,
+      "notes": "Forward direction (Entrance 4 → south) only; no reverse wording exists.",
+      "edge": "grm-entrance-4__grm-walkway-e4",
+      "direction": "forward",
+      "text": "Walk straight in from Entrance 4, past the ATMs on your left, until you reach the main walkway."
+    },
+    {
+      "id": "grm-i-2",
+      "source_id": "grm-legacy-wording",
+      "evidence_class": "manual_inference",
+      "confidence": 0.6,
+      "manual_review_required": false,
+      "notes": "Forward direction (Entrance 4 → south) only; no reverse wording exists.",
+      "edge": "grm-walkway-e4__grm-woolworths-arrival",
+      "direction": "forward",
+      "text": "Cross the main walkway. Woolworths is directly ahead on the far side."
+    },
+    {
+      "id": "grm-i-3",
+      "source_id": "grm-legacy-wording",
+      "evidence_class": "manual_inference",
+      "confidence": 0.6,
+      "manual_review_required": false,
+      "notes": "Forward direction (Entrance 4 → south) only; no reverse wording exists.",
+      "edge": "grm-walkway-e4__grm-walkway-e5",
+      "direction": "forward",
+      "text": "Turn left onto the main walkway and follow it, shops on both sides, until the first side passage on your left (it leads to Entrance 5)."
+    },
+    {
+      "id": "grm-i-4",
+      "source_id": "grm-legacy-wording",
+      "evidence_class": "manual_inference",
+      "confidence": 0.6,
+      "manual_review_required": false,
+      "notes": "Forward direction (Entrance 4 → south) only; no reverse wording exists.",
+      "edge": "grm-walkway-e5__grm-walkway-e6",
+      "direction": "forward",
+      "text": "Continue straight along the walkway; the next side passage on your left leads to Entrance 6 and the cinema side."
+    },
+    {
+      "id": "grm-i-5",
+      "source_id": "grm-legacy-wording",
+      "evidence_class": "manual_inference",
+      "confidence": 0.6,
+      "manual_review_required": false,
+      "notes": "Forward direction (Entrance 4 → south) only; no reverse wording exists.",
+      "edge": "grm-walkway-e6__grm-walkway-bend-edgars",
+      "direction": "forward",
+      "text": "Keep following the walkway as it bends gently left; Edgars is on your right."
+    },
+    {
+      "id": "grm-i-6",
+      "source_id": "grm-legacy-wording",
+      "evidence_class": "manual_inference",
+      "confidence": 0.6,
+      "manual_review_required": false,
+      "notes": "Forward direction (Entrance 4 → south) only; no reverse wording exists.",
+      "edge": "grm-walkway-bend-edgars__grm-walkway-e7",
+      "direction": "forward",
+      "text": "Continue along the walkway; the side passage on your left leads to Entrance 7."
+    },
+    {
+      "id": "grm-i-7",
+      "source_id": "grm-legacy-wording",
+      "evidence_class": "manual_inference",
+      "confidence": 0.6,
+      "manual_review_required": false,
+      "notes": "Forward direction (Entrance 4 → south) only; no reverse wording exists.",
+      "edge": "grm-walkway-e7__grm-walkway-bend-toilets",
+      "direction": "forward",
+      "text": "Keep going as the walkway bends left again, with the toilets on your left."
+    },
+    {
+      "id": "grm-i-8",
+      "source_id": "grm-legacy-wording",
+      "evidence_class": "manual_inference",
+      "confidence": 0.6,
+      "manual_review_required": false,
+      "notes": "Forward direction (Entrance 4 → south) only; no reverse wording exists.",
+      "edge": "grm-walkway-bend-toilets__grm-clicks-arrival",
+      "direction": "forward",
+      "text": "Continue towards the end of the walkway; Clicks (37/38) is on your right just before Pick n Pay."
+    },
+    {
+      "id": "grm-i-9",
+      "source_id": "grm-legacy-wording",
+      "evidence_class": "manual_inference",
+      "confidence": 0.6,
+      "manual_review_required": false,
+      "notes": "Forward direction (Entrance 4 → south) only; no reverse wording exists.",
+      "edge": "grm-clicks-arrival__grm-picknpay-arrival",
+      "direction": "forward",
+      "text": "Pick n Pay is straight ahead at the end of the walkway."
+    }
+  ],
+  "destinations": [
+    {
+      "id": "grm-woolworths-9",
+      "source_id": "grm-directory",
+      "evidence_class": "secondary_corroboration",
+      "confidence": 0.7,
+      "manual_review_required": false,
+      "notes": "G03: Woolworths is Store 9 (search snippet of the first-party directory); map label 'Woolworths ⑨'.",
+      "name": "Woolworths",
+      "kind": "store",
+      "arrival_node": "grm-woolworths-arrival",
+      "unit": "9"
+    },
+    {
+      "id": "grm-clicks-37",
+      "source_id": "grm-directory",
+      "evidence_class": "secondary_corroboration",
+      "confidence": 0.75,
+      "manual_review_required": false,
+      "notes": "G01: Clicks is Store 37 (directory snippet) + clicks.co.za store 261 'Shop 37'; map label '37/38'.",
+      "name": "Clicks",
+      "kind": "store",
+      "arrival_node": "grm-clicks-arrival",
+      "unit": "37"
+    },
+    {
+      "id": "grm-picknpay-41",
+      "source_id": "grm-directory",
+      "evidence_class": "secondary_corroboration",
+      "confidence": 0.7,
+      "manual_review_required": false,
+      "notes": "G02: Pick n Pay is Store 41 (directory snippet); map label 'Pick n Pay ㊶'.",
+      "name": "Pick n Pay",
+      "kind": "store",
+      "arrival_node": "grm-picknpay-arrival",
+      "unit": "41"
+    }
+  ],
+  "anchors": [
+    {
+      "id": "grm-entrance-4",
+      "source_id": "grm-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.8,
+      "manual_review_required": false,
+      "notes": "G13/G14: Entrance 4 is the only start in the pilot.",
+      "node": "grm-entrance-4",
+      "label": "Entrance 4",
+      "kind": "entrance",
+      "start_permitted": true,
+      "qr_eligible": true
+    }
+  ],
+  "amenities": [],
+  "facts": [
+    {
+      "id": "G01",
+      "source_id": "grm-directory",
+      "evidence_class": "secondary_corroboration",
+      "confidence": 0.75,
+      "manual_review_required": false,
+      "subject": "destination:grm-clicks-37",
+      "predicate": "directory_entry",
+      "value": {
+        "store": "37",
+        "phone": "044 887 0030"
+      }
+    },
+    {
+      "id": "G02",
+      "source_id": "grm-directory",
+      "evidence_class": "secondary_corroboration",
+      "confidence": 0.7,
+      "manual_review_required": false,
+      "subject": "destination:grm-picknpay-41",
+      "predicate": "directory_entry",
+      "value": {
+        "store": "41",
+        "phone": "044 887 0000"
+      }
+    },
+    {
+      "id": "G03",
+      "source_id": "grm-directory",
+      "evidence_class": "secondary_corroboration",
+      "confidence": 0.7,
+      "manual_review_required": false,
+      "subject": "destination:grm-woolworths-9",
+      "predicate": "directory_entry",
+      "value": {
+        "store": "9",
+        "phone": "044 803 5400"
+      }
+    },
+    {
+      "id": "G12",
+      "source_id": "grm-directory",
+      "evidence_class": "manual_inference",
+      "confidence": 0.0,
+      "manual_review_required": false,
+      "notes": "UNKNOWN in the research ledger: not seen in any retrievable snippet; verify on the official page or on site.",
+      "subject": "landmark:centre-management",
+      "predicate": "near_entrance",
+      "value": "Entrance 2"
+    },
+    {
+      "id": "G19",
+      "source_id": "grm-map",
+      "evidence_class": "manual_inference",
+      "confidence": 0.0,
+      "manual_review_required": false,
+      "notes": "UNKNOWN: no scale bar, north arrow or dimension text; pixel lengths only. One measured leg must not calibrate the map.",
+      "subject": "venue",
+      "predicate": "real_world_scale",
+      "value": null
+    }
+  ]
+}

@@ -4,7 +4,8 @@
  * Pure and deterministic. Reports what a reviewer needs before publishing a revision: nodes
  * added / removed / moved / renamed / re-tiered, edges added / removed / measured / re-worded /
  * re-wired, destinations and their arrival or identity upgrades, anchors, amenities, floors, and
- * venue-level evidence changes. Coordinates are compared exactly (no tolerance is invented).
+ * venue-level evidence changes. Coordinates are compared exactly (no tolerance is invented);
+ * free-text notes and source citations are not compared (they are provenance, not truth).
  */
 
 import type { VenuePack } from "../contract";
@@ -71,10 +72,12 @@ export function diffVenuePacks(from: VenuePack | null, to: VenuePack): PackDiff 
   // anchors / amenities
   const aA = new Map(base.anchors.map((x) => [x.id, x])), aB = new Map(to.anchors.map((x) => [x.id, x]));
   d.anchors.added = only([...aB.keys()].sort(), [...aA.keys()]); d.anchors.removed = only([...aA.keys()].sort(), [...aB.keys()]);
-  for (const [id, x] of [...aB].sort()) { const o = aA.get(id); if (o && JSON.stringify(o) !== JSON.stringify(x)) d.anchors.changed.push(id); }
+  const anchorKey = (a: VenuePack["anchors"][number]) => JSON.stringify([a.node, a.label, a.kind, a.start_permitted, a.qr_eligible ?? a.start_permitted, a.evidence?.geometry ?? null]);
+  for (const [id, x] of [...aB].sort()) { const o = aA.get(id); if (o && anchorKey(o) !== anchorKey(x)) d.anchors.changed.push(id); }
   const mA2 = new Map(base.amenities.map((x) => [x.id, x])), mB2 = new Map(to.amenities.map((x) => [x.id, x]));
   d.amenities.added = only([...mB2.keys()].sort(), [...mA2.keys()]); d.amenities.removed = only([...mA2.keys()].sort(), [...mB2.keys()]);
-  for (const [id, x] of [...mB2].sort()) { const o = mA2.get(id); if (o && JSON.stringify(o) !== JSON.stringify(x)) d.amenities.changed.push(id); }
+  const amenityKey = (a: VenuePack["amenities"][number]) => JSON.stringify([a.kind, a.name, a.node, a.routable, [...(a.aliases ?? [])].sort(), a.evidence.geometry, a.evidence.accessibility ?? "unverified"]);
+  for (const [id, x] of [...mB2].sort()) { const o = mA2.get(id); if (o && amenityKey(o) !== amenityKey(x)) d.amenities.changed.push(id); }
 
   // venue
   if (from) {

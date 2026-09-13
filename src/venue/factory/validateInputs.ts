@@ -140,7 +140,7 @@ const BASE_KEYS = ["id", "source_id", "evidence_class", "confidence", "manual_re
 // ── Job venue config ─────────────────────────────────────────────────────────
 export function checkVenueConfig(input: unknown, path = "$"): Checked<JobVenueConfig> {
   const c = new Check();
-  if (!c.obj(path, input, ["id", "name", "short_name", "city", "country", "deployment", "distance_unit", "policies", "notes"])) return c.done(input as JobVenueConfig);
+  if (!c.obj(path, input, ["id", "name", "short_name", "city", "country", "deployment", "distance_unit", "field_verification_intent", "policies", "notes"])) return c.done(input as JobVenueConfig);
   c.id(`${path}.id`, input.id, VENUE_ID_PATTERN);
   c.text(`${path}.name`, input.name, true, 120);
   c.text(`${path}.short_name`, input.short_name, false, 40);
@@ -152,6 +152,7 @@ export function checkVenueConfig(input: unknown, path = "$"): Checked<JobVenueCo
     c.text(`${path}.deployment.label`, input.deployment.label, false, 160);
   }
   c.oneOf(`${path}.distance_unit`, input.distance_unit, DISTANCE_UNITS);
+  c.oneOf(`${path}.field_verification_intent`, input.field_verification_intent, ["not-started", "pending"] as const, false);
   if (c.obj(`${path}.policies`, input.policies, ["start", "destinations", "floors", "metrics", "instructions"])) {
     const p = input.policies;
     if (c.obj(`${path}.policies.start`, p.start, ["default_anchor", "allowed_anchor_kinds"])) {
@@ -271,16 +272,17 @@ export function checkExtraction(input: unknown, jobId?: string, knownSources?: R
   if (c.array("$.source_ids", input.source_ids)) input.source_ids.forEach((s, i) => sourceOk(`$.source_ids[${i}]`, s));
   for (const l of lists) c.array(`$.${l}`, input[l]);
   if (c.errors.length) return c.done(input as unknown as CandidateExtraction);
-  const allIds: string[] = [];
   const each = (list: string, keys: readonly string[], fn: (p: string, v: Rec) => void) => {
+    const ids: string[] = [];
     (input[list] as unknown[]).forEach((v, i) => {
       const p = `$.${list}[${i}]`;
       if (!c.obj(p, v, [...BASE_KEYS, ...keys])) return;
       c.candidateBase(p, v);
       sourceOk(`${p}.source_id`, v.source_id);
-      if (typeof v.id === "string") allIds.push(v.id);
+      if (typeof v.id === "string") ids.push(v.id);
       fn(p, v);
     });
+    c.unique(`$.${list}`, ids, list.replace(/s$/, ""));
   };
   const isAi = (v: Rec) => v.evidence_class === "ai_inference";
   each("floors", ["label", "order", "aliases"], (p, v) => { c.text(`${p}.label`, v.label, true, 80); c.num(`${p}.order`, v.order, { integer: true }); c.aliases(`${p}.aliases`, v.aliases); });
@@ -312,8 +314,6 @@ export function checkExtraction(input: unknown, jobId?: string, knownSources?: R
       if (isRec(v) && !isAi(v) && !INFERENCE_CLASSES.includes(v.evidence_class as never) && v.manual_review_required !== true) c.fail(`$.${l}[${i}].manual_review_required`, "an AI worker may only submit non-inference classes with manual_review_required: true");
     });
   }
-  const seen = new Set<string>();
-  allIds.forEach((id) => { if (seen.has(id)) c.fail("$", `candidate id "${id}" is used more than once in this extraction`); seen.add(id); });
   return c.done(input as unknown as CandidateExtraction);
 }
 
@@ -380,17 +380,16 @@ export function checkFieldImport(input: unknown, jobId?: string): Checked<FieldI
   c.text("$.observer", input.observer, true, 120);
   c.date("$.observed_at", input.observed_at);
   c.id("$.source_id", input.source_id, SOURCE_ID_PATTERN);
-  const ids: string[] = [];
   const list = (key: string, keys: readonly string[], fn: (p: string, v: Rec) => void) => {
     if (!c.array(`$.${key}`, input[key])) return;
+    const ids: string[] = [];
     (input[key] as unknown[]).forEach((v, i) => { const p = `$.${key}[${i}]`; if (!c.obj(p, v, ["id", "notes", ...keys])) return; if (c.id(`${p}.id`, v.id, CANDIDATE_ID_PATTERN)) ids.push(v.id); c.text(`${p}.notes`, v.notes, false, 600); fn(p, v); });
+    c.unique(`$.${key}`, ids, key);
   };
   list("measurements", ["edge", "distance_m", "method"], (p, v) => { c.id(`${p}.edge`, v.edge, CANDIDATE_ID_PATTERN); c.num(`${p}.distance_m`, v.distance_m, { min: 0.1, max: 5000 }); c.text(`${p}.method`, v.method, true, 120); });
   list("node_confirmations", ["node", "at"], (p, v) => { c.id(`${p}.node`, v.node, CANDIDATE_ID_PATTERN); if (v.at != null) c.point(`${p}.at`, v.at); });
   list("door_confirmations", ["destination"], (p, v) => c.id(`${p}.destination`, v.destination, CANDIDATE_ID_PATTERN));
   list("accessibility", ["subject", "step_free"], (p, v) => { c.text(`${p}.subject`, v.subject, true, 160); c.bool(`${p}.step_free`, v.step_free); });
-  const seen = new Set<string>();
-  ids.forEach((id) => { if (seen.has(id)) c.fail("$", `field record id "${id}" is used more than once`); seen.add(id); });
   return c.done(input as unknown as FieldImport);
 }
 

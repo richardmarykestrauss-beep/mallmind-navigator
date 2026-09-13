@@ -28,6 +28,7 @@
     "venue:diff": "node scripts/venue/factory.mjs diff",
     "venue:status": "node scripts/venue/factory.mjs status",
     "venue:selftest": "node scripts/venue/factory-selftest.mjs",
+    "venue:dryrun": "node scripts/venue/factory-dryrun.mjs",
     "verify:db": "node scripts/build-os/verify-db.mjs",
     "test:mallreds-import": "node scripts/retail/validate-mallreds-tenant-import.mjs",
     "test:mallreds-import-sql": "node scripts/retail/generate-mallreds-import-sql.mjs",

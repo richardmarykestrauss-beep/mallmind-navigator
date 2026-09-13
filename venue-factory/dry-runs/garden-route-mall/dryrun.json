@@ -1,0 +1,14 @@
+{
+  "job_id": "garden-route-mall-dryrun",
+  "venue": "venue.json",
+  "sources": "sources.json",
+  "extractions": [
+    "extraction-research.json"
+  ],
+  "reviews": [
+    "review-1-facts.json"
+  ],
+  "approve": "review-2-approve.json",
+  "compare_to": "src/venue/packs/garden-route-mall.venue.json",
+  "note": "Reproduces the Garden Route Mall pack from research/garden-route-mall-field-pilot evidence through the factory. No new facts, no geometry change. The production pack is NOT replaced."
+}
