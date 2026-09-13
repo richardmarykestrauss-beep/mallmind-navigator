@@ -4,6 +4,7 @@ import path from "path";
 
 export default defineConfig({
   plugins: [react()],
+  define: { __MALLMIND_BUILD__: JSON.stringify("test-build") },
   test: {
     environment: "jsdom",
     globals: true,

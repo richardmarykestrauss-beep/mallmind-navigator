@@ -47,9 +47,10 @@ scan QR  →  /navigate?mall=<id>&start=<anchor>&via=qr
   or the environment; `src/lib/env.ts` exposes the same variable to the app) or `--origin`. Without a
   valid `https://` origin the script exits non-zero; it never encodes a guessed hostname. Output is a
   labelled SVG poster ("DEMO / PILOT QR — NOT OFFICIAL SIGNAGE") plus a PNG per anchor and a
-  `manifest.json`. **No assets are committed** until the app has a published origin
-  (`docs/qr-demo/README.md`); the earlier `https://mallmind.app` assets were removed because that
-  host was never verified.
+  `manifest.json`. Assets in `docs/qr-demo/` encode the published origin
+  `https://mallmind-navigator.lovable.app` (`VITE_PUBLIC_APP_ORIGIN` in the committed `.env`); each
+  PNG was decoded back to its exact payload. An earlier set encoding the unverified `mallmind.app`
+  was removed.
 - Validation on scan: mall must be bundled, anchor must be a node of that mall, and permitted as a
   start. Failures render a notice and fall back to manual start selection. Non-MallMind payloads
   (other hosts' paths, `javascript:`, `mailto:`, free text) are rejected by `qrAnchorProvider`; the
@@ -69,17 +70,30 @@ Checked with Chromium (Playwright) against the production build served by `vite 
   offline re-open works; no precaching of route datasets beyond what the JS bundle contains
   (datasets are bundled, so routing itself is offline-capable).
 - Hosting (deployment truth, 2026-09-08): the frontend is the Lovable project "MallMind
-  Navigator" (`5abb25db-a7ba-4373-bfd4-8b0241bc8b36`), linked to this repository's `main`. It is
-  **not published** (`is_published: false`); the only URL is the editor preview
-  `https://id-preview--5abb25db-….lovable.app`, which serves `main` at `98a7fe6f` (2026-05-06) —
-  152 commits behind `claude-premium-nav-test`, so it does not contain the navigation session.
-  Lovable's own hosting serves `index.html` for client-side routes (SPA fallback), so no
-  `vercel.json` / `_redirects` / Firebase rewrite is needed there and none is added; if the app is
-  ever moved to another host, that host's SPA fallback must be configured. Live cold-open tests of
-  the deep links could not be run from the build container (egress to `lovable.app` is denied), and
-  none would be meaningful until the branch is published. Public hostnames seen in the repo
-  (`mallmind.app` in the backend CORS harness, `mallmind.co.za` in a bot user-agent) are not
-  verified deployments.
+  Navigator" (`5abb25db-a7ba-4373-bfd4-8b0241bc8b36`), which syncs and publishes this repository's
+  `main` only. `main` and `claude-premium-nav-test` had unrelated git histories (the integration line
+  was re-rooted on 2026-06-18 from a snapshot of main's tree), so PR #57 brought `main` onto the
+  integration build with a history-preserving merge; PR #56 (this sprint) was merged into the
+  integration branch first. The project was then published as
+  **`https://mallmind-navigator.lovable.app`**. Lovable's own hosting serves `index.html` for
+  client-side routes (SPA fallback), so no `vercel.json` / `_redirects` / Firebase rewrite is
+  needed and none is added. The hosted build runs **backend-free** (no Supabase / Cloud Run config
+  in the repo by policy; `src/lib/supabaseClient.ts` boots without it): wayfinding and QR deep
+  links work, auth/deals/assistant fail quietly. Live cold-open tests from the build container are
+  impossible (egress to `lovable.app` is denied); the same production build was cold-opened locally
+  in Chromium for `/`, `/navigate`, the three QR deep links, invalid mall, invalid anchor and a
+  cross-mall anchor with zero page errors.
+
+- Live phone result (2026-09-13) and root cause: the first publish (2026-09-08 18:57) captured
+  Lovable's sandbox BEFORE its GitHub sync of the new `main` had completed (`latest_commit_sha`
+  was still `98a7fe6f` at deploy time), so the public site served the May build — the strings the
+  phone showed ("No Route Yet", "Ask MallMind AI", "Search Products") exist only in that build, and
+  the exact `main` (059921df) bundle contains none of them. "TypeError: Load failed" is Safari's
+  network-failure message from the May build's hard-coded Supabase mall query on the Find Your
+  Mall screen; the bundled Garden Route venue never needs that request. Fix: republish after the
+  sync (deployment 6b66c651). A build marker (`vite.config.ts` → `src/lib/buildInfo.ts`, shown as
+  "Build <time> <commit>" under the Navigate details and as `<meta name="mallmind-build">`) now
+  makes the served tree provable from any phone.
 
 ## 5. Mobile UX and accessibility
 
