@@ -15,6 +15,7 @@
     "demo:smoke": "node scripts/assistant/demo-smoke-check.mjs",
     "verify:backend": "cd google-dev-agent && npm install && npm run build && node dist/index.js --task VERIFY_BACKEND_DEV",
     "verify:all": "node scripts/build-os/verify-all.mjs",
+    "validate:venues": "node scripts/venue/validate-venues.mjs",
     "verify:db": "node scripts/build-os/verify-db.mjs",
     "test:mallreds-import": "node scripts/retail/validate-mallreds-tenant-import.mjs",
     "test:mallreds-import-sql": "node scripts/retail/generate-mallreds-import-sql.mjs",

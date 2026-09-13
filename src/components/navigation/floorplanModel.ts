@@ -146,10 +146,14 @@ export interface BackendNodeLike {
   y_coordinate: number | null;
   linked_shop_id?: string | null;
   /**
-   * Spatial evidence for this node's position ("schematic" | "source-backed" | "on-site-verified").
+   * Spatial evidence for this node's position ("schematic" | "source-backed" | "field-verified").
    * Absent for hosted backend nodes → treated as NOT verified (never overstated).
    */
   evidence?: string | null;
+  /** Venue Pack node kind (entrance | corridor | junction | arrival | amenity | landmark | vertical); absent for hosted graphs. */
+  kind?: string | null;
+  /** Arrival evidence of the destination this node serves (Venue Packs): "corridor_arrival" | "verified_public_door" | "unknown". */
+  arrival_evidence?: string | null;
 }
 export interface BackendEdgeLike {
   id: string;
@@ -160,8 +164,14 @@ export interface BackendEdgeLike {
   distance_meters?: number | null;
   /** Unit-agnostic graph weight for shortest-path only (metres for metric data, pixels for unscaled). */
   weight?: number | null;
-  /** Optional topological instruction supplied by the dataset ("Continue straight; Clicks is on your right."). */
+  /** Directional wording for from→to ("Continue straight; Clicks is on your right."). Never reused for to→from. */
   instruction?: string | null;
+  /** Directional wording for to→from. Absent = no source-backed text for that direction. */
+  instruction_reverse?: string | null;
+  /** false = one-way link (from→to only). Default true. */
+  bidirectional?: boolean | null;
+  /** lift | escalator | stairs | ramp for floor-change edges. */
+  vertical_kind?: "lift" | "escalator" | "stairs" | "ramp" | null;
 }
 export interface BackendFloorplanLike {
   floor_label: string | null;

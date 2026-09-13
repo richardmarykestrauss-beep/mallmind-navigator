@@ -1,0 +1,565 @@
+{
+  "schema_version": 1,
+  "venue": {
+    "id": "mallreds-pilot",
+    "name": "Mall@Reds",
+    "short_name": "Mall@Reds",
+    "city": "Centurion",
+    "country": "South Africa",
+    "deployment": {
+      "state": "internal-pilot",
+      "official": false,
+      "label": "Pilot schematic"
+    },
+    "evidence": {
+      "geometry": "schematic",
+      "measurement": "measured",
+      "field_verification": "not-started",
+      "accessibility": "unverified",
+      "note": "pilot-schematic-unverified — reference evidence only; no third-party map artwork copied; every coordinate and distance is illustrative and awaits on-site verification"
+    },
+    "sources": [
+      {
+        "kind": "legacy dataset",
+        "reference": "/tmp/claude-0/-home-user-mallmind-navigator/9c985973-96eb-547e-8994-8fb5c8d9f7e5/scratchpad/legacy-data/mall-reds-pilot.dataset.json (asset mall-reds-pilot-v1, dataset_version 1.0.0)",
+        "note": "percent-based MallMind node coordinates (0..100)"
+      }
+    ],
+    "notes": "Tenant NAMES are real Mall@Reds anchors and amenity TYPES are real categories every mall has, but every position/distance in this file is SCHEMATIC. A tenant's factual identity (e.g. shop number from the verified tenant register) is recorded on `tenant` and is independent of the spatial `evidence` of its coordinate: a source-backed identity must never upgrade a schematic coordinate. Replace this whole file with a source-backed / on-site-verified dataset in the same shape to make the route physically truthful — no code change required."
+  },
+  "floors": [
+    {
+      "id": "G",
+      "label": "Ground Floor",
+      "order": 0,
+      "plan_image": null
+    }
+  ],
+  "graph": {
+    "distance_unit": "m",
+    "plane": {
+      "width": 1000,
+      "height": 620
+    },
+    "nodes": [
+      {
+        "id": "entrance-main",
+        "name": "Main Entrance",
+        "kind": "entrance",
+        "floor": "G",
+        "x_percent": 5,
+        "y_percent": 50,
+        "evidence": {
+          "geometry": "schematic"
+        }
+      },
+      {
+        "id": "entrance-2",
+        "name": "Entrance 2",
+        "kind": "entrance",
+        "floor": "G",
+        "x_percent": 95,
+        "y_percent": 55,
+        "evidence": {
+          "geometry": "schematic"
+        }
+      },
+      {
+        "id": "info-desk",
+        "name": "Information Desk",
+        "kind": "landmark",
+        "floor": "G",
+        "x_percent": 50,
+        "y_percent": 70,
+        "evidence": {
+          "geometry": "schematic"
+        }
+      },
+      {
+        "id": "c1",
+        "name": "Concourse",
+        "kind": "corridor",
+        "floor": "G",
+        "x_percent": 18,
+        "y_percent": 50,
+        "evidence": {
+          "geometry": "schematic"
+        }
+      },
+      {
+        "id": "c2",
+        "name": "Concourse",
+        "kind": "corridor",
+        "floor": "G",
+        "x_percent": 35,
+        "y_percent": 50,
+        "evidence": {
+          "geometry": "schematic"
+        }
+      },
+      {
+        "id": "c3",
+        "name": "Concourse",
+        "kind": "corridor",
+        "floor": "G",
+        "x_percent": 50,
+        "y_percent": 50,
+        "evidence": {
+          "geometry": "schematic"
+        }
+      },
+      {
+        "id": "c4",
+        "name": "Concourse",
+        "kind": "corridor",
+        "floor": "G",
+        "x_percent": 68,
+        "y_percent": 50,
+        "evidence": {
+          "geometry": "schematic"
+        }
+      },
+      {
+        "id": "c5",
+        "name": "Concourse",
+        "kind": "corridor",
+        "floor": "G",
+        "x_percent": 85,
+        "y_percent": 50,
+        "evidence": {
+          "geometry": "schematic"
+        }
+      },
+      {
+        "id": "woolworths",
+        "name": "Woolworths",
+        "kind": "arrival",
+        "floor": "G",
+        "x_percent": 18,
+        "y_percent": 24,
+        "evidence": {
+          "geometry": "schematic"
+        }
+      },
+      {
+        "id": "clicks",
+        "name": "Clicks",
+        "kind": "arrival",
+        "floor": "G",
+        "x_percent": 35,
+        "y_percent": 80,
+        "evidence": {
+          "geometry": "schematic"
+        }
+      },
+      {
+        "id": "dischem",
+        "name": "Dis-Chem",
+        "kind": "arrival",
+        "floor": "G",
+        "x_percent": 50,
+        "y_percent": 24,
+        "evidence": {
+          "geometry": "schematic"
+        }
+      },
+      {
+        "id": "picknpay",
+        "name": "Pick n Pay",
+        "kind": "arrival",
+        "floor": "G",
+        "x_percent": 68,
+        "y_percent": 80,
+        "evidence": {
+          "geometry": "schematic"
+        }
+      },
+      {
+        "id": "game",
+        "name": "Game",
+        "kind": "arrival",
+        "floor": "G",
+        "x_percent": 92,
+        "y_percent": 26,
+        "evidence": {
+          "geometry": "schematic"
+        }
+      },
+      {
+        "id": "lifts",
+        "name": "Lifts",
+        "kind": "vertical",
+        "floor": "G",
+        "x_percent": 35,
+        "y_percent": 22,
+        "evidence": {
+          "geometry": "schematic"
+        }
+      },
+      {
+        "id": "toilets",
+        "name": "Toilets",
+        "kind": "amenity",
+        "floor": "G",
+        "x_percent": 68,
+        "y_percent": 22,
+        "evidence": {
+          "geometry": "schematic"
+        }
+      },
+      {
+        "id": "food-court",
+        "name": "Food Court",
+        "kind": "amenity",
+        "floor": "G",
+        "x_percent": 85,
+        "y_percent": 80,
+        "evidence": {
+          "geometry": "schematic"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e-em-c1",
+        "from": "entrance-main",
+        "to": "c1",
+        "bidirectional": true,
+        "floor_change": false,
+        "distance_m": 22,
+        "evidence": {
+          "geometry": "schematic",
+          "measurement": "measured"
+        }
+      },
+      {
+        "id": "e-c1-c2",
+        "from": "c1",
+        "to": "c2",
+        "bidirectional": true,
+        "floor_change": false,
+        "distance_m": 24,
+        "evidence": {
+          "geometry": "schematic",
+          "measurement": "measured"
+        }
+      },
+      {
+        "id": "e-c2-c3",
+        "from": "c2",
+        "to": "c3",
+        "bidirectional": true,
+        "floor_change": false,
+        "distance_m": 22,
+        "evidence": {
+          "geometry": "schematic",
+          "measurement": "measured"
+        }
+      },
+      {
+        "id": "e-c3-c4",
+        "from": "c3",
+        "to": "c4",
+        "bidirectional": true,
+        "floor_change": false,
+        "distance_m": 24,
+        "evidence": {
+          "geometry": "schematic",
+          "measurement": "measured"
+        }
+      },
+      {
+        "id": "e-c4-c5",
+        "from": "c4",
+        "to": "c5",
+        "bidirectional": true,
+        "floor_change": false,
+        "distance_m": 22,
+        "evidence": {
+          "geometry": "schematic",
+          "measurement": "measured"
+        }
+      },
+      {
+        "id": "e-c5-e2",
+        "from": "c5",
+        "to": "entrance-2",
+        "bidirectional": true,
+        "floor_change": false,
+        "distance_m": 18,
+        "evidence": {
+          "geometry": "schematic",
+          "measurement": "measured"
+        }
+      },
+      {
+        "id": "e-c3-info",
+        "from": "c3",
+        "to": "info-desk",
+        "bidirectional": true,
+        "floor_change": false,
+        "distance_m": 12,
+        "evidence": {
+          "geometry": "schematic",
+          "measurement": "measured"
+        }
+      },
+      {
+        "id": "e-c1-ww",
+        "from": "c1",
+        "to": "woolworths",
+        "bidirectional": true,
+        "floor_change": false,
+        "distance_m": 20,
+        "evidence": {
+          "geometry": "schematic",
+          "measurement": "measured"
+        }
+      },
+      {
+        "id": "e-c2-cl",
+        "from": "c2",
+        "to": "clicks",
+        "bidirectional": true,
+        "floor_change": false,
+        "distance_m": 20,
+        "evidence": {
+          "geometry": "schematic",
+          "measurement": "measured"
+        }
+      },
+      {
+        "id": "e-c3-dc",
+        "from": "c3",
+        "to": "dischem",
+        "bidirectional": true,
+        "floor_change": false,
+        "distance_m": 20,
+        "evidence": {
+          "geometry": "schematic",
+          "measurement": "measured"
+        }
+      },
+      {
+        "id": "e-c4-pnp",
+        "from": "c4",
+        "to": "picknpay",
+        "bidirectional": true,
+        "floor_change": false,
+        "distance_m": 20,
+        "evidence": {
+          "geometry": "schematic",
+          "measurement": "measured"
+        }
+      },
+      {
+        "id": "e-c5-gm",
+        "from": "c5",
+        "to": "game",
+        "bidirectional": true,
+        "floor_change": false,
+        "distance_m": 22,
+        "evidence": {
+          "geometry": "schematic",
+          "measurement": "measured"
+        }
+      },
+      {
+        "id": "e-c2-lf",
+        "from": "c2",
+        "to": "lifts",
+        "bidirectional": true,
+        "floor_change": false,
+        "distance_m": 16,
+        "evidence": {
+          "geometry": "schematic",
+          "measurement": "measured"
+        }
+      },
+      {
+        "id": "e-c4-wc",
+        "from": "c4",
+        "to": "toilets",
+        "bidirectional": true,
+        "floor_change": false,
+        "distance_m": 16,
+        "evidence": {
+          "geometry": "schematic",
+          "measurement": "measured"
+        }
+      },
+      {
+        "id": "e-c5-fc",
+        "from": "c5",
+        "to": "food-court",
+        "bidirectional": true,
+        "floor_change": false,
+        "distance_m": 18,
+        "evidence": {
+          "geometry": "schematic",
+          "measurement": "measured"
+        }
+      }
+    ]
+  },
+  "destinations": [
+    {
+      "id": "woolworths",
+      "name": "Woolworths",
+      "kind": "store",
+      "arrival_node": "woolworths",
+      "unit": null,
+      "evidence": {
+        "identity": "unverified",
+        "arrival": "corridor_arrival"
+      }
+    },
+    {
+      "id": "clicks",
+      "name": "Clicks",
+      "kind": "store",
+      "arrival_node": "clicks",
+      "unit": "45",
+      "evidence": {
+        "identity": "source-backed",
+        "arrival": "corridor_arrival",
+        "identity_source": "docs/sprint-2f/mallreds-verified-tenant-register.json (mallreds-shop-45)"
+      }
+    },
+    {
+      "id": "dischem",
+      "name": "Dis-Chem",
+      "kind": "store",
+      "arrival_node": "dischem",
+      "unit": null,
+      "evidence": {
+        "identity": "unverified",
+        "arrival": "corridor_arrival"
+      }
+    },
+    {
+      "id": "picknpay",
+      "name": "Pick n Pay",
+      "kind": "store",
+      "arrival_node": "picknpay",
+      "unit": null,
+      "evidence": {
+        "identity": "unverified",
+        "arrival": "corridor_arrival"
+      }
+    },
+    {
+      "id": "game",
+      "name": "Game",
+      "kind": "store",
+      "arrival_node": "game",
+      "unit": null,
+      "evidence": {
+        "identity": "unverified",
+        "arrival": "corridor_arrival"
+      }
+    }
+  ],
+  "anchors": [
+    {
+      "id": "entrance-main",
+      "node": "entrance-main",
+      "label": "Main Entrance",
+      "kind": "entrance",
+      "start_permitted": true,
+      "qr_eligible": true,
+      "evidence": {
+        "geometry": "schematic"
+      }
+    },
+    {
+      "id": "entrance-2",
+      "node": "entrance-2",
+      "label": "Entrance 2",
+      "kind": "entrance",
+      "start_permitted": true,
+      "qr_eligible": true,
+      "evidence": {
+        "geometry": "schematic"
+      }
+    },
+    {
+      "id": "info-desk",
+      "node": "info-desk",
+      "label": "Information Desk",
+      "kind": "landmark",
+      "start_permitted": true,
+      "qr_eligible": false,
+      "evidence": {
+        "geometry": "schematic"
+      }
+    }
+  ],
+  "amenities": [
+    {
+      "id": "info-desk",
+      "kind": "information",
+      "name": "Information Desk",
+      "node": "info-desk",
+      "routable": true,
+      "evidence": {
+        "geometry": "schematic",
+        "accessibility": "unverified"
+      }
+    },
+    {
+      "id": "lifts",
+      "kind": "lift",
+      "name": "Lifts",
+      "node": "lifts",
+      "routable": true,
+      "evidence": {
+        "geometry": "schematic",
+        "accessibility": "unverified"
+      }
+    },
+    {
+      "id": "toilets",
+      "kind": "toilet",
+      "name": "Toilets",
+      "node": "toilets",
+      "routable": true,
+      "evidence": {
+        "geometry": "schematic",
+        "accessibility": "unverified"
+      }
+    },
+    {
+      "id": "food-court",
+      "kind": "food_court",
+      "name": "Food Court",
+      "node": "food-court",
+      "routable": true,
+      "evidence": {
+        "geometry": "schematic",
+        "accessibility": "unverified"
+      }
+    }
+  ],
+  "policies": {
+    "start": {
+      "allowed_anchor_kinds": [
+        "entrance",
+        "landmark"
+      ]
+    },
+    "destinations": {
+      "include_routable_amenities": true
+    },
+    "floors": {
+      "display": "label"
+    },
+    "metrics": {
+      "show": "when-measured"
+    },
+    "instructions": {
+      "generic_fallback": true,
+      "start_prefix": true
+    }
+  }
+}

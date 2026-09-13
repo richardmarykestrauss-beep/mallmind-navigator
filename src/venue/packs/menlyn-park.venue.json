@@ -1,0 +1,168 @@
+{
+  "schema_version": 1,
+  "venue": {
+    "id": "menlyn-park",
+    "name": "Menlyn Park",
+    "short_name": "Menlyn Park",
+    "city": "Pretoria",
+    "country": "South Africa",
+    "deployment": {
+      "state": "controlled-pilot",
+      "official": false,
+      "label": "Controlled pilot — source-backed, unscaled, not field verified"
+    },
+    "evidence": {
+      "geometry": "source-backed",
+      "measurement": "unmeasured",
+      "field_verification": "pending",
+      "accessibility": "unverified",
+      "note": "source-backed-topology · unscaled · not-field-verified · controlled-pilot — Every node and edge is traced from the official Menlyn Park 'LOWER FIRST LEVEL' map (first-party, https://www.menlynpark.co.za/wp-content/uploads/2023/07/Lower-First-Level-Map.jpg). Positions were measured on a 1280×853 rendering of that image (native size unverified; ±0.6 % x / ±1.0 % y) and expressed as scale-invariant percentages on the 1000:620 MallMind plane (source padded 3.743 % of its width on each side). The sheet carries NO scale bar, so distance_unit is \"px\": no metres and no walking time are claimed anywhere. The Clicks storefront door is not depicted; the destination is the public-corridor point abreast of the Clicks frontage. Not an official Menlyn Park deployment. Not field-verified. Map artwork is NOT bundled (rights not yet confirmed); only the source URL and derived factual geometry are stored. See research/menlyn-spatial-poc/."
+    },
+    "sources": [
+      {
+        "kind": "legacy dataset",
+        "reference": "/tmp/claude-0/-home-user-mallmind-navigator/9c985973-96eb-547e-8994-8fb5c8d9f7e5/scratchpad/legacy-data/menlyn-park-lf-pilot.dataset.json (asset menlyn-park-lf-proof-route-v1, dataset_version 1.0.0)",
+        "note": "percent-based MallMind node coordinates (0..100) on the prepared 1000:620 plane derived from the official Lower First Level map"
+      }
+    ],
+    "notes": "Tenant identity (Clicks = LF 72, nearest Entrance 13, Orange Parking, Atterbury Road) is FIRST_PARTY_EXPLICIT from https://www.menlynpark.co.za/stores/clicks/ (re-verified 2026-09-03). Spatial positions are FIRST_PARTY_VISUAL from the LF map. Edge length_px values are pixels on the 1280-wide rendering and serve only as shortest-path weights."
+  },
+  "floors": [
+    {
+      "id": "LF",
+      "label": "Lower First Level",
+      "order": 0,
+      "plan_image": null
+    }
+  ],
+  "graph": {
+    "distance_unit": "px",
+    "plane": {
+      "width": 1000,
+      "height": 620
+    },
+    "nodes": [
+      {
+        "id": "menlyn-lf-entrance-13",
+        "name": "Entrance 13",
+        "kind": "entrance",
+        "floor": "LF",
+        "x_percent": 49.71,
+        "y_percent": 22.98,
+        "evidence": {
+          "geometry": "source-backed"
+        },
+        "source": "https://www.menlynpark.co.za/wp-content/uploads/2023/07/Lower-First-Level-Map.jpg — circled '13' marker on the mall boundary below the orange P5 parking (source px 636,196)",
+        "notes": "Drawn on the LF sheet → opens onto LF, no floor transition. Orange Parking / Atterbury Road side."
+      },
+      {
+        "id": "menlyn-lf-spine-x-upper",
+        "name": "Cross corridor",
+        "kind": "corridor",
+        "floor": "LF",
+        "x_percent": 49.71,
+        "y_percent": 41.62,
+        "evidence": {
+          "geometry": "source-backed"
+        },
+        "source": "https://www.menlynpark.co.za/wp-content/uploads/2023/07/Lower-First-Level-Map.jpg — junction of the north–south corridor from Entrance 13 with the east–west public corridor (source px 636,355)"
+      },
+      {
+        "id": "menlyn-lf-clicks-lf72-arrival",
+        "name": "Clicks",
+        "kind": "arrival",
+        "floor": "LF",
+        "x_percent": 49.71,
+        "y_percent": 48.65,
+        "evidence": {
+          "geometry": "source-backed"
+        },
+        "source": "https://www.menlynpark.co.za/wp-content/uploads/2023/07/Lower-First-Level-Map.jpg — public-corridor point abreast of the Clicks block (logo centroid source px 590,415; corridor point 636,415)",
+        "notes": "Corridor ARRIVAL point, not the storefront door (door not depicted; field verification required). Clicks lies west of the corridor: on the shopper's right when walking in from Entrance 13."
+      }
+    ],
+    "edges": [
+      {
+        "id": "menlyn-lf-e13-to-x-upper",
+        "from": "menlyn-lf-entrance-13",
+        "to": "menlyn-lf-spine-x-upper",
+        "bidirectional": true,
+        "floor_change": false,
+        "length_px": 159,
+        "evidence": {
+          "geometry": "source-backed",
+          "measurement": "unmeasured"
+        },
+        "instructions": {
+          "forward": "Walk straight into the mall along the corridor until you reach the cross corridor."
+        },
+        "source": "https://www.menlynpark.co.za/wp-content/uploads/2023/07/Lower-First-Level-Map.jpg — inside the public corridor between the mr price home block (west) and the Ackermans block (east)"
+      },
+      {
+        "id": "menlyn-lf-x-upper-to-clicks",
+        "from": "menlyn-lf-spine-x-upper",
+        "to": "menlyn-lf-clicks-lf72-arrival",
+        "bidirectional": true,
+        "floor_change": false,
+        "length_px": 60,
+        "evidence": {
+          "geometry": "source-backed",
+          "measurement": "unmeasured"
+        },
+        "instructions": {
+          "forward": "Continue straight across the cross corridor. Clicks is on your right, just past the crossing."
+        },
+        "source": "https://www.menlynpark.co.za/wp-content/uploads/2023/07/Lower-First-Level-Map.jpg — same corridor continuing south; Clicks block on the west side"
+      }
+    ]
+  },
+  "destinations": [
+    {
+      "id": "menlyn-clicks-lf72",
+      "name": "Clicks",
+      "kind": "store",
+      "arrival_node": "menlyn-lf-clicks-lf72-arrival",
+      "unit": "LF 72",
+      "evidence": {
+        "identity": "source-backed",
+        "arrival": "corridor_arrival",
+        "identity_source": "https://www.menlynpark.co.za/stores/clicks/ — Store Code LF 72, Nearest Entrance 13, Orange Parking, Atterbury Road, 012 348 6161 (re-verified 2026-09-03)"
+      }
+    }
+  ],
+  "anchors": [
+    {
+      "id": "menlyn-lf-entrance-13",
+      "node": "menlyn-lf-entrance-13",
+      "label": "Entrance 13",
+      "kind": "entrance",
+      "start_permitted": true,
+      "qr_eligible": true,
+      "evidence": {
+        "geometry": "source-backed"
+      }
+    }
+  ],
+  "amenities": [],
+  "policies": {
+    "start": {
+      "allowed_anchor_kinds": [
+        "entrance",
+        "landmark"
+      ]
+    },
+    "destinations": {
+      "include_routable_amenities": true
+    },
+    "floors": {
+      "display": "label"
+    },
+    "metrics": {
+      "show": "when-measured"
+    },
+    "instructions": {
+      "generic_fallback": true,
+      "start_prefix": true
+    }
+  }
+}

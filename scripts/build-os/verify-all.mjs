@@ -29,6 +29,15 @@ const steps = [
     cwd: ".",
   },
   {
+    // Sprint 4 — every bundled Venue Pack must validate under the one contract
+    // the app uses (schema, references, evidence, metric truth) and every
+    // destination must be reachable from every start anchor.
+    name: "Venue Pack validation",
+    command: "npm",
+    args: ["run", "validate:venues"],
+    cwd: ".",
+  },
+  {
     // Sprint 2G — the Mall@Reds tenant-import preview is deterministic and
     // import-safe (no DB/network). This re-derives the preview from the register
     // and runs every safety invariant; it never mutates anything.
