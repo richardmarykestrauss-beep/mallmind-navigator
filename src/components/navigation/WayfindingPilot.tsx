@@ -40,6 +40,7 @@ import {
 import { routeClaim, routeEvidenceTier, isArrivalVerified } from "@/components/navigation/routeEvidence";
 import { safeSink, type NavigationEventSink } from "@/components/navigation/navigationEvents";
 import { persistNavigationSession, loadPersistedNavigationSession } from "@/components/navigation/navigationSessionStore";
+import { BUILD_MARKER } from "@/lib/buildInfo";
 
 const poiIcon = (p: PilotPoi): string =>
   p.kind === "store" ? "🛍️" : ({ toilet: "🚻", lift: "🛗", escalator: "🪜", stairs: "🪜", food_court: "🍽️", landmark: "ℹ️" }[p.type] ?? "📍");
@@ -553,6 +554,7 @@ function WayfindingPilotView({ graph, initialAnchor, anchorNotice, embedded, onO
           <span className="underline">details</span>
         </summary>
         <ul className="space-y-0.5 pt-2 leading-snug">{copy.details.map((d) => <li key={d}>• {d}</li>)}</ul>
+        <p className="pt-1 text-[10px] text-muted-foreground/80" data-testid="pilot-build">Build {BUILD_MARKER}</p>
       </details>
     </div>
   );

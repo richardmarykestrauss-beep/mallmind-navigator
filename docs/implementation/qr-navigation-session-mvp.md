@@ -84,6 +84,17 @@ Checked with Chromium (Playwright) against the production build served by `vite 
   in Chromium for `/`, `/navigate`, the three QR deep links, invalid mall, invalid anchor and a
   cross-mall anchor with zero page errors.
 
+- Live phone result (2026-09-13) and root cause: the first publish (2026-09-08 18:57) captured
+  Lovable's sandbox BEFORE its GitHub sync of the new `main` had completed (`latest_commit_sha`
+  was still `98a7fe6f` at deploy time), so the public site served the May build — the strings the
+  phone showed ("No Route Yet", "Ask MallMind AI", "Search Products") exist only in that build, and
+  the exact `main` (059921df) bundle contains none of them. "TypeError: Load failed" is Safari's
+  network-failure message from the May build's hard-coded Supabase mall query on the Find Your
+  Mall screen; the bundled Garden Route venue never needs that request. Fix: republish after the
+  sync (deployment 6b66c651). A build marker (`vite.config.ts` → `src/lib/buildInfo.ts`, shown as
+  "Build <time> <commit>" under the Navigate details and as `<meta name="mallmind-build">`) now
+  makes the served tree provable from any phone.
+
 ## 5. Mobile UX and accessibility
 
 - Tested at 320 / 390 / 430 px: QR landing, destination selection, Start navigation, step view,
