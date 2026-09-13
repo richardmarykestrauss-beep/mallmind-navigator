@@ -25,6 +25,7 @@ import { trackEvent } from "@/lib/analytics";
 import { cn } from "@/lib/utils";
 import { describeShopFloor, describeEntrance } from "@/lib/shopLocation";
 import { getIndoorMapModel, type IndoorMapModel } from "@/lib/googleBackendClient";
+import { routeMetrics } from "@/lib/routeMetrics";
 
 /**
  * NavigateScreen — the shopper "Navigate" tab.
@@ -44,20 +45,6 @@ import { getIndoorMapModel, type IndoorMapModel } from "@/lib/googleBackendClien
 function shortStepLabel(s: string): string {
   const clean = s.trim();
   return clean.length <= 22 ? clean : `${clean.slice(0, 20).trimEnd()}…`;
-}
-
-function estimateRoute(stops: { floor: string | null }[]): { meters: number; minutes: number } {
-  if (!stops.length) return { meters: 0, minutes: 0 };
-  let meters = 50;
-  const floorOrder: Record<string, number> = { B1: 0, G: 1, L1: 2, L2: 3, L3: 4 };
-
-  for (let i = 0; i < stops.length - 1; i++) {
-    const a = stops[i].floor ?? "G";
-    const b = stops[i + 1].floor ?? "G";
-    meters += 80 + Math.abs((floorOrder[a] ?? 1) - (floorOrder[b] ?? 1)) * 40;
-  }
-
-  return { meters, minutes: Math.max(1, Math.round(meters / 72)) };
 }
 
 const NavigateScreen = () => {
@@ -81,7 +68,8 @@ const NavigateScreen = () => {
 
   const { user, profile, refreshProfile } = useAuth();
 
-  const [activeFloor, setActiveFloor] = useState<string>("Ground Floor");
+  // No invented floor: empty until the route says which floor it starts on.
+  const [activeFloor, setActiveFloor] = useState<string>("");
   const [completedStepIndices, setCompletedStepIndices] = useState<Set<number>>(new Set());
   const [completedStopIndices, setCompletedStopIndices] = useState<Set<number>>(new Set());
   const [xpToast, setXpToast] = useState<{ xp: number; leveledUp: boolean; badges: string[] } | null>(null);
@@ -157,13 +145,9 @@ const NavigateScreen = () => {
     return schematicModelFromRoute(activeRouteSteps, meta);
   }, [indoorMapModel, activeRouteSteps, selectedMall?.id, selectedMall?.name]);
 
-  const totalMeters = hasRealRoute
-    ? activeRouteSteps.at(-1)?.cumulative_meters ?? 0
-    : estimateRoute(routeStops).meters;
-
-  const totalMinutes = hasRealRoute
-    ? Math.max(1, Math.round(totalMeters / 72))
-    : estimateRoute(routeStops).minutes;
+  // DISTANCE TRUTH: metres/minutes exist only when the route carries measured spatial steps.
+  // An assistant stop list without measured geometry shows NO distance and NO time — never an estimate.
+  const metrics = routeMetrics(activeRouteSteps);
 
   const allDone = hasRealRoute
     ? completedStepIndices.size >= activeRouteSteps.length
@@ -186,8 +170,7 @@ const NavigateScreen = () => {
   const routePct = stopCount ? Math.round((doneCount / stopCount) * 100) : 0;
 
   const visibleFloors = useMemo(() => {
-    const fs = routeFloors(routePolyline);
-    return fs.length ? fs : ["Ground Floor"];
+    return routeFloors(routePolyline); // only floors the route actually visits; none are invented
   }, [routePolyline]);
 
   useEffect(() => {
@@ -261,7 +244,7 @@ const NavigateScreen = () => {
       <MobileShell>
         <ScreenHeader
           title="Navigate"
-          subtitle={`${wayfindingMall?.mallName ?? "Mall"} · ${wayfindingMall ? routeClaim(wayfindingMall).toLowerCase() : "no map yet"}`}
+          subtitle={`${wayfindingMall?.name ?? "Mall"} · ${wayfindingMall ? routeClaim(wayfindingMall).toLowerCase() : "no map yet"}`}
           back={false}
           right={
             (hasRealRoute || routeStops.length > 0) ? (
@@ -281,7 +264,7 @@ const NavigateScreen = () => {
           initialAnchor={linkAnchor.status === "ok" ? linkAnchor.anchor : null}
           anchorNotice={linkAnchor.status === "invalid" ? linkAnchor.reason : null}
           onOpenAssistant={() => navigate("/assistant")}
-          onEvent={(e: NavigationEvent) => trackEvent(e.name, { userId: user?.id ?? null, mallId: e.mallId, mallName: wayfindingMall?.mallName ?? null, metadata: e.detail })}
+          onEvent={(e: NavigationEvent) => trackEvent(e.name, { userId: user?.id ?? null, mallId: e.mallId, mallName: wayfindingMall?.name ?? null, metadata: e.detail })}
         />
       </MobileShell>
     );
@@ -353,18 +336,27 @@ const NavigateScreen = () => {
         </div>
       </div>
 
-      <div className="mx-4 mb-3 flex items-center justify-between rounded-xl border border-primary/12 bg-primary/5 px-4 py-2">
-        <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-          <Clock className="h-3.5 w-3.5 text-primary" />
-          <span className="font-medium text-foreground">{totalMinutes}</span> min
-        </div>
+      <div className="mx-4 mb-3 flex items-center justify-between rounded-xl border border-primary/12 bg-primary/5 px-4 py-2" data-testid="legacy-route-metrics">
+        {metrics.meters !== null && metrics.minutes !== null ? (
+          <>
+            <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+              <Clock className="h-3.5 w-3.5 text-primary" />
+              <span className="font-medium text-foreground">{metrics.minutes}</span> min
+            </div>
 
-        <div className="h-3 w-px bg-border" />
+            <div className="h-3 w-px bg-border" />
 
-        <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-          <Footprints className="h-3.5 w-3.5 text-secondary" />
-          <span className="font-medium text-foreground">{Math.round(totalMeters)}</span> m
-        </div>
+            <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+              <Footprints className="h-3.5 w-3.5 text-secondary" />
+              <span className="font-medium text-foreground">{Math.round(metrics.meters)}</span> m
+            </div>
+          </>
+        ) : (
+          <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground" data-testid="legacy-route-unmeasured">
+            <Footprints className="h-3.5 w-3.5 text-secondary" />
+            Distance not measured — no walking time shown
+          </div>
+        )}
 
         <div className="h-3 w-px bg-border" />
 
