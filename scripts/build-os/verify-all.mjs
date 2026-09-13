@@ -38,6 +38,15 @@ const steps = [
     cwd: ".",
   },
   {
+    // Sprint 5 — the Venue Pack Factory pipeline (sources → extraction → ledger →
+    // review → deterministic compile → publish gate → field revision → diff) runs
+    // end-to-end on the synthetic Factory Test Centre in a throw-away directory.
+    name: "Venue Pack Factory selftest",
+    command: "npm",
+    args: ["run", "venue:selftest"],
+    cwd: ".",
+  },
+  {
     // Sprint 2G — the Mall@Reds tenant-import preview is deterministic and
     // import-safe (no DB/network). This re-derives the preview from the register
     // and runs every safety invariant; it never mutates anything.

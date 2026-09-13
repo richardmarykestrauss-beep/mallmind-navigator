@@ -1,0 +1,9 @@
+{
+  "_note": "SYNTHETIC tenant directory for the Factory Test Centre fixture. Not a real venue.",
+  "centre": "Factory Test Centre",
+  "tenants": [
+    { "unit": "G01", "name": "Grocer", "category": "grocery", "phone": "000 000 0001" },
+    { "unit": "G05", "name": "Pharmacy", "category": "health", "phone": "000 000 0005" },
+    { "unit": "G14", "name": "Cafe", "category": "food", "phone": "000 000 0014", "note": "moved from G12 in 2026" }
+  ]
+}

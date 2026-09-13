@@ -1,0 +1,8 @@
+{
+  "_doc": "Bundled production Venue Packs in registry order (the first is the manual-entry default). `npm run venue:publish -- --bundle` appends here; the registry globs ./*.venue.json and orders by this list.",
+  "order": [
+    "mallreds-pilot.venue.json",
+    "menlyn-park.venue.json",
+    "garden-route-mall.venue.json"
+  ]
+}

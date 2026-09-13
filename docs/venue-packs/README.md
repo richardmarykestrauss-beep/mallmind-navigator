@@ -11,7 +11,7 @@ mall-specific conditional.** The zero-code proof is `src/venue/testMallAlpha.zer
 MallMind Core                              Venue Pack Registry (src/venue/registry.ts)
   src/venue/route.ts        router            getVenuePack(id) · listVenuePacks() · validateVenuePack(pack)
   src/components/navigation/navigationSession.ts   registerVenuePack(pack) (tests / future imports)
-  src/components/navigation/anchorProvider.ts        bundled packs: src/venue/packs/*.venue.json
+  src/components/navigation/anchorProvider.ts        bundled packs: src/venue/packs/*.venue.json (ordered by packs/bundle.json)
   src/venue/search.ts       destination search
   src/venue/evidence.ts     truth wording
   src/venue/instructions.ts directional wording
@@ -138,10 +138,17 @@ every start anchor (routability smoke).
 
 ## Adding a venue (or a test venue)
 
-1. Write `<id>.venue.json` following this contract (copy `src/venue/fixtures/test-mall-alpha.venue.json`).
-2. Production: add it to `BUNDLED` in `src/venue/registry.ts` (the only code touch, and it is a data list).
-   Tests / dev harness: `registerVenuePack(pack)` in `beforeAll`, `unregisterVenuePack(id)` after.
-3. `npm run validate:venues`, then the QR link `/navigate?mall=<id>&start=<anchor id>&via=qr` works.
+1. Produce `<id>.venue.json` — preferably through the Venue Pack Factory (`docs/venue-factory/README.md`),
+   which compiles it from reviewed evidence; for a test venue copy `src/venue/fixtures/test-mall-alpha.venue.json`.
+2. Production: `npm run venue:publish -- --job <job> --bundle` copies the pack into `src/venue/packs/`
+   and lists it in `src/venue/packs/bundle.json` (the registry globs the folder and orders by that list;
+   no code changes). Tests / dev harness: `registerVenuePack(pack)` in `beforeAll`, `unregisterVenuePack(id)` after.
+3. `npm run validate:venues`, then the QR link `/navigate?mall=<id>&start=<anchor id>&via=qr` works and
+   `scripts/navigation/generate-demo-qr.mjs` prints codes for every `qr_eligible` anchor.
+
+`venue.pack_version` (integer ≥ 1) is the revision of that venue's pack, independent of
+`schema_version`; `revision_note` says what changed. A field survey produces the next version
+through the factory (`npm run venue:diff` shows the change report).
 
 ## Performance notes
 

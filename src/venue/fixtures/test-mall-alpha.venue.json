@@ -3,8 +3,13 @@
   "venue": {
     "id": "test-mall-alpha",
     "name": "Test Mall Alpha",
+    "pack_version": 1,
     "short_name": "Alpha",
-    "deployment": { "state": "internal-pilot", "official": false, "label": "Test fixture — never a production venue" },
+    "deployment": {
+      "state": "internal-pilot",
+      "official": false,
+      "label": "Test fixture — never a production venue"
+    },
     "evidence": {
       "geometry": "source-backed",
       "measurement": "unmeasured",
@@ -12,56 +17,374 @@
       "accessibility": "unverified",
       "note": "Synthetic fixture for the zero-code mall test. Geometry is invented for testing and must never ship."
     },
-    "sources": [{ "kind": "fixture", "reference": "src/venue/fixtures/test-mall-alpha.venue.json", "note": "synthetic" }],
+    "sources": [
+      {
+        "kind": "fixture",
+        "reference": "src/venue/fixtures/test-mall-alpha.venue.json",
+        "note": "synthetic"
+      }
+    ],
     "notes": "One floor called Upper Mall (no ground floor exists). Two start anchors. Leg A→B→D1 is measured on site (a field-verification upgrade of a px pack); the leg to D2 is unmeasured, so routes through it must never show metres."
   },
   "floors": [
-    { "id": "UM", "label": "Upper Mall", "order": 0, "aliases": ["Upper"], "plan_image": null }
+    {
+      "id": "UM",
+      "label": "Upper Mall",
+      "order": 0,
+      "aliases": [
+        "Upper"
+      ],
+      "plan_image": null
+    }
   ],
   "graph": {
     "distance_unit": "px",
-    "plane": { "width": 1000, "height": 620 },
+    "plane": {
+      "width": 1000,
+      "height": 620
+    },
     "nodes": [
-      { "id": "alpha-entrance-north", "name": "North Entrance", "kind": "entrance", "floor": "UM", "x_percent": 10, "y_percent": 50, "evidence": { "geometry": "source-backed" } },
-      { "id": "alpha-entrance-east", "name": "East Entrance", "kind": "entrance", "floor": "UM", "x_percent": 90, "y_percent": 50, "evidence": { "geometry": "source-backed" } },
-      { "id": "alpha-junction-a", "name": "Junction A", "kind": "junction", "floor": "UM", "x_percent": 30, "y_percent": 50, "evidence": { "geometry": "field-verified" } },
-      { "id": "alpha-junction-b", "name": "Junction B", "kind": "junction", "floor": "UM", "x_percent": 60, "y_percent": 50, "evidence": { "geometry": "field-verified" } },
-      { "id": "alpha-arrival-bookshop", "name": "Bookshop arrival", "kind": "arrival", "floor": "UM", "x_percent": 30, "y_percent": 30, "evidence": { "geometry": "field-verified" } },
-      { "id": "alpha-arrival-pharmacy", "name": "Pharmacy arrival", "kind": "arrival", "floor": "UM", "x_percent": 60, "y_percent": 30, "evidence": { "geometry": "source-backed" } },
-      { "id": "alpha-arrival-cafe", "name": "Cafe arrival", "kind": "arrival", "floor": "UM", "x_percent": 60, "y_percent": 70, "evidence": { "geometry": "source-backed" } },
-      { "id": "alpha-toilets", "name": "Toilets", "kind": "amenity", "floor": "UM", "x_percent": 45, "y_percent": 70, "evidence": { "geometry": "source-backed" } },
-      { "id": "alpha-atm", "name": "ATM", "kind": "amenity", "floor": "UM", "x_percent": 12, "y_percent": 60, "evidence": { "geometry": "source-backed" } }
+      {
+        "id": "alpha-entrance-north",
+        "name": "North Entrance",
+        "kind": "entrance",
+        "floor": "UM",
+        "x_percent": 10,
+        "y_percent": 50,
+        "evidence": {
+          "geometry": "source-backed"
+        }
+      },
+      {
+        "id": "alpha-entrance-east",
+        "name": "East Entrance",
+        "kind": "entrance",
+        "floor": "UM",
+        "x_percent": 90,
+        "y_percent": 50,
+        "evidence": {
+          "geometry": "source-backed"
+        }
+      },
+      {
+        "id": "alpha-junction-a",
+        "name": "Junction A",
+        "kind": "junction",
+        "floor": "UM",
+        "x_percent": 30,
+        "y_percent": 50,
+        "evidence": {
+          "geometry": "field-verified"
+        }
+      },
+      {
+        "id": "alpha-junction-b",
+        "name": "Junction B",
+        "kind": "junction",
+        "floor": "UM",
+        "x_percent": 60,
+        "y_percent": 50,
+        "evidence": {
+          "geometry": "field-verified"
+        }
+      },
+      {
+        "id": "alpha-arrival-bookshop",
+        "name": "Bookshop arrival",
+        "kind": "arrival",
+        "floor": "UM",
+        "x_percent": 30,
+        "y_percent": 30,
+        "evidence": {
+          "geometry": "field-verified"
+        }
+      },
+      {
+        "id": "alpha-arrival-pharmacy",
+        "name": "Pharmacy arrival",
+        "kind": "arrival",
+        "floor": "UM",
+        "x_percent": 60,
+        "y_percent": 30,
+        "evidence": {
+          "geometry": "source-backed"
+        }
+      },
+      {
+        "id": "alpha-arrival-cafe",
+        "name": "Cafe arrival",
+        "kind": "arrival",
+        "floor": "UM",
+        "x_percent": 60,
+        "y_percent": 70,
+        "evidence": {
+          "geometry": "source-backed"
+        }
+      },
+      {
+        "id": "alpha-toilets",
+        "name": "Toilets",
+        "kind": "amenity",
+        "floor": "UM",
+        "x_percent": 45,
+        "y_percent": 70,
+        "evidence": {
+          "geometry": "source-backed"
+        }
+      },
+      {
+        "id": "alpha-atm",
+        "name": "ATM",
+        "kind": "amenity",
+        "floor": "UM",
+        "x_percent": 12,
+        "y_percent": 60,
+        "evidence": {
+          "geometry": "source-backed"
+        }
+      }
     ],
     "edges": [
-      { "id": "e-north-a", "from": "alpha-entrance-north", "to": "alpha-junction-a", "bidirectional": true, "floor_change": false, "length_px": 200, "distance_m": 24, "evidence": { "geometry": "field-verified", "measurement": "measured" }, "instructions": { "forward": "Walk straight in from the North Entrance to the first junction.", "reverse": "Head back toward the North Entrance along the main aisle." } },
-      { "id": "e-a-bookshop", "from": "alpha-junction-a", "to": "alpha-arrival-bookshop", "bidirectional": true, "floor_change": false, "length_px": 120, "distance_m": 15, "evidence": { "geometry": "field-verified", "measurement": "measured" }, "instructions": { "forward": "Turn right at the junction; the Bookshop is at the end of the side aisle." } },
-      { "id": "e-a-b", "from": "alpha-junction-a", "to": "alpha-junction-b", "bidirectional": true, "floor_change": false, "length_px": 300, "evidence": { "geometry": "source-backed", "measurement": "unmeasured" }, "instructions": { "forward": "Continue straight along the main aisle to the second junction." } },
-      { "id": "e-b-pharmacy", "from": "alpha-junction-b", "to": "alpha-arrival-pharmacy", "bidirectional": true, "floor_change": false, "length_px": 120, "evidence": { "geometry": "source-backed", "measurement": "unmeasured" } },
-      { "id": "e-b-cafe", "from": "alpha-junction-b", "to": "alpha-arrival-cafe", "bidirectional": true, "floor_change": false, "length_px": 120, "evidence": { "geometry": "source-backed", "measurement": "unmeasured" }, "instructions": { "forward": "Turn left at the second junction; the Cafe is ahead." } },
-      { "id": "e-b-east", "from": "alpha-junction-b", "to": "alpha-entrance-east", "bidirectional": true, "floor_change": false, "length_px": 300, "evidence": { "geometry": "source-backed", "measurement": "unmeasured" } },
-      { "id": "e-cafe-toilets", "from": "alpha-arrival-cafe", "to": "alpha-toilets", "bidirectional": false, "floor_change": false, "length_px": 90, "evidence": { "geometry": "source-backed", "measurement": "unmeasured" }, "instructions": { "forward": "The toilets are down the short passage past the Cafe (one-way service passage)." } },
-      { "id": "e-north-atm", "from": "alpha-entrance-north", "to": "alpha-atm", "bidirectional": true, "floor_change": false, "length_px": 40, "evidence": { "geometry": "source-backed", "measurement": "unmeasured" } }
+      {
+        "id": "e-north-a",
+        "from": "alpha-entrance-north",
+        "to": "alpha-junction-a",
+        "bidirectional": true,
+        "floor_change": false,
+        "length_px": 200,
+        "distance_m": 24,
+        "evidence": {
+          "geometry": "field-verified",
+          "measurement": "measured"
+        },
+        "instructions": {
+          "forward": "Walk straight in from the North Entrance to the first junction.",
+          "reverse": "Head back toward the North Entrance along the main aisle."
+        }
+      },
+      {
+        "id": "e-a-bookshop",
+        "from": "alpha-junction-a",
+        "to": "alpha-arrival-bookshop",
+        "bidirectional": true,
+        "floor_change": false,
+        "length_px": 120,
+        "distance_m": 15,
+        "evidence": {
+          "geometry": "field-verified",
+          "measurement": "measured"
+        },
+        "instructions": {
+          "forward": "Turn right at the junction; the Bookshop is at the end of the side aisle."
+        }
+      },
+      {
+        "id": "e-a-b",
+        "from": "alpha-junction-a",
+        "to": "alpha-junction-b",
+        "bidirectional": true,
+        "floor_change": false,
+        "length_px": 300,
+        "evidence": {
+          "geometry": "source-backed",
+          "measurement": "unmeasured"
+        },
+        "instructions": {
+          "forward": "Continue straight along the main aisle to the second junction."
+        }
+      },
+      {
+        "id": "e-b-pharmacy",
+        "from": "alpha-junction-b",
+        "to": "alpha-arrival-pharmacy",
+        "bidirectional": true,
+        "floor_change": false,
+        "length_px": 120,
+        "evidence": {
+          "geometry": "source-backed",
+          "measurement": "unmeasured"
+        }
+      },
+      {
+        "id": "e-b-cafe",
+        "from": "alpha-junction-b",
+        "to": "alpha-arrival-cafe",
+        "bidirectional": true,
+        "floor_change": false,
+        "length_px": 120,
+        "evidence": {
+          "geometry": "source-backed",
+          "measurement": "unmeasured"
+        },
+        "instructions": {
+          "forward": "Turn left at the second junction; the Cafe is ahead."
+        }
+      },
+      {
+        "id": "e-b-east",
+        "from": "alpha-junction-b",
+        "to": "alpha-entrance-east",
+        "bidirectional": true,
+        "floor_change": false,
+        "length_px": 300,
+        "evidence": {
+          "geometry": "source-backed",
+          "measurement": "unmeasured"
+        }
+      },
+      {
+        "id": "e-cafe-toilets",
+        "from": "alpha-arrival-cafe",
+        "to": "alpha-toilets",
+        "bidirectional": false,
+        "floor_change": false,
+        "length_px": 90,
+        "evidence": {
+          "geometry": "source-backed",
+          "measurement": "unmeasured"
+        },
+        "instructions": {
+          "forward": "The toilets are down the short passage past the Cafe (one-way service passage)."
+        }
+      },
+      {
+        "id": "e-north-atm",
+        "from": "alpha-entrance-north",
+        "to": "alpha-atm",
+        "bidirectional": true,
+        "floor_change": false,
+        "length_px": 40,
+        "evidence": {
+          "geometry": "source-backed",
+          "measurement": "unmeasured"
+        }
+      }
     ]
   },
   "destinations": [
-    { "id": "alpha-bookshop", "name": "Bookshop", "kind": "store", "category": "books", "arrival_node": "alpha-arrival-bookshop", "unit": "U12", "aliases": ["Books", "Alpha Books"], "evidence": { "identity": "field-verified", "arrival": "verified_public_door" } },
-    { "id": "alpha-pharmacy", "name": "Pharmacy", "kind": "store", "category": "health", "arrival_node": "alpha-arrival-pharmacy", "unit": "U20", "aliases": ["Chemist"], "evidence": { "identity": "source-backed", "arrival": "corridor_arrival" } },
-    { "id": "alpha-cafe", "name": "Cafe", "kind": "food", "arrival_node": "alpha-arrival-cafe", "unit": null, "aliases": ["Coffee"], "evidence": { "identity": "unverified", "arrival": "unknown" } }
+    {
+      "id": "alpha-bookshop",
+      "name": "Bookshop",
+      "kind": "store",
+      "category": "books",
+      "arrival_node": "alpha-arrival-bookshop",
+      "unit": "U12",
+      "aliases": [
+        "Books",
+        "Alpha Books"
+      ],
+      "evidence": {
+        "identity": "field-verified",
+        "arrival": "verified_public_door"
+      }
+    },
+    {
+      "id": "alpha-pharmacy",
+      "name": "Pharmacy",
+      "kind": "store",
+      "category": "health",
+      "arrival_node": "alpha-arrival-pharmacy",
+      "unit": "U20",
+      "aliases": [
+        "Chemist"
+      ],
+      "evidence": {
+        "identity": "source-backed",
+        "arrival": "corridor_arrival"
+      }
+    },
+    {
+      "id": "alpha-cafe",
+      "name": "Cafe",
+      "kind": "food",
+      "arrival_node": "alpha-arrival-cafe",
+      "unit": null,
+      "aliases": [
+        "Coffee"
+      ],
+      "evidence": {
+        "identity": "unverified",
+        "arrival": "unknown"
+      }
+    }
   ],
   "anchors": [
-    { "id": "alpha-north", "node": "alpha-entrance-north", "label": "North Entrance", "kind": "entrance", "start_permitted": true, "qr_eligible": true, "evidence": { "geometry": "source-backed" } },
-    { "id": "alpha-east", "node": "alpha-entrance-east", "label": "East Entrance", "kind": "entrance", "start_permitted": true, "qr_eligible": true, "evidence": { "geometry": "source-backed" } },
-    { "id": "alpha-atm-spot", "node": "alpha-atm", "label": "ATM corner", "kind": "landmark", "start_permitted": false, "qr_eligible": false }
+    {
+      "id": "alpha-north",
+      "node": "alpha-entrance-north",
+      "label": "North Entrance",
+      "kind": "entrance",
+      "start_permitted": true,
+      "qr_eligible": true,
+      "evidence": {
+        "geometry": "source-backed"
+      }
+    },
+    {
+      "id": "alpha-east",
+      "node": "alpha-entrance-east",
+      "label": "East Entrance",
+      "kind": "entrance",
+      "start_permitted": true,
+      "qr_eligible": true,
+      "evidence": {
+        "geometry": "source-backed"
+      }
+    },
+    {
+      "id": "alpha-atm-spot",
+      "node": "alpha-atm",
+      "label": "ATM corner",
+      "kind": "landmark",
+      "start_permitted": false,
+      "qr_eligible": false
+    }
   ],
   "amenities": [
-    { "id": "alpha-toilets-amenity", "kind": "toilet", "name": "Toilets", "node": "alpha-toilets", "routable": true, "aliases": ["Restrooms"], "evidence": { "geometry": "source-backed", "accessibility": "unverified" } },
-    { "id": "alpha-atm-amenity", "kind": "atm", "name": "ATM", "node": "alpha-atm", "routable": false, "evidence": { "geometry": "source-backed" } }
+    {
+      "id": "alpha-toilets-amenity",
+      "kind": "toilet",
+      "name": "Toilets",
+      "node": "alpha-toilets",
+      "routable": true,
+      "aliases": [
+        "Restrooms"
+      ],
+      "evidence": {
+        "geometry": "source-backed",
+        "accessibility": "unverified"
+      }
+    },
+    {
+      "id": "alpha-atm-amenity",
+      "kind": "atm",
+      "name": "ATM",
+      "node": "alpha-atm",
+      "routable": false,
+      "evidence": {
+        "geometry": "source-backed"
+      }
+    }
   ],
   "policies": {
-    "start": { "default_anchor": "alpha-east", "allowed_anchor_kinds": ["entrance"] },
-    "destinations": { "include_routable_amenities": true },
-    "floors": { "display": "label" },
-    "metrics": { "show": "when-measured" },
-    "instructions": { "generic_fallback": true, "start_prefix": true }
+    "start": {
+      "default_anchor": "alpha-east",
+      "allowed_anchor_kinds": [
+        "entrance"
+      ]
+    },
+    "destinations": {
+      "include_routable_amenities": true
+    },
+    "floors": {
+      "display": "label"
+    },
+    "metrics": {
+      "show": "when-measured"
+    },
+    "instructions": {
+      "generic_fallback": true,
+      "start_prefix": true
+    }
   }
 }

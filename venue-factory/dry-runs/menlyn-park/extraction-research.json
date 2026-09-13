@@ -1,0 +1,263 @@
+{
+  "schema_version": 1,
+  "worker": {
+    "kind": "file",
+    "name": "transcription of research/menlyn-spatial-poc (menlyn-lf-route-candidate.json + evidence-ledger F09–F12); no new facts",
+    "version": "2026-09-13"
+  },
+  "source_ids": [
+    "menlyn-lf-map",
+    "menlyn-clicks-tenant-page",
+    "menlyn-clicks-retailer-page",
+    "menlyn-legacy-wording"
+  ],
+  "floors": [
+    {
+      "id": "LF",
+      "source_id": "menlyn-lf-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.9,
+      "manual_review_required": false,
+      "notes": "F03: the official map exposes LG, G, LF, UF; LF is titled 'LOWER FIRST LEVEL' on its sheet.",
+      "label": "Lower First Level",
+      "order": 0
+    }
+  ],
+  "nodes": [
+    {
+      "id": "menlyn-lf-entrance-13",
+      "source_id": "menlyn-lf-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.8,
+      "manual_review_required": false,
+      "notes": "F09/F10: circled '13' marker on the mall boundary below the orange P5 parking, at the head of a corridor; drawn on the LF sheet → opens onto LF, no floor transition. Orange Parking / Atterbury Road side.",
+      "name": "Entrance 13",
+      "kind": "entrance",
+      "floor": "LF",
+      "at": {
+        "image": "menlyn-lf-map",
+        "px_x": 636,
+        "px_y": 196
+      }
+    },
+    {
+      "id": "menlyn-lf-spine-x-upper",
+      "source_id": "menlyn-lf-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.8,
+      "manual_review_required": false,
+      "notes": "F11: junction of the north–south corridor from Entrance 13 with the east–west public corridor; no other cross corridor between the entrance and this junction.",
+      "name": "Cross corridor",
+      "kind": "corridor",
+      "floor": "LF",
+      "at": {
+        "image": "menlyn-lf-map",
+        "px_x": 636,
+        "px_y": 355
+      }
+    },
+    {
+      "id": "menlyn-lf-clicks-lf72-arrival",
+      "source_id": "menlyn-lf-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.8,
+      "manual_review_required": false,
+      "notes": "F12: public-corridor point abreast of the Clicks block (logo centroid source px 590,415). Corridor ARRIVAL point, not the storefront door (F13: door not depicted; field verification required). Clicks lies west of the corridor: on the shopper's right when walking in from Entrance 13.",
+      "name": "Clicks",
+      "kind": "arrival",
+      "floor": "LF",
+      "at": {
+        "image": "menlyn-lf-map",
+        "px_x": 636,
+        "px_y": 415
+      }
+    }
+  ],
+  "unit_polygons": [],
+  "store_labels": [
+    {
+      "id": "menlyn-lf-clicks-logo",
+      "source_id": "menlyn-lf-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.8,
+      "manual_review_required": false,
+      "notes": "F12: Clicks logo centroid; informational, not a route node.",
+      "text": "Clicks",
+      "floor": "LF",
+      "at": {
+        "image": "menlyn-lf-map",
+        "px_x": 590,
+        "px_y": 415
+      },
+      "unit": "LF 72"
+    }
+  ],
+  "corridor_centerlines": [
+    {
+      "id": "menlyn-lf-corridor-e13",
+      "source_id": "menlyn-lf-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.8,
+      "manual_review_required": false,
+      "notes": "F11/F12: tan circulation band running south from Entrance 13 through the cross corridor past Clicks.",
+      "floor": "LF",
+      "points": [
+        {
+          "image": "menlyn-lf-map",
+          "px_x": 636,
+          "px_y": 196
+        },
+        {
+          "image": "menlyn-lf-map",
+          "px_x": 636,
+          "px_y": 355
+        },
+        {
+          "image": "menlyn-lf-map",
+          "px_x": 636,
+          "px_y": 415
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "id": "menlyn-lf-e13-to-x-upper",
+      "source_id": "menlyn-lf-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.8,
+      "manual_review_required": false,
+      "notes": "Inside the public corridor between the mr price home block (west) and the Ackermans block (east); vertical, no diagonal, crosses no wall or store. length_px on the 1280-wide rendering (F14).",
+      "from": "menlyn-lf-entrance-13",
+      "to": "menlyn-lf-spine-x-upper",
+      "bidirectional": true,
+      "floor_change": false,
+      "length_px": 159
+    },
+    {
+      "id": "menlyn-lf-x-upper-to-clicks",
+      "source_id": "menlyn-lf-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.8,
+      "manual_review_required": false,
+      "notes": "Same corridor continuing south of the cross corridor; Clicks block on the west side. length_px on the 1280-wide rendering (F14).",
+      "from": "menlyn-lf-spine-x-upper",
+      "to": "menlyn-lf-clicks-lf72-arrival",
+      "bidirectional": true,
+      "floor_change": false,
+      "length_px": 60
+    }
+  ],
+  "instructions": [
+    {
+      "id": "menlyn-i-1",
+      "source_id": "menlyn-legacy-wording",
+      "evidence_class": "manual_inference",
+      "confidence": 0.6,
+      "manual_review_required": false,
+      "edge": "menlyn-lf-e13-to-x-upper",
+      "direction": "forward",
+      "text": "Walk straight into the mall along the corridor until you reach the cross corridor."
+    },
+    {
+      "id": "menlyn-i-2",
+      "source_id": "menlyn-legacy-wording",
+      "evidence_class": "manual_inference",
+      "confidence": 0.6,
+      "manual_review_required": false,
+      "edge": "menlyn-lf-x-upper-to-clicks",
+      "direction": "forward",
+      "text": "Continue straight across the cross corridor. Clicks is on your right, just past the crossing."
+    }
+  ],
+  "destinations": [
+    {
+      "id": "menlyn-clicks-lf72",
+      "source_id": "menlyn-clicks-tenant-page",
+      "evidence_class": "explicit_first_party",
+      "confidence": 0.95,
+      "manual_review_required": false,
+      "notes": "F01/F02: Store Code LF 72, Nearest Entrance 13, Orange Parking, Atterbury Road, 012 348 6161 (re-verified 2026-09-03); corroborated by clicks.co.za store 365 (F16).",
+      "name": "Clicks",
+      "kind": "store",
+      "arrival_node": "menlyn-lf-clicks-lf72-arrival",
+      "unit": "LF 72"
+    }
+  ],
+  "anchors": [
+    {
+      "id": "menlyn-lf-entrance-13",
+      "source_id": "menlyn-lf-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.85,
+      "manual_review_required": false,
+      "notes": "F09: Entrance 13 opens onto LF.",
+      "node": "menlyn-lf-entrance-13",
+      "label": "Entrance 13",
+      "kind": "entrance",
+      "start_permitted": true,
+      "qr_eligible": true
+    }
+  ],
+  "amenities": [],
+  "facts": [
+    {
+      "id": "F01",
+      "source_id": "menlyn-clicks-tenant-page",
+      "evidence_class": "explicit_first_party",
+      "confidence": 0.95,
+      "manual_review_required": false,
+      "subject": "destination:menlyn-clicks-lf72",
+      "predicate": "store_code",
+      "value": "LF 72"
+    },
+    {
+      "id": "F02",
+      "source_id": "menlyn-clicks-tenant-page",
+      "evidence_class": "explicit_first_party",
+      "confidence": 0.95,
+      "manual_review_required": false,
+      "subject": "destination:menlyn-clicks-lf72",
+      "predicate": "nearest_entrance",
+      "value": {
+        "entrance": "13",
+        "parking": "Orange Parking",
+        "road": "Atterbury Road",
+        "phone": "012 348 6161"
+      }
+    },
+    {
+      "id": "F13",
+      "source_id": "menlyn-lf-map",
+      "evidence_class": "manual_inference",
+      "confidence": 0.0,
+      "manual_review_required": false,
+      "notes": "UNKNOWN: exact Clicks storefront door position and which corridor it faces — FIELD_VERIFICATION_REQUIRED.",
+      "subject": "destination:menlyn-clicks-lf72",
+      "predicate": "door_position",
+      "value": null
+    },
+    {
+      "id": "F14",
+      "source_id": "menlyn-lf-map",
+      "evidence_class": "manual_inference",
+      "confidence": 0.0,
+      "manual_review_required": false,
+      "notes": "UNKNOWN: no scale bar, north arrow or dimension text; pixel lengths only (159 + 60 px).",
+      "subject": "venue",
+      "predicate": "real_world_scale",
+      "value": null
+    },
+    {
+      "id": "F17",
+      "source_id": "menlyn-lf-map",
+      "evidence_class": "manual_inference",
+      "confidence": 0.0,
+      "manual_review_required": false,
+      "notes": "UNKNOWN: step-free continuity assumed level (single sheet), not verified.",
+      "subject": "venue",
+      "predicate": "step_free",
+      "value": null
+    }
+  ]
+}

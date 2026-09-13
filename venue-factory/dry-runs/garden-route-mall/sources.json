@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "sources": [
+    {
+      "source_id": "grm-map",
+      "type": "official_map_image",
+      "title": "Official Garden Route Mall mall map (Webflow lightbox image on the shops page), original supplied by the mission owner 2026-09-03",
+      "origin": "https://www.gardenroutemall.co.za/garden-route-mall-shops (lightbox asset; CDN blocked from the session; image uploaded by the owner)",
+      "acquired_at": "2026-09-03",
+      "party": "first_party",
+      "rights": {
+        "status": "unknown",
+        "note": "Copyright presumed the mall/owner. Artwork is NOT stored in the repository; only facts traced from it are used (research manifest garden-route-mall-field-pilot-sources-v2)."
+      },
+      "image": {
+        "width_px": 417,
+        "height_px": 888,
+        "origin": "top-left",
+        "x_axis": "right",
+        "y_axis": "down",
+        "fit": "pad-to-plane"
+      },
+      "notes": "Rendered 417×888 in the research session; native dimensions unverified; positional precision about ±5 px (≈ ±1.2 % x / ±0.6 % y). The AI-enhanced copy was used only to read labels, never for geometry."
+    },
+    {
+      "source_id": "grm-directory",
+      "type": "official_directory",
+      "title": "Official Garden Route Mall shop directory pages (web-search snippets; pages themselves blocked)",
+      "origin": "https://www.gardenroutemall.co.za/garden-route-mall-shops and /garden-route-mall---department-stores",
+      "acquired_at": "2026-09-03",
+      "party": "first_party",
+      "rights": {
+        "status": "public_no_reuse",
+        "note": "Text facts (store numbers) only; public availability is not reuse permission."
+      },
+      "notes": "Research ledger facts G01–G03 (SECONDARY_CORROBORATION: snippet quoting the first-party page)."
+    },
+    {
+      "source_id": "grm-clicks-page",
+      "type": "secondary_reference",
+      "title": "Clicks store page (Garden Route Mall, store 261) — corroborates Shop 37",
+      "origin": "https://clicks.co.za/store/Garden-Route-Mall/261",
+      "acquired_at": "2026-09-03",
+      "party": "secondary",
+      "rights": {
+        "status": "public_no_reuse",
+        "note": "Snippet only."
+      }
+    },
+    {
+      "source_id": "grm-legacy-wording",
+      "type": "manual_note",
+      "title": "Route wording authored in the legacy dataset (git 7d638f9, garden-route-mall.dataset.json) — not present in any research artifact",
+      "origin": "repository history 7d638f9: src/components/navigation/gardenRouteMall.dataset.json edge.instruction",
+      "acquired_at": "2026-09-06",
+      "party": "derived",
+      "rights": {
+        "status": "permitted",
+        "note": "Authored in-house."
+      },
+      "notes": "PROVENANCE GAP: the research README and evidence ledger carry no instruction text; the sentences exist only in the legacy dataset and are carried over as manual notes."
+    }
+  ]
+}

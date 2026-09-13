@@ -27,7 +27,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import IndoorMapCanvas from "@/components/navigation/IndoorMapCanvas";
-import { toFloorplanModel, buildRoutePolyline, attachFloorImages, normalizeFloorLabel } from "@/components/navigation/floorplanModel";
+import { toFloorplanModel, buildRoutePolyline, attachFloorImages, floorKey } from "@/components/navigation/floorplanModel";
 import {
   getWayfindingMall, startOptions, searchPois, defaultAnchor, anchorFor, pointsOfInterest, DEFAULT_WAYFINDING_MALL_ID,
   type PilotPoi, type PilotAnchor,
@@ -112,7 +112,7 @@ function WayfindingPilotView({ graph, initialAnchor, anchorNotice, embedded, onO
   const starts = useMemo(() => startOptions(graph), [graph]);
   const floorplan = useMemo(
     () => attachFloorImages(
-      toFloorplanModel({ nodes: graph.nodes, edges: graph.edges }, { mallId: graph.id, mallName: graph.name }),
+      toFloorplanModel({ nodes: graph.nodes, edges: graph.edges }, { mallId: graph.id, mallName: graph.name }, { floors: graph.floors }),
       graph.floorImages,
     ),
     [graph],
@@ -189,8 +189,8 @@ function WayfindingPilotView({ graph, initialAnchor, anchorNotice, embedded, onO
     return buildRoutePolyline([...lead, ...steps]);
   }, [hasRoute, graph, anchor.nodeId, steps]);
   const navigating = status === "navigating" || status === "arrived";
-  // Canvas floor KEY (bucketing only); display labels come from the pack's floors.
-  const activeFloor = normalizeFloorLabel(steps[navigating ? session.stepIndex : 0]?.floor ?? graph.floors[0]?.id);
+  // Canvas floor KEY = the pack's floor id (no inference); display labels come from the pack's floors.
+  const activeFloor = floorKey(steps[navigating ? session.stepIndex : 0]?.floor ?? graph.floors[0]?.id);
   const floorLabel = (id: string | null | undefined) => floorLabelFor(graph.floors, id ?? graph.floors[0]?.id, graph.policies.floors.display);
   const currentAnchorId = anchor.anchorId ?? starts.find((s) => s.nodeId === anchor.nodeId)?.id ?? anchor.nodeId;
   const anchorSourceLabel = ANCHOR_SOURCE_LABEL[anchor.source] ?? null;

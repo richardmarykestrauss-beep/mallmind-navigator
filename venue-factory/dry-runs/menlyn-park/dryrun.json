@@ -1,0 +1,14 @@
+{
+  "job_id": "menlyn-park-dryrun",
+  "venue": "venue.json",
+  "sources": "sources.json",
+  "extractions": [
+    "extraction-research.json"
+  ],
+  "reviews": [
+    "review-1-facts.json"
+  ],
+  "approve": "review-2-approve.json",
+  "compare_to": "src/venue/packs/menlyn-park.venue.json",
+  "note": "Reproduces the Menlyn Park LF pack from research/menlyn-spatial-poc evidence (branch research/menlyn-spatial-poc) through the factory. No new facts. The production pack is NOT replaced."
+}

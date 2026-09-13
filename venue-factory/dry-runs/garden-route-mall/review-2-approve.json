@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "reviewer": "dry-run transcriber (Sprint 5)",
+  "reviewed_at": "2026-09-13T15:30:00Z",
+  "accept": [],
+  "reject": [],
+  "override": [],
+  "unresolved": [],
+  "decision": {
+    "action": "approve",
+    "reason": "Dry run only: draft reproduces the research geometry; not for publication into the app bundle."
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "reviewer": "factory fixture reviewer",
+  "reviewed_at": "2026-09-14T16:00:00Z",
+  "accept_all_of_class": [],
+  "reject": [],
+  "override": [],
+  "unresolved": [],
+  "accept": [
+    {
+      "fact_id": "measurement:ftc-m-west-j1",
+      "reason": "Survey sheet checked; observer named; method recorded."
+    },
+    {
+      "fact_id": "measurement:ftc-m-j1-grocer",
+      "reason": "Survey sheet checked; observer named; method recorded."
+    },
+    {
+      "fact_id": "confirmation:ftc-c-west",
+      "reason": "Survey sheet checked; observer named; method recorded."
+    },
+    {
+      "fact_id": "door:ftc-d-grocer",
+      "reason": "Survey sheet checked; observer named; method recorded."
+    },
+    {
+      "fact_id": "accessibility:ftc-a-venue",
+      "reason": "Survey sheet checked; observer named; method recorded."
+    }
+  ]
+}

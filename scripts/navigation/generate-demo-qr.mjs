@@ -15,20 +15,37 @@
  * --origin). Without a valid public origin the script exits non-zero: it never encodes a guessed
  * hostname. http:// is accepted only for localhost (local development; never print those).
  *
- * The anchors below are the ONLY inputs; every one must be a permitted start of a bundled mall
- * (the app validates them again on scan). The output is clearly labelled DEMO / PILOT and is not
+ * The anchors are read from the bundled Venue Packs (qr_eligible anchors only; the app validates
+ * them again on scan). The output is clearly labelled DEMO / PILOT and is not
  * official mall signage.
  */
 
 import { mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import QRCode from "qrcode";
+import { importTs } from "../venue/bundle-ts.mjs";
 
-const ANCHORS = [
-  { mallId: "garden-route-mall", mallName: "Garden Route Mall", anchorId: "grm-entrance-4", label: "Entrance 4", status: "source-backed · unscaled · awaiting field verification" },
-  { mallId: "menlyn-park", mallName: "Menlyn Park", anchorId: "menlyn-lf-entrance-13", label: "Entrance 13 (Lower First Level)", status: "source-backed · unscaled · not field verified" },
-  { mallId: "mallreds-pilot", mallName: "Mall@Reds", anchorId: "entrance-main", label: "Main Entrance", status: "schematic pilot · unverified geometry" },
-];
+/**
+ * Anchors come from the Venue Packs themselves (every anchor with `qr_eligible: true` — which the
+ * validator only allows on a start-permitted anchor). There is no mall-specific list to maintain:
+ * publishing a pack with a QR-eligible anchor is what makes a code printable.
+ */
+const { qrEligibleAnchors } = await importTs("src/venue/registry.ts");
+const ANCHORS = qrEligibleAnchors().map((a) => ({
+  mallId: a.venueId,
+  mallName: a.venueName,
+  anchorId: a.anchorId,
+  label: a.label,
+  status: statusLine(a.evidence),
+}));
+
+/** Truth line printed under the code — derived from the pack's headline evidence, never hand-written. */
+function statusLine(e) {
+  const geometry = e.geometry === "field-verified" ? "field-verified" : e.geometry === "source-backed" ? "source-backed" : "schematic";
+  const scale = e.measurement === "measured" ? "measured" : "unscaled";
+  const field = e.field_verification === "verified" ? "field verification complete" : e.field_verification === "partial" ? "field verification partial" : e.field_verification === "pending" ? "awaiting field verification" : "not field verified";
+  return `${geometry} · ${scale} · ${field}`;
+}
 
 function arg(name, fallback) {
   const i = process.argv.indexOf(`--${name}`);

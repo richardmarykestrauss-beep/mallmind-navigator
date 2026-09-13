@@ -24,8 +24,9 @@ export const PLAN_IMAGE_ASPECT_TOLERANCE = 0.02;
 const EDGE_ID_PATTERN = /^[a-z0-9][a-z0-9_-]{0,127}$/;
 const MAX_TEXT = 300;
 const MAX_INSTRUCTION = 400;
-/** Plain text only: no markup, no control characters, no template braces. */
-const UNSAFE_TEXT = /[<>\u0000-\u0008\u000b\u000c\u000e-\u001f]|\{\{|\}\}|\$\{/;
+/** Plain text only: no markup, no control characters, no template braces. Shared with the factory validators. */
+export const UNSAFE_TEXT = /[<>\u0000-\u0008\u000b\u000c\u000e-\u001f]|\{\{|\}\}|\$\{/;
+export const isPlainText = (v: unknown, max = 300): v is string => typeof v === "string" && v.length <= max && !UNSAFE_TEXT.test(v);
 
 type Rec = Record<string, unknown>;
 const isRec = (v: unknown): v is Rec => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -97,6 +98,8 @@ export function validateVenuePack(input: unknown): VenueValidation {
   const venue = isRec(p.venue) ? p.venue : (c.fail("$.venue", "required object is missing"), {} as Rec);
   c.id("$.venue.id", venue.id);
   c.text("$.venue.name", venue.name, true, 120);
+  c.num("$.venue.pack_version", venue.pack_version, { min: 1, integer: true });
+  c.text("$.venue.revision_note", venue.revision_note, false, 600);
   c.text("$.venue.short_name", venue.short_name, false, 60);
   c.text("$.venue.city", venue.city, false, 80);
   c.text("$.venue.country", venue.country, false, 80);

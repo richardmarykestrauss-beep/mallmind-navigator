@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "reviewer": "factory fixture reviewer",
+  "reviewed_at": "2026-09-13T13:00:00Z",
+  "accept_all_of_class": [
+    "visual_first_party",
+    "explicit_first_party"
+  ],
+  "accept": [
+    {
+      "fact_id": "anchor:ftc-info-point",
+      "reason": "Information desk confirmed as a permitted manual start (landmark); QR not eligible."
+    },
+    {
+      "fact_id": "label:ftc-ai-label-pharmacy",
+      "reason": "Label text confirmed against the plan by the reviewer."
+    },
+    {
+      "fact_id": "instruction:ftc-i-west-j1-f",
+      "reason": "Wording checked against the plan geometry for this direction only."
+    },
+    {
+      "fact_id": "instruction:ftc-i-j1-j2-f",
+      "reason": "Wording checked against the plan geometry for this direction only."
+    },
+    {
+      "fact_id": "instruction:ftc-i-j1-j2-r",
+      "reason": "Wording checked against the plan geometry for this direction only."
+    },
+    {
+      "fact_id": "instruction:ftc-i-j2-j3-f",
+      "reason": "Wording checked against the plan geometry for this direction only."
+    },
+    {
+      "fact_id": "instruction:ftc-i-j3-east-r",
+      "reason": "Wording checked against the plan geometry for this direction only."
+    },
+    {
+      "fact_id": "instruction:ftc-i-j1-grocer-f",
+      "reason": "Wording checked against the plan geometry for this direction only."
+    },
+    {
+      "fact_id": "instruction:ftc-i-j2-pharmacy-f",
+      "reason": "Wording checked against the plan geometry for this direction only."
+    },
+    {
+      "fact_id": "instruction:ftc-i-j3-cafe-f",
+      "reason": "Wording checked against the plan geometry for this direction only."
+    }
+  ],
+  "reject": [
+    {
+      "fact_id": "edge:ftc-shortcut-j2-cafe",
+      "reason": "No such passage on the plan: the model drew a line through the toilets block."
+    },
+    {
+      "fact_id": "node:ftc-j4-ghost",
+      "reason": "Nothing on the plan supports a fourth junction."
+    },
+    {
+      "fact_id": "ftc-ai-fact-levels",
+      "reason": "Level count is stated by the declared floors, not by a model guess."
+    }
+  ],
+  "override": [
+    {
+      "fact_id": "destination:ftc-cafe",
+      "value": {
+        "name": "Cafe",
+        "kind": "food",
+        "category": "food",
+        "arrival_node": "ftc-arrival-cafe",
+        "unit": "G14",
+        "aliases": "Coffee"
+      },
+      "reason": "The directory lists the cafe at G14; the plan's G12 label is stale.",
+      "evidence_class": "explicit_first_party",
+      "source_id": "ftc-directory"
+    }
+  ],
+  "unresolved": [
+    {
+      "fact_id": "ftc-fact-hours",
+      "reason": "Hours must be confirmed with the centre; not needed for navigation."
+    }
+  ]
+}

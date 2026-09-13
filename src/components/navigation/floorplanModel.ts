@@ -12,10 +12,14 @@
  * check-ins, kiosk start points, BLE/Wi-Fi anchors or partner APIs; for now the
  * coordinate + rendering system is entirely our own.
  *
- * The normalizer converts the existing backend indoor-map model (mall_nodes /
- * mall_edges, whose coordinates are 0..100 percentages) into this floor-unit
- * model, so the renderer and the marker simulation share one coordinate space.
- * Pure and side-effect free → deterministically testable.
+ * The normalizer converts a Venue Pack graph (0..100 percent coordinates) into
+ * this floor-unit model, so the renderer and the route geometry share one
+ * coordinate space. Pure and side-effect free → deterministically testable.
+ *
+ * NO SPATIAL INFERENCE: floors are keyed by the id the data declares (a blank
+ * floor is bucketed as "not recorded", never as a ground floor), node types come
+ * only from explicit kinds, and store anchors only from explicit shop links.
+ * Nothing about a node's NAME ever becomes physical truth.
  */
 
 // ── Coordinate plane ────────────────────────────────────────────────────────
@@ -29,7 +33,7 @@ export interface FloorplanCoordinate {
 }
 
 export type FloorplanNodeType =
-  | "entrance" | "corridor" | "shop" | "lift" | "escalator" | "stairs" | "landmark";
+  | "entrance" | "corridor" | "shop" | "lift" | "escalator" | "stairs" | "landmark" | "amenity" | "vertical";
 
 export interface FloorplanNode {
   id: string;
@@ -83,25 +87,24 @@ export interface RoutePolylinePoint {
   stepIndex: number;
 }
 
-// ── Floor-label normalization (shared with the canvas) ──────────────────────
-// GEOMETRY ONLY. This buckets a route/node onto a floor-plane for the map model,
-// so a blank/unknown floor must resolve to *some* plane ("Ground Floor"). Do NOT
-// use this to render a real store's floor to shoppers — an unknown store floor
-// must read as "not yet verified", never "Ground Floor". For shopper-facing store
-// location text use describeShopFloor() in src/lib/shopLocation.ts (Sprint 2G).
-export function normalizeFloorLabel(value: string | null | undefined): string {
+// ── Floor keys (shared with the canvas) ─────────────────────────────────────
+/**
+ * Bucketing key for a floor: the floor id EXACTLY as the data declares it (trimmed). There is no
+ * inference — "G" is not turned into "Ground Floor", "L1" is not "Level 1", and a blank floor is
+ * bucketed under UNRECORDED_FLOOR (label "Floor not recorded"), never under a ground floor the
+ * data did not declare. Display labels come from the pack's floors (see `toFloorplanModel`).
+ */
+export const UNRECORDED_FLOOR = "floor-not-recorded";
+export const UNRECORDED_FLOOR_LABEL = "Floor not recorded";
+export function floorKey(value: string | null | undefined): string {
   const raw = String(value ?? "").trim();
-  if (!raw) return "Ground Floor";
-  if (/^g$/i.test(raw) || /^ground(\s+floor)?$/i.test(raw)) return "Ground Floor";
-  if (/^b(\d+)$/i.test(raw)) return raw.toUpperCase();
-  const level = raw.match(/^l(?:evel)?\s*(\d+)$/i);
-  if (level) return `Level ${level[1]}`;
-  return raw;
+  return raw || UNRECORDED_FLOOR;
 }
 
-/** Short floor chip: "Ground Floor" → "G", "Level 2" → "L2". */
+/** Short floor chip: the declared floor label/id verbatim (no mapping); the unrecorded bucket reads "?". */
 export function floorChip(label: string): string {
-  return normalizeFloorLabel(label).replace("Ground Floor", "G").replace("Level ", "L");
+  const k = floorKey(label);
+  return k === UNRECORDED_FLOOR ? "?" : k;
 }
 
 function num(v: number | null | undefined, fallback: number): number {
@@ -121,22 +124,32 @@ function sanitizeSvg(raw: string): string {
     .replace(/\son\w+\s*=\s*'[^']*'/gi, "");
 }
 
-function mapNodeType(raw: string | null | undefined): FloorplanNodeType {
-  const t = String(raw ?? "").toLowerCase();
-  if (t.includes("entrance")) return "entrance";
-  if (t.includes("shop") || t.includes("store")) return "shop";
-  if (t.includes("lift") || t.includes("elevator")) return "lift";
-  if (t.includes("escalator")) return "escalator";
-  if (t.includes("stair")) return "stairs";
-  if (t.includes("landmark") || t.includes("anchor")) return "landmark";
-  return "corridor";
+/**
+ * Node type from an EXPLICIT kind/type value only (Venue Pack `kind`, or the exact legacy `type`
+ * words). No substring matching, no name heuristics: an unknown value yields no type.
+ */
+const NODE_TYPE_BY_KIND: Readonly<Record<string, FloorplanNodeType>> = {
+  entrance: "entrance",
+  corridor: "corridor",
+  junction: "corridor",
+  arrival: "shop",
+  shop: "shop",
+  store: "shop",
+  amenity: "amenity",
+  landmark: "landmark",
+  lift: "lift",
+  escalator: "escalator",
+  stairs: "stairs",
+  vertical: "vertical",
+};
+export function nodeTypeFor(kind: string | null | undefined, type?: string | null): FloorplanNodeType | undefined {
+  const k = String(kind ?? "").trim().toLowerCase();
+  if (k && NODE_TYPE_BY_KIND[k]) return NODE_TYPE_BY_KIND[k];
+  const t = String(type ?? "").trim().toLowerCase();
+  return t ? NODE_TYPE_BY_KIND[t] : undefined;
 }
 
-function isInfraName(name: string): boolean {
-  return /spine\s*node|corridor\s*node|junction\s*node|route\s*node|\bnode\s+\d+\b/i.test(name);
-}
-
-// ── Backend model shape (decoupled input for the normalizer) ────────────────
+// ── Graph input shape (decoupled input for the normalizer; Venue Pack loader output) ──
 export interface BackendNodeLike {
   id: string;
   name: string;
@@ -150,7 +163,7 @@ export interface BackendNodeLike {
    * Absent for hosted backend nodes → treated as NOT verified (never overstated).
    */
   evidence?: string | null;
-  /** Venue Pack node kind (entrance | corridor | junction | arrival | amenity | landmark | vertical); absent for hosted graphs. */
+  /** Venue Pack node kind (entrance | corridor | junction | arrival | amenity | landmark | vertical). The ONLY typing input besides an exact legacy `type`. */
   kind?: string | null;
   /** Arrival evidence of the destination this node serves (Venue Packs): "corridor_arrival" | "verified_public_door" | "unknown". */
   arrival_evidence?: string | null;
@@ -183,38 +196,46 @@ export interface BackendIndoorModelLike {
   floorplan?: BackendFloorplanLike | null;
 }
 
+/** A declared floor (Venue Pack `floors[]`): the id nodes reference and the label to display. */
+export interface DeclaredFloor { id: string; label: string; order?: number }
+
 /**
- * Convert the backend indoor-map model (mall_nodes / mall_edges, 0..100 coords)
- * into a floor-unit FloorplanModel. Groups nodes by floor, maps percentages into
- * the coordinate plane, derives store anchors from shop nodes, and attaches the
- * generated floorplan SVG as the floor image when it matches.
+ * Convert a graph (Venue Pack loader output; 0..100 coords) into a floor-unit FloorplanModel.
+ * Floors are keyed by the declared floor id: when `opts.floors` is given (the pack's floors) their
+ * order and labels are used; otherwise floors appear in first-seen order labelled by their key.
+ * Store anchors come ONLY from nodes with an explicit `linked_shop_id`; node types ONLY from
+ * explicit kinds. An optional floorplan SVG attaches only to the floor whose id it names.
  */
 export function toFloorplanModel(
   model: BackendIndoorModelLike,
   meta: { mallId: string; mallName: string },
+  opts: { floors?: DeclaredFloor[] } = {},
 ): FloorplanModel {
   const nodes = model.nodes ?? [];
   const edges = model.edges ?? [];
 
-  const floorLabels = [...new Set(nodes.map((n) => normalizeFloorLabel(n.floor)))];
-  if (floorLabels.length === 0) floorLabels.push("Ground Floor");
+  const declared = new Map<string, DeclaredFloor>();
+  for (const f of opts.floors ?? []) declared.set(floorKey(f.id), f);
+  const keys: string[] = [...declared.keys()];
+  for (const n of nodes) { const k = floorKey(n.floor); if (!keys.includes(k)) keys.push(k); }
+  const labelFor = (k: string) => declared.get(k)?.label ?? (k === UNRECORDED_FLOOR ? UNRECORDED_FLOOR_LABEL : k);
 
-  const floorplanUri = (label: string): string | undefined => {
+  const floorplanUri = (key: string): string | undefined => {
     const fp = model.floorplan;
     if (!fp?.svg_output) return undefined;
-    if (fp.floor_label != null && normalizeFloorLabel(fp.floor_label) !== label) return undefined;
+    if (fp.floor_label == null || floorKey(fp.floor_label) !== key) return undefined;
     return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(sanitizeSvg(fp.svg_output))}`;
   };
 
-  const floors: FloorplanFloor[] = floorLabels.map((label) => {
-    const floorNodes = nodes.filter((n) => normalizeFloorLabel(n.floor) === label);
+  const floors: FloorplanFloor[] = keys.map((key) => {
+    const floorNodes = nodes.filter((n) => floorKey(n.floor) === key);
     const floorNodeIds = new Set(floorNodes.map((n) => n.id));
 
     const fpNodes: FloorplanNode[] = floorNodes.map((n) => ({
       id: n.id,
       name: n.name,
-      floor: label,
-      type: mapNodeType(n.type),
+      floor: key,
+      type: nodeTypeFor(n.kind, n.type),
       position: { x: percentToUnits(n.x_coordinate, FLOOR_WIDTH), y: percentToUnits(n.y_coordinate, FLOOR_HEIGHT) },
     }));
 
@@ -223,15 +244,15 @@ export function toFloorplanModel(
       .map((e) => ({ from: e.from_node_id, to: e.to_node_id, distanceMeters: e.distance_meters ?? undefined, type: "corridor" }));
 
     const stores: FloorplanStoreAnchor[] = floorNodes
-      .filter((n) => mapNodeType(n.type) === "shop" && !isInfraName(n.name))
+      .filter((n) => typeof n.linked_shop_id === "string" && n.linked_shop_id.length > 0)
       .map((n) => ({
-        shopId: n.linked_shop_id ?? n.id,
+        shopId: n.linked_shop_id as string,
         name: n.name,
-        floor: label,
+        floor: key,
         position: { x: percentToUnits(n.x_coordinate, FLOOR_WIDTH), y: percentToUnits(n.y_coordinate, FLOOR_HEIGHT) },
       }));
 
-    return { id: label, label, imageUrl: floorplanUri(label), width: FLOOR_WIDTH, height: FLOOR_HEIGHT, nodes: fpNodes, edges: fpEdges, stores };
+    return { id: key, label: labelFor(key), imageUrl: floorplanUri(key), width: FLOOR_WIDTH, height: FLOOR_HEIGHT, nodes: fpNodes, edges: fpEdges, stores };
   });
 
   return { mallId: meta.mallId, mallName: meta.mallName, floors };
@@ -252,7 +273,7 @@ export interface RouteStepLike {
  */
 export function buildRoutePolyline(steps: RouteStepLike[]): RoutePolylinePoint[] {
   return steps.map((s, i) => ({
-    floor: normalizeFloorLabel(s.floor),
+    floor: floorKey(s.floor),
     x: percentToUnits(s.x_coordinate, FLOOR_WIDTH),
     y: percentToUnits(s.y_coordinate, FLOOR_HEIGHT),
     nodeId: s.node_id,
@@ -260,10 +281,7 @@ export function buildRoutePolyline(steps: RouteStepLike[]): RoutePolylinePoint[]
   }));
 }
 
-/**
- * Per-floor plan images keyed by floor label (any label form; normalized here).
- * Produced by the spatial-dataset adapter (`plan_image` in the dataset JSON).
- */
+/** Per-floor plan images keyed by the declared floor id (`plan_image` in the Venue Pack). */
 export type FloorImageMap = Record<string, string>;
 
 /**
@@ -275,31 +293,31 @@ export type FloorImageMap = Record<string, string>;
  */
 export function attachFloorImages(model: FloorplanModel, images: FloorImageMap | null | undefined): FloorplanModel {
   if (!images || Object.keys(images).length === 0) return model;
-  const byLabel = new Map<string, string>();
-  for (const [label, url] of Object.entries(images)) {
-    if (url) byLabel.set(normalizeFloorLabel(label), url);
+  const byId = new Map<string, string>();
+  for (const [id, url] of Object.entries(images)) {
+    if (url) byId.set(floorKey(id), url);
   }
-  if (byLabel.size === 0) return model;
+  if (byId.size === 0) return model;
   return {
     ...model,
     floors: model.floors.map((f) => {
-      const url = byLabel.get(normalizeFloorLabel(f.label));
+      const url = byId.get(floorKey(f.id));
       return url ? { ...f, imageUrl: url } : f;
     }),
   };
 }
 
-/** Points of a polyline that belong to a given floor (label-normalized). */
+/** Points of a polyline that belong to a given floor key. */
 export function pointsForFloor(points: RoutePolylinePoint[], floor: string): RoutePolylinePoint[] {
-  const target = normalizeFloorLabel(floor);
-  return points.filter((p) => normalizeFloorLabel(p.floor) === target);
+  const target = floorKey(floor);
+  return points.filter((p) => floorKey(p.floor) === target);
 }
 
 /** Distinct floors a route visits, in first-seen order. */
 export function routeFloors(points: RoutePolylinePoint[]): string[] {
   const seen: string[] = [];
   for (const p of points) {
-    const f = normalizeFloorLabel(p.floor);
+    const f = floorKey(p.floor);
     if (!seen.includes(f)) seen.push(f);
   }
   return seen;
@@ -311,8 +329,8 @@ export function polylineToWalkNodes(points: RoutePolylinePoint[]): { x: number; 
 }
 
 /**
- * Build a schematic FloorplanModel directly from route steps when no backend map
- * model is available — the route's own node coordinates become the floor graph
+ * Build a schematic FloorplanModel directly from route steps when no Venue Pack
+ * graph is available — the route's own node coordinates become the floor graph
  * (nodes + connecting corridor edges) so the canvas still renders real geometry
  * (honestly labelled "Schematic floorplan generated from MallMind route graph").
  */
@@ -320,23 +338,23 @@ export function schematicModelFromRoute(
   steps: RouteStepLike[],
   meta: { mallId: string; mallName: string },
 ): FloorplanModel {
-  const labels: string[] = [];
+  const keys: string[] = [];
   for (const s of steps) {
-    const f = normalizeFloorLabel(s.floor);
-    if (!labels.includes(f)) labels.push(f);
+    const f = floorKey(s.floor);
+    if (!keys.includes(f)) keys.push(f);
   }
-  if (labels.length === 0) labels.push("Ground Floor");
+  if (keys.length === 0) keys.push(UNRECORDED_FLOOR); // an empty route still needs one plane to draw on
 
-  const floors: FloorplanFloor[] = labels.map((label) => {
+  const floors: FloorplanFloor[] = keys.map((key) => {
+    const label = key === UNRECORDED_FLOOR ? UNRECORDED_FLOOR_LABEL : key;
     const onFloor = steps
       .map((s, i) => ({ s, i }))
-      .filter(({ s }) => normalizeFloorLabel(s.floor) === label);
+      .filter(({ s }) => floorKey(s.floor) === key);
 
     const nodes: FloorplanNode[] = onFloor.map(({ s }) => ({
       id: s.node_id,
       name: s.node_id,
-      floor: label,
-      type: "corridor",
+      floor: key,
       position: { x: percentToUnits(s.x_coordinate, FLOOR_WIDTH), y: percentToUnits(s.y_coordinate, FLOOR_HEIGHT) },
     }));
 
@@ -345,7 +363,7 @@ export function schematicModelFromRoute(
       edges.push({ from: onFloor[k].s.node_id, to: onFloor[k + 1].s.node_id, type: "corridor" });
     }
 
-    return { id: label, label, width: FLOOR_WIDTH, height: FLOOR_HEIGHT, nodes, edges, stores: [] };
+    return { id: key, label, width: FLOOR_WIDTH, height: FLOOR_HEIGHT, nodes, edges, stores: [] };
   });
 
   return { mallId: meta.mallId, mallName: meta.mallName, floors };

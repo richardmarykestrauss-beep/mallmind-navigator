@@ -15,8 +15,8 @@ import { getWayfindingMall, DEFAULT_WAYFINDING_MALL_ID } from "@/components/navi
 import { routeClaim } from "@/components/navigation/routeEvidence";
 import type { NavigationEvent } from "@/components/navigation/navigationEvents";
 import {
-  toFloorplanModel, schematicModelFromRoute, buildRoutePolyline,
-  routeFloors, normalizeFloorLabel, floorChip, type FloorplanModel,
+  toFloorplanModel, schematicModelFromRoute, buildRoutePolyline, attachFloorImages,
+  routeFloors, floorKey, floorChip, type FloorplanModel,
 } from "@/components/navigation/floorplanModel";
 import { useShoppingSession } from "@/context/ShoppingSessionContext";
 import { useAuth } from "@/context/AuthContext";
@@ -24,7 +24,6 @@ import { awardXP, XP_REWARDS } from "@/lib/xp";
 import { trackEvent } from "@/lib/analytics";
 import { cn } from "@/lib/utils";
 import { describeShopFloor, describeEntrance } from "@/lib/shopLocation";
-import { getIndoorMapModel, type IndoorMapModel } from "@/lib/googleBackendClient";
 import { routeMetrics } from "@/lib/routeMetrics";
 
 /**
@@ -34,7 +33,11 @@ import { routeMetrics } from "@/lib/routeMetrics";
  *    destination-first wayfinding experience (WayfindingPilot) — "Where do
  *    you want to go?" → destination → start → route preview.
  * 2. An active route built by the assistant / build-route: the route preview
- *    with a floor map, next-instruction card and a manual step checklist.
+ *    with a floor map, next-instruction card and a manual step checklist. The
+ *    map is drawn from the Venue Pack when the selected mall has one, else as a
+ *    schematic from the route's own step geometry. The hosted backend
+ *    indoor-map graph (mall_nodes / mall_edges) is NOT fetched any more: Venue
+ *    Packs are the only spatial truth the frontend renders (Sprint 5).
  *
  * Neither mode tracks or simulates the shopper's position. The old
  * simulated walk-through was removed from the shopper build (Sept 2026) so a
@@ -73,8 +76,6 @@ const NavigateScreen = () => {
   const [completedStepIndices, setCompletedStepIndices] = useState<Set<number>>(new Set());
   const [completedStopIndices, setCompletedStopIndices] = useState<Set<number>>(new Set());
   const [xpToast, setXpToast] = useState<{ xp: number; leveledUp: boolean; badges: string[] } | null>(null);
-  const [indoorMapModel, setIndoorMapModel] = useState<IndoorMapModel | null>(null);
-  const [indoorMapModelStatus, setIndoorMapModelStatus] = useState<"idle" | "loading" | "ready" | "fallback" | "error">("idle");
 
   const xpAwardedRef = useRef(false);
 
@@ -83,7 +84,7 @@ const NavigateScreen = () => {
 
   useEffect(() => {
     if (activeRouteSteps.length > 0 && activeRouteSteps[0].floor) {
-      setActiveFloor(normalizeFloorLabel(activeRouteSteps[0].floor));
+      setActiveFloor(floorKey(activeRouteSteps[0].floor));
     }
   }, [activeRouteSteps]);
 
@@ -95,55 +96,23 @@ const NavigateScreen = () => {
     xpAwardedRef.current = false;
   }, [activeRouteId]);
 
-  useEffect(() => {
-    const mallId = selectedMall?.id;
-
-    if (!mallId) {
-      setIndoorMapModel(null);
-      setIndoorMapModelStatus("idle");
-      return;
-    }
-
-    let cancelled = false;
-    setIndoorMapModelStatus("loading");
-
-    getIndoorMapModel({
-      mall_id: mallId,
-      floor: activeFloor,
-    })
-      .then((res) => {
-        if (cancelled) return;
-
-        if (res.ok && res.model) {
-          setIndoorMapModel(res.model);
-          setIndoorMapModelStatus("ready");
-        } else {
-          setIndoorMapModel(null);
-          setIndoorMapModelStatus("fallback");
-        }
-      })
-      .catch((err) => {
-        console.error("[NavigateScreen] Failed to load indoor map model", err);
-        if (!cancelled) {
-          setIndoorMapModel(null);
-          setIndoorMapModelStatus("error");
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedMall?.id, activeFloor]);
+  // The selected mall's Venue Pack, when it has one (registry lookup; null otherwise — never a fetch).
+  const packVenue = useMemo(() => (selectedMall?.id ? getWayfindingMall(String(selectedMall.id)) : null), [selectedMall?.id]);
 
   const hasRealRoute = activeRouteSteps.length > 0;
 
-  // Build the floor-unit FloorplanModel that drives the canvas: the backend map
-  // graph when available, else a schematic generated from the route itself.
+  // Build the floor-unit FloorplanModel that drives the canvas: the Venue Pack graph
+  // when the mall has one, else a schematic generated from the route itself.
   const floorplanModel: FloorplanModel = useMemo(() => {
     const meta = { mallId: String(selectedMall?.id ?? "mall"), mallName: selectedMall?.name ?? "Mall" };
-    if (indoorMapModel) return toFloorplanModel(indoorMapModel, meta);
+    if (packVenue) {
+      return attachFloorImages(
+        toFloorplanModel({ nodes: packVenue.nodes, edges: packVenue.edges }, { mallId: packVenue.id, mallName: packVenue.name }, { floors: packVenue.floors }),
+        packVenue.floorImages,
+      );
+    }
     return schematicModelFromRoute(activeRouteSteps, meta);
-  }, [indoorMapModel, activeRouteSteps, selectedMall?.id, selectedMall?.name]);
+  }, [packVenue, activeRouteSteps, selectedMall?.id, selectedMall?.name]);
 
   // DISTANCE TRUTH: metres/minutes exist only when the route carries measured spatial steps.
   // An assistant stop list without measured geometry shows NO distance and NO time — never an estimate.
@@ -209,7 +178,7 @@ const NavigateScreen = () => {
     });
 
     const nextStep = activeRouteSteps[idx + 1];
-    if (nextStep?.floor) setActiveFloor(normalizeFloorLabel(nextStep.floor));
+    if (nextStep?.floor) setActiveFloor(floorKey(nextStep.floor));
   }
 
   function markStopDone(idx: number) {
@@ -294,7 +263,7 @@ const NavigateScreen = () => {
           </span>
 
           <span className="text-[11px] text-muted-foreground/80">
-            {indoorMapModelStatus === "ready" ? "Map: mall graph" : indoorMapModelStatus === "loading" ? "Map: loading" : "Map: schematic"}
+            {packVenue ? "Map: venue pack" : "Map: schematic"}
           </span>
         </div>
 
@@ -314,8 +283,8 @@ const NavigateScreen = () => {
                 onClick={() => setActiveFloor(f)}
                 title={`Floor ${floorChip(f)}`}
                 className={cn(
-                  "h-9 w-9 rounded-lg text-[11px] font-bold leading-none transition-all",
-                  normalizeFloorLabel(activeFloor) === f
+                  "h-9 min-w-9 px-1.5 rounded-lg text-[11px] font-bold leading-none transition-all",
+                  floorKey(activeFloor) === f
                     ? "bg-primary text-primary-foreground shadow-[0_0_14px_hsl(190_100%_50%/0.5)]"
                     : "text-muted-foreground hover:bg-muted hover:text-foreground",
                 )}

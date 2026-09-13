@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "sources": [
+    {
+      "source_id": "menlyn-lf-map",
+      "type": "official_map_image",
+      "title": "Official Menlyn Park 'LOWER FIRST LEVEL' map (JPG), supplied by the mission owner 2026-09-03",
+      "origin": "https://www.menlynpark.co.za/wp-content/uploads/2023/07/Lower-First-Level-Map.jpg",
+      "acquired_at": "2026-09-03",
+      "party": "first_party",
+      "rights": {
+        "status": "unknown",
+        "note": "Copyright presumed Pareto / centre management; map reuse terms unknown (research ledger F06). Artwork NOT stored in the repository; only traced facts are used."
+      },
+      "image": {
+        "width_px": 1280,
+        "height_px": 853,
+        "origin": "top-left",
+        "x_axis": "right",
+        "y_axis": "down",
+        "fit": "pad-to-plane"
+      },
+      "notes": "Analysed from a 1280×853 rendering; native dimensions unverified (F08); precision ≈ ±8 px (±0.6 % x / ±1.0 % y)."
+    },
+    {
+      "source_id": "menlyn-clicks-tenant-page",
+      "type": "official_webpage",
+      "title": "Official Clicks tenant page (Store Code LF 72, Nearest Entrance 13, Orange Parking, Atterbury Road)",
+      "origin": "https://www.menlynpark.co.za/stores/clicks/",
+      "acquired_at": "2026-09-03",
+      "party": "first_party",
+      "rights": {
+        "status": "public_no_reuse",
+        "note": "Text facts only; re-verified by the mission owner 2026-09-03 (page blocked from the session)."
+      }
+    },
+    {
+      "source_id": "menlyn-clicks-retailer-page",
+      "type": "secondary_reference",
+      "title": "Clicks retailer store page (store 365, 'Shop LF72')",
+      "origin": "https://clicks.co.za/store/Menlyn-Park/365",
+      "acquired_at": "2026-09-03",
+      "party": "secondary",
+      "rights": {
+        "status": "public_no_reuse",
+        "note": "Snippet only."
+      }
+    },
+    {
+      "source_id": "menlyn-legacy-wording",
+      "type": "manual_note",
+      "title": "Route wording authored in the legacy dataset (git 7d638f9, menlyn-park-lf-pilot.dataset.json) and the research candidate route_sequence",
+      "origin": "repository history 7d638f9 + research/menlyn-spatial-poc/menlyn-lf-route-candidate.json route_sequence",
+      "acquired_at": "2026-09-06",
+      "party": "derived",
+      "rights": {
+        "status": "permitted",
+        "note": "Authored in-house."
+      },
+      "notes": "The research candidate carries a 4-line route_sequence; the per-edge sentences were authored in the legacy dataset."
+    }
+  ]
+}

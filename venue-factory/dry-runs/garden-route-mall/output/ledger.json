@@ -1,0 +1,1087 @@
+{
+  "schema_version": 1,
+  "job_id": "garden-route-mall-dryrun",
+  "facts": [
+    {
+      "fact_id": "floor:L1",
+      "source_id": "grm-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.7,
+      "status": "accepted",
+      "proposed_by": "extractions/01-extraction-research.json",
+      "manual_review_required": false,
+      "notes": "G20: the map is a single sheet with no level labels; the pilot models one level. Absence of an upper level is not proven by the sheet.",
+      "subject": "floor:L1",
+      "predicate": "floor",
+      "value": {
+        "label": "Mall level (single sheet)",
+        "order": 0,
+        "aliases": ""
+      },
+      "decision": {
+        "by": "dry-run transcriber (Sprint 5)",
+        "at": "2026-09-13T15:00:00Z",
+        "action": "accept",
+        "reason": "bulk accept of class visual_first_party"
+      }
+    },
+    {
+      "fact_id": "node:grm-entrance-4",
+      "source_id": "grm-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.8,
+      "status": "accepted",
+      "proposed_by": "extractions/01-extraction-research.json",
+      "manual_review_required": false,
+      "notes": "README forensics row 1 / ledger G14: 'Entrance ④' label at ≈(245,342), circle marker ≈(272,342); door = facade gap between purple units 7/8 and 110/112 where ATM markers 2b/2d sit. Exact door FIELD_VERIFICATION_REQUIRED.",
+      "subject": "node:grm-entrance-4",
+      "predicate": "geometry",
+      "value": {
+        "name": "Entrance 4",
+        "kind": "entrance",
+        "floor": "L1",
+        "x_percent": 50.24,
+        "y_percent": 38.06,
+        "source_image": "grm-map",
+        "source_px_x": 212,
+        "source_px_y": 338,
+        "source_width_px": 417,
+        "source_height_px": 888,
+        "source_fit": "pad-to-plane",
+        "x_percent_source": 50.84,
+        "y_percent_source": 38.06
+      },
+      "decision": {
+        "by": "dry-run transcriber (Sprint 5)",
+        "at": "2026-09-13T15:00:00Z",
+        "action": "accept",
+        "reason": "bulk accept of class visual_first_party"
+      }
+    },
+    {
+      "fact_id": "node:grm-walkway-e4",
+      "source_id": "grm-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.75,
+      "status": "accepted",
+      "proposed_by": "extractions/01-extraction-research.json",
+      "manual_review_required": false,
+      "notes": "README row 2 / G15: Entrance 4 passage meets the main north–south walkway (black channel between the red west column and the purple east column).",
+      "subject": "node:grm-walkway-e4",
+      "predicate": "geometry",
+      "value": {
+        "name": "Main walkway at the Entrance 4 passage",
+        "kind": "corridor",
+        "floor": "L1",
+        "x_percent": 45.92,
+        "y_percent": 38.85,
+        "source_image": "grm-map",
+        "source_px_x": 150,
+        "source_px_y": 345,
+        "source_width_px": 417,
+        "source_height_px": 888,
+        "source_fit": "pad-to-plane",
+        "x_percent_source": 35.97,
+        "y_percent_source": 38.85
+      },
+      "decision": {
+        "by": "dry-run transcriber (Sprint 5)",
+        "at": "2026-09-13T15:00:00Z",
+        "action": "accept",
+        "reason": "bulk accept of class visual_first_party"
+      }
+    },
+    {
+      "fact_id": "node:grm-woolworths-arrival",
+      "source_id": "grm-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.8,
+      "status": "accepted",
+      "proposed_by": "extractions/01-extraction-research.json",
+      "manual_review_required": false,
+      "notes": "README row 3 / G16: corridor ARRIVAL point abreast of the Woolworths ⑨ frontage, NOT the door. Door position FIELD_VERIFICATION_REQUIRED.",
+      "subject": "node:grm-woolworths-arrival",
+      "predicate": "geometry",
+      "value": {
+        "name": "Woolworths",
+        "kind": "arrival",
+        "floor": "L1",
+        "x_percent": 45.64,
+        "y_percent": 37.16,
+        "source_image": "grm-map",
+        "source_px_x": 146,
+        "source_px_y": 330,
+        "source_width_px": 417,
+        "source_height_px": 888,
+        "source_fit": "pad-to-plane",
+        "x_percent_source": 35.01,
+        "y_percent_source": 37.16
+      },
+      "decision": {
+        "by": "dry-run transcriber (Sprint 5)",
+        "at": "2026-09-13T15:00:00Z",
+        "action": "accept",
+        "reason": "bulk accept of class visual_first_party"
+      }
+    },
+    {
+      "fact_id": "node:grm-walkway-e5",
+      "source_id": "grm-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.75,
+      "status": "accepted",
+      "proposed_by": "extractions/01-extraction-research.json",
+      "manual_review_required": false,
+      "notes": "README row 4 / G13: 'Entrance ⑤' label ≈(220,463); its passage runs west between purple 102 and blue 92b/87 to the walkway.",
+      "subject": "node:grm-walkway-e5",
+      "predicate": "geometry",
+      "value": {
+        "name": "Main walkway at the Entrance 5 passage",
+        "kind": "corridor",
+        "floor": "L1",
+        "x_percent": 45.08,
+        "y_percent": 52.7,
+        "source_image": "grm-map",
+        "source_px_x": 138,
+        "source_px_y": 468,
+        "source_width_px": 417,
+        "source_height_px": 888,
+        "source_fit": "pad-to-plane",
+        "x_percent_source": 33.09,
+        "y_percent_source": 52.7
+      },
+      "decision": {
+        "by": "dry-run transcriber (Sprint 5)",
+        "at": "2026-09-13T15:00:00Z",
+        "action": "accept",
+        "reason": "bulk accept of class visual_first_party"
+      }
+    },
+    {
+      "fact_id": "node:grm-walkway-e6",
+      "source_id": "grm-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.75,
+      "status": "accepted",
+      "proposed_by": "extractions/01-extraction-research.json",
+      "manual_review_required": false,
+      "notes": "README row 5 / G13: 'Entrance ⑥' label ≈(215,608); passage runs west between blue 65a and 74 to the walkway.",
+      "subject": "node:grm-walkway-e6",
+      "predicate": "geometry",
+      "value": {
+        "name": "Main walkway at the Entrance 6 passage",
+        "kind": "corridor",
+        "floor": "L1",
+        "x_percent": 44.73,
+        "y_percent": 68.47,
+        "source_image": "grm-map",
+        "source_px_x": 133,
+        "source_px_y": 608,
+        "source_width_px": 417,
+        "source_height_px": 888,
+        "source_fit": "pad-to-plane",
+        "x_percent_source": 31.89,
+        "y_percent_source": 68.47
+      },
+      "decision": {
+        "by": "dry-run transcriber (Sprint 5)",
+        "at": "2026-09-13T15:00:00Z",
+        "action": "accept",
+        "reason": "bulk accept of class visual_first_party"
+      }
+    },
+    {
+      "fact_id": "node:grm-walkway-bend-edgars",
+      "source_id": "grm-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.75,
+      "status": "accepted",
+      "proposed_by": "extractions/01-extraction-research.json",
+      "manual_review_required": false,
+      "notes": "README row 6 / G15: the walkway bends south-east between yellow 26/27 (west) and blue 71/69 (east), just north of Edgars.",
+      "subject": "node:grm-walkway-bend-edgars",
+      "predicate": "geometry",
+      "value": {
+        "name": "Walkway bend near Edgars",
+        "kind": "corridor",
+        "floor": "L1",
+        "x_percent": 45.36,
+        "y_percent": 74.55,
+        "source_image": "grm-map",
+        "source_px_x": 142,
+        "source_px_y": 662,
+        "source_width_px": 417,
+        "source_height_px": 888,
+        "source_fit": "pad-to-plane",
+        "x_percent_source": 34.05,
+        "y_percent_source": 74.55
+      },
+      "decision": {
+        "by": "dry-run transcriber (Sprint 5)",
+        "at": "2026-09-13T15:00:00Z",
+        "action": "accept",
+        "reason": "bulk accept of class visual_first_party"
+      }
+    },
+    {
+      "fact_id": "node:grm-walkway-e7",
+      "source_id": "grm-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.75,
+      "status": "accepted",
+      "proposed_by": "extractions/01-extraction-research.json",
+      "manual_review_required": false,
+      "notes": "README row 7 / G13: 'Entrance ⑦' label ≈(262,700); digit read with the enhanced copy (ambiguous 1/7 on the original) — FIELD_VERIFICATION_REQUIRED; the junction position does not depend on the digit.",
+      "subject": "node:grm-walkway-e7",
+      "predicate": "geometry",
+      "value": {
+        "name": "Main walkway at the Entrance 7 passage",
+        "kind": "corridor",
+        "floor": "L1",
+        "x_percent": 46.96,
+        "y_percent": 79.39,
+        "source_image": "grm-map",
+        "source_px_x": 165,
+        "source_px_y": 705,
+        "source_width_px": 417,
+        "source_height_px": 888,
+        "source_fit": "pad-to-plane",
+        "x_percent_source": 39.57,
+        "y_percent_source": 79.39
+      },
+      "decision": {
+        "by": "dry-run transcriber (Sprint 5)",
+        "at": "2026-09-13T15:00:00Z",
+        "action": "accept",
+        "reason": "bulk accept of class visual_first_party"
+      }
+    },
+    {
+      "fact_id": "node:grm-walkway-bend-toilets",
+      "source_id": "grm-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.75,
+      "status": "accepted",
+      "proposed_by": "extractions/01-extraction-research.json",
+      "manual_review_required": false,
+      "notes": "README row 8 / G15: the walkway bends further south-east between yellow 33/34 (west) and blue 54/56 (east); toilet symbol ≈(248,745) on the east side.",
+      "subject": "node:grm-walkway-bend-toilets",
+      "predicate": "geometry",
+      "value": {
+        "name": "Walkway bend at the toilets",
+        "kind": "corridor",
+        "floor": "L1",
+        "x_percent": 48.43,
+        "y_percent": 84.68,
+        "source_image": "grm-map",
+        "source_px_x": 186,
+        "source_px_y": 752,
+        "source_width_px": 417,
+        "source_height_px": 888,
+        "source_fit": "pad-to-plane",
+        "x_percent_source": 44.6,
+        "y_percent_source": 84.68
+      },
+      "decision": {
+        "by": "dry-run transcriber (Sprint 5)",
+        "at": "2026-09-13T15:00:00Z",
+        "action": "accept",
+        "reason": "bulk accept of class visual_first_party"
+      }
+    },
+    {
+      "fact_id": "node:grm-clicks-arrival",
+      "source_id": "grm-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.7,
+      "status": "accepted",
+      "proposed_by": "extractions/01-extraction-research.json",
+      "manual_review_required": false,
+      "notes": "README row 9 / G18: yellow unit labelled '37/38' on the west side of the walkway's southern end, just before Pick n Pay; the map shows the unit number, identity comes from the directory. Corridor ARRIVAL point, NOT the door.",
+      "subject": "node:grm-clicks-arrival",
+      "predicate": "geometry",
+      "value": {
+        "name": "Clicks",
+        "kind": "arrival",
+        "floor": "L1",
+        "x_percent": 49.76,
+        "y_percent": 88.63,
+        "source_image": "grm-map",
+        "source_px_x": 205,
+        "source_px_y": 787,
+        "source_width_px": 417,
+        "source_height_px": 888,
+        "source_fit": "pad-to-plane",
+        "x_percent_source": 49.16,
+        "y_percent_source": 88.63
+      },
+      "decision": {
+        "by": "dry-run transcriber (Sprint 5)",
+        "at": "2026-09-13T15:00:00Z",
+        "action": "accept",
+        "reason": "bulk accept of class visual_first_party"
+      }
+    },
+    {
+      "fact_id": "node:grm-picknpay-arrival",
+      "source_id": "grm-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.8,
+      "status": "accepted",
+      "proposed_by": "extractions/01-extraction-research.json",
+      "manual_review_required": false,
+      "notes": "README row 10 / G17: 'Pick n Pay ㊶' block at the southern end of the walkway; the walkway ends at its north-west frontage. Corridor ARRIVAL point, NOT the door.",
+      "subject": "node:grm-picknpay-arrival",
+      "predicate": "geometry",
+      "value": {
+        "name": "Pick n Pay",
+        "kind": "arrival",
+        "floor": "L1",
+        "x_percent": 50.66,
+        "y_percent": 90.77,
+        "source_image": "grm-map",
+        "source_px_x": 218,
+        "source_px_y": 806,
+        "source_width_px": 417,
+        "source_height_px": 888,
+        "source_fit": "pad-to-plane",
+        "x_percent_source": 52.28,
+        "y_percent_source": 90.77
+      },
+      "decision": {
+        "by": "dry-run transcriber (Sprint 5)",
+        "at": "2026-09-13T15:00:00Z",
+        "action": "accept",
+        "reason": "bulk accept of class visual_first_party"
+      }
+    },
+    {
+      "fact_id": "centerline:grm-cl-main-walkway",
+      "source_id": "grm-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.75,
+      "status": "accepted",
+      "proposed_by": "extractions/01-extraction-research.json",
+      "manual_review_required": false,
+      "notes": "G15: single continuous main walkway from the Entrance 4 passage south to the Pick n Pay block; centreline positions approximate (channel drawn narrow, not to scale).",
+      "subject": "centerline:grm-cl-main-walkway",
+      "predicate": "corridor_centerline",
+      "value": [
+        {
+          "floor": "L1"
+        },
+        {
+          "x_percent": 45.92,
+          "y_percent": 38.85,
+          "source_image": "grm-map",
+          "source_px_x": 150,
+          "source_px_y": 345,
+          "source_width_px": 417,
+          "source_height_px": 888,
+          "source_fit": "pad-to-plane",
+          "x_percent_source": 35.97,
+          "y_percent_source": 38.85
+        },
+        {
+          "x_percent": 45.08,
+          "y_percent": 52.7,
+          "source_image": "grm-map",
+          "source_px_x": 138,
+          "source_px_y": 468,
+          "source_width_px": 417,
+          "source_height_px": 888,
+          "source_fit": "pad-to-plane",
+          "x_percent_source": 33.09,
+          "y_percent_source": 52.7
+        },
+        {
+          "x_percent": 44.73,
+          "y_percent": 68.47,
+          "source_image": "grm-map",
+          "source_px_x": 133,
+          "source_px_y": 608,
+          "source_width_px": 417,
+          "source_height_px": 888,
+          "source_fit": "pad-to-plane",
+          "x_percent_source": 31.89,
+          "y_percent_source": 68.47
+        },
+        {
+          "x_percent": 45.36,
+          "y_percent": 74.55,
+          "source_image": "grm-map",
+          "source_px_x": 142,
+          "source_px_y": 662,
+          "source_width_px": 417,
+          "source_height_px": 888,
+          "source_fit": "pad-to-plane",
+          "x_percent_source": 34.05,
+          "y_percent_source": 74.55
+        },
+        {
+          "x_percent": 46.96,
+          "y_percent": 79.39,
+          "source_image": "grm-map",
+          "source_px_x": 165,
+          "source_px_y": 705,
+          "source_width_px": 417,
+          "source_height_px": 888,
+          "source_fit": "pad-to-plane",
+          "x_percent_source": 39.57,
+          "y_percent_source": 79.39
+        },
+        {
+          "x_percent": 48.43,
+          "y_percent": 84.68,
+          "source_image": "grm-map",
+          "source_px_x": 186,
+          "source_px_y": 752,
+          "source_width_px": 417,
+          "source_height_px": 888,
+          "source_fit": "pad-to-plane",
+          "x_percent_source": 44.6,
+          "y_percent_source": 84.68
+        },
+        {
+          "x_percent": 49.76,
+          "y_percent": 88.63,
+          "source_image": "grm-map",
+          "source_px_x": 205,
+          "source_px_y": 787,
+          "source_width_px": 417,
+          "source_height_px": 888,
+          "source_fit": "pad-to-plane",
+          "x_percent_source": 49.16,
+          "y_percent_source": 88.63
+        },
+        {
+          "x_percent": 50.66,
+          "y_percent": 90.77,
+          "source_image": "grm-map",
+          "source_px_x": 218,
+          "source_px_y": 806,
+          "source_width_px": 417,
+          "source_height_px": 888,
+          "source_fit": "pad-to-plane",
+          "x_percent_source": 52.28,
+          "y_percent_source": 90.77
+        }
+      ],
+      "decision": {
+        "by": "dry-run transcriber (Sprint 5)",
+        "at": "2026-09-13T15:00:00Z",
+        "action": "accept",
+        "reason": "bulk accept of class visual_first_party"
+      }
+    },
+    {
+      "fact_id": "edge:grm-entrance-4__grm-walkway-e4",
+      "source_id": "grm-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.75,
+      "status": "accepted",
+      "proposed_by": "extractions/01-extraction-research.json",
+      "manual_review_required": false,
+      "notes": "inside the Entrance 4 passage between purple units 7/8 and 110/112; ATM markers 2b/2d lie in it. length_px = Euclidean pixel distance between the two source-pixel positions on the 417×888 rendering (G19); shortest-path weight only, never a distance claim.",
+      "subject": "edge:grm-entrance-4__grm-walkway-e4",
+      "predicate": "edge",
+      "value": {
+        "from": "grm-entrance-4",
+        "to": "grm-walkway-e4",
+        "bidirectional": true,
+        "floor_change": false,
+        "vertical_kind": null,
+        "length_px": 62
+      },
+      "decision": {
+        "by": "dry-run transcriber (Sprint 5)",
+        "at": "2026-09-13T15:00:00Z",
+        "action": "accept",
+        "reason": "bulk accept of class visual_first_party"
+      }
+    },
+    {
+      "fact_id": "edge:grm-walkway-e4__grm-woolworths-arrival",
+      "source_id": "grm-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.75,
+      "status": "accepted",
+      "proposed_by": "extractions/01-extraction-research.json",
+      "manual_review_required": false,
+      "notes": "Woolworths' east frontage faces the walkway opposite the passage; no store or wall is crossed. length_px = Euclidean pixel distance between the two source-pixel positions on the 417×888 rendering (G19); shortest-path weight only, never a distance claim.",
+      "subject": "edge:grm-walkway-e4__grm-woolworths-arrival",
+      "predicate": "edge",
+      "value": {
+        "from": "grm-walkway-e4",
+        "to": "grm-woolworths-arrival",
+        "bidirectional": true,
+        "floor_change": false,
+        "vertical_kind": null,
+        "length_px": 16
+      },
+      "decision": {
+        "by": "dry-run transcriber (Sprint 5)",
+        "at": "2026-09-13T15:00:00Z",
+        "action": "accept",
+        "reason": "bulk accept of class visual_first_party"
+      }
+    },
+    {
+      "fact_id": "edge:grm-walkway-e4__grm-walkway-e5",
+      "source_id": "grm-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.75,
+      "status": "accepted",
+      "proposed_by": "extractions/01-extraction-research.json",
+      "manual_review_required": false,
+      "notes": "the walkway channel between red 12–16 (west) and purple 106–102 (east); continuous, no crossing. length_px = Euclidean pixel distance between the two source-pixel positions on the 417×888 rendering (G19); shortest-path weight only, never a distance claim.",
+      "subject": "edge:grm-walkway-e4__grm-walkway-e5",
+      "predicate": "edge",
+      "value": {
+        "from": "grm-walkway-e4",
+        "to": "grm-walkway-e5",
+        "bidirectional": true,
+        "floor_change": false,
+        "vertical_kind": null,
+        "length_px": 124
+      },
+      "decision": {
+        "by": "dry-run transcriber (Sprint 5)",
+        "at": "2026-09-13T15:00:00Z",
+        "action": "accept",
+        "reason": "bulk accept of class visual_first_party"
+      }
+    },
+    {
+      "fact_id": "edge:grm-walkway-e5__grm-walkway-e6",
+      "source_id": "grm-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.75,
+      "status": "accepted",
+      "proposed_by": "extractions/01-extraction-research.json",
+      "manual_review_required": false,
+      "notes": "channel between red 17–19 / yellow 20–24 (west) and blue 92, 72, 74 (east); continuous. length_px = Euclidean pixel distance between the two source-pixel positions on the 417×888 rendering (G19); shortest-path weight only, never a distance claim.",
+      "subject": "edge:grm-walkway-e5__grm-walkway-e6",
+      "predicate": "edge",
+      "value": {
+        "from": "grm-walkway-e5",
+        "to": "grm-walkway-e6",
+        "bidirectional": true,
+        "floor_change": false,
+        "vertical_kind": null,
+        "length_px": 140
+      },
+      "decision": {
+        "by": "dry-run transcriber (Sprint 5)",
+        "at": "2026-09-13T15:00:00Z",
+        "action": "accept",
+        "reason": "bulk accept of class visual_first_party"
+      }
+    },
+    {
+      "fact_id": "edge:grm-walkway-e6__grm-walkway-bend-edgars",
+      "source_id": "grm-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.75,
+      "status": "accepted",
+      "proposed_by": "extractions/01-extraction-research.json",
+      "manual_review_required": false,
+      "notes": "channel between yellow 26/27 (west) and blue 71/69 (east). length_px = Euclidean pixel distance between the two source-pixel positions on the 417×888 rendering (G19); shortest-path weight only, never a distance claim.",
+      "subject": "edge:grm-walkway-e6__grm-walkway-bend-edgars",
+      "predicate": "edge",
+      "value": {
+        "from": "grm-walkway-e6",
+        "to": "grm-walkway-bend-edgars",
+        "bidirectional": true,
+        "floor_change": false,
+        "vertical_kind": null,
+        "length_px": 55
+      },
+      "decision": {
+        "by": "dry-run transcriber (Sprint 5)",
+        "at": "2026-09-13T15:00:00Z",
+        "action": "accept",
+        "reason": "bulk accept of class visual_first_party"
+      }
+    },
+    {
+      "fact_id": "edge:grm-walkway-bend-edgars__grm-walkway-e7",
+      "source_id": "grm-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.75,
+      "status": "accepted",
+      "proposed_by": "extractions/01-extraction-research.json",
+      "manual_review_required": false,
+      "notes": "channel between yellow Edgars/30 (west) and blue 61/62 (east). length_px = Euclidean pixel distance between the two source-pixel positions on the 417×888 rendering (G19); shortest-path weight only, never a distance claim.",
+      "subject": "edge:grm-walkway-bend-edgars__grm-walkway-e7",
+      "predicate": "edge",
+      "value": {
+        "from": "grm-walkway-bend-edgars",
+        "to": "grm-walkway-e7",
+        "bidirectional": true,
+        "floor_change": false,
+        "vertical_kind": null,
+        "length_px": 49
+      },
+      "decision": {
+        "by": "dry-run transcriber (Sprint 5)",
+        "at": "2026-09-13T15:00:00Z",
+        "action": "accept",
+        "reason": "bulk accept of class visual_first_party"
+      }
+    },
+    {
+      "fact_id": "edge:grm-walkway-e7__grm-walkway-bend-toilets",
+      "source_id": "grm-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.75,
+      "status": "accepted",
+      "proposed_by": "extractions/01-extraction-research.json",
+      "manual_review_required": false,
+      "notes": "channel between yellow 33/34 (west) and blue 54/56 (east); toilet symbol on the east side. length_px = Euclidean pixel distance between the two source-pixel positions on the 417×888 rendering (G19); shortest-path weight only, never a distance claim.",
+      "subject": "edge:grm-walkway-e7__grm-walkway-bend-toilets",
+      "predicate": "edge",
+      "value": {
+        "from": "grm-walkway-e7",
+        "to": "grm-walkway-bend-toilets",
+        "bidirectional": true,
+        "floor_change": false,
+        "vertical_kind": null,
+        "length_px": 51
+      },
+      "decision": {
+        "by": "dry-run transcriber (Sprint 5)",
+        "at": "2026-09-13T15:00:00Z",
+        "action": "accept",
+        "reason": "bulk accept of class visual_first_party"
+      }
+    },
+    {
+      "fact_id": "edge:grm-walkway-bend-toilets__grm-clicks-arrival",
+      "source_id": "grm-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.75,
+      "status": "accepted",
+      "proposed_by": "extractions/01-extraction-research.json",
+      "manual_review_required": false,
+      "notes": "channel between yellow 37/38 (west) and blue 45/50 (east). length_px = Euclidean pixel distance between the two source-pixel positions on the 417×888 rendering (G19); shortest-path weight only, never a distance claim.",
+      "subject": "edge:grm-walkway-bend-toilets__grm-clicks-arrival",
+      "predicate": "edge",
+      "value": {
+        "from": "grm-walkway-bend-toilets",
+        "to": "grm-clicks-arrival",
+        "bidirectional": true,
+        "floor_change": false,
+        "vertical_kind": null,
+        "length_px": 40
+      },
+      "decision": {
+        "by": "dry-run transcriber (Sprint 5)",
+        "at": "2026-09-13T15:00:00Z",
+        "action": "accept",
+        "reason": "bulk accept of class visual_first_party"
+      }
+    },
+    {
+      "fact_id": "edge:grm-clicks-arrival__grm-picknpay-arrival",
+      "source_id": "grm-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.75,
+      "status": "accepted",
+      "proposed_by": "extractions/01-extraction-research.json",
+      "manual_review_required": false,
+      "notes": "the walkway ends at the Pick n Pay block. length_px = Euclidean pixel distance between the two source-pixel positions on the 417×888 rendering (G19); shortest-path weight only, never a distance claim.",
+      "subject": "edge:grm-clicks-arrival__grm-picknpay-arrival",
+      "predicate": "edge",
+      "value": {
+        "from": "grm-clicks-arrival",
+        "to": "grm-picknpay-arrival",
+        "bidirectional": true,
+        "floor_change": false,
+        "vertical_kind": null,
+        "length_px": 23
+      },
+      "decision": {
+        "by": "dry-run transcriber (Sprint 5)",
+        "at": "2026-09-13T15:00:00Z",
+        "action": "accept",
+        "reason": "bulk accept of class visual_first_party"
+      }
+    },
+    {
+      "fact_id": "instruction:grm-i-1",
+      "source_id": "grm-legacy-wording",
+      "evidence_class": "manual_inference",
+      "confidence": 0.6,
+      "status": "accepted",
+      "proposed_by": "extractions/01-extraction-research.json",
+      "manual_review_required": true,
+      "notes": "Forward direction (Entrance 4 → south) only; no reverse wording exists.",
+      "subject": "edge:grm-entrance-4__grm-walkway-e4",
+      "predicate": "instruction_forward",
+      "value": "Walk straight in from Entrance 4, past the ATMs on your left, until you reach the main walkway.",
+      "decision": {
+        "by": "dry-run transcriber (Sprint 5)",
+        "at": "2026-09-13T15:00:00Z",
+        "action": "accept",
+        "reason": "Wording exists only in the legacy dataset (7d638f9); carried over unchanged for the Entrance 4 → south direction. Not research-backed — provenance gap recorded."
+      }
+    },
+    {
+      "fact_id": "instruction:grm-i-2",
+      "source_id": "grm-legacy-wording",
+      "evidence_class": "manual_inference",
+      "confidence": 0.6,
+      "status": "accepted",
+      "proposed_by": "extractions/01-extraction-research.json",
+      "manual_review_required": true,
+      "notes": "Forward direction (Entrance 4 → south) only; no reverse wording exists.",
+      "subject": "edge:grm-walkway-e4__grm-woolworths-arrival",
+      "predicate": "instruction_forward",
+      "value": "Cross the main walkway. Woolworths is directly ahead on the far side.",
+      "decision": {
+        "by": "dry-run transcriber (Sprint 5)",
+        "at": "2026-09-13T15:00:00Z",
+        "action": "accept",
+        "reason": "Wording exists only in the legacy dataset (7d638f9); carried over unchanged for the Entrance 4 → south direction. Not research-backed — provenance gap recorded."
+      }
+    },
+    {
+      "fact_id": "instruction:grm-i-3",
+      "source_id": "grm-legacy-wording",
+      "evidence_class": "manual_inference",
+      "confidence": 0.6,
+      "status": "accepted",
+      "proposed_by": "extractions/01-extraction-research.json",
+      "manual_review_required": true,
+      "notes": "Forward direction (Entrance 4 → south) only; no reverse wording exists.",
+      "subject": "edge:grm-walkway-e4__grm-walkway-e5",
+      "predicate": "instruction_forward",
+      "value": "Turn left onto the main walkway and follow it, shops on both sides, until the first side passage on your left (it leads to Entrance 5).",
+      "decision": {
+        "by": "dry-run transcriber (Sprint 5)",
+        "at": "2026-09-13T15:00:00Z",
+        "action": "accept",
+        "reason": "Wording exists only in the legacy dataset (7d638f9); carried over unchanged for the Entrance 4 → south direction. Not research-backed — provenance gap recorded."
+      }
+    },
+    {
+      "fact_id": "instruction:grm-i-4",
+      "source_id": "grm-legacy-wording",
+      "evidence_class": "manual_inference",
+      "confidence": 0.6,
+      "status": "accepted",
+      "proposed_by": "extractions/01-extraction-research.json",
+      "manual_review_required": true,
+      "notes": "Forward direction (Entrance 4 → south) only; no reverse wording exists.",
+      "subject": "edge:grm-walkway-e5__grm-walkway-e6",
+      "predicate": "instruction_forward",
+      "value": "Continue straight along the walkway; the next side passage on your left leads to Entrance 6 and the cinema side.",
+      "decision": {
+        "by": "dry-run transcriber (Sprint 5)",
+        "at": "2026-09-13T15:00:00Z",
+        "action": "accept",
+        "reason": "Wording exists only in the legacy dataset (7d638f9); carried over unchanged for the Entrance 4 → south direction. Not research-backed — provenance gap recorded."
+      }
+    },
+    {
+      "fact_id": "instruction:grm-i-5",
+      "source_id": "grm-legacy-wording",
+      "evidence_class": "manual_inference",
+      "confidence": 0.6,
+      "status": "accepted",
+      "proposed_by": "extractions/01-extraction-research.json",
+      "manual_review_required": true,
+      "notes": "Forward direction (Entrance 4 → south) only; no reverse wording exists.",
+      "subject": "edge:grm-walkway-e6__grm-walkway-bend-edgars",
+      "predicate": "instruction_forward",
+      "value": "Keep following the walkway as it bends gently left; Edgars is on your right.",
+      "decision": {
+        "by": "dry-run transcriber (Sprint 5)",
+        "at": "2026-09-13T15:00:00Z",
+        "action": "accept",
+        "reason": "Wording exists only in the legacy dataset (7d638f9); carried over unchanged for the Entrance 4 → south direction. Not research-backed — provenance gap recorded."
+      }
+    },
+    {
+      "fact_id": "instruction:grm-i-6",
+      "source_id": "grm-legacy-wording",
+      "evidence_class": "manual_inference",
+      "confidence": 0.6,
+      "status": "accepted",
+      "proposed_by": "extractions/01-extraction-research.json",
+      "manual_review_required": true,
+      "notes": "Forward direction (Entrance 4 → south) only; no reverse wording exists.",
+      "subject": "edge:grm-walkway-bend-edgars__grm-walkway-e7",
+      "predicate": "instruction_forward",
+      "value": "Continue along the walkway; the side passage on your left leads to Entrance 7.",
+      "decision": {
+        "by": "dry-run transcriber (Sprint 5)",
+        "at": "2026-09-13T15:00:00Z",
+        "action": "accept",
+        "reason": "Wording exists only in the legacy dataset (7d638f9); carried over unchanged for the Entrance 4 → south direction. Not research-backed — provenance gap recorded."
+      }
+    },
+    {
+      "fact_id": "instruction:grm-i-7",
+      "source_id": "grm-legacy-wording",
+      "evidence_class": "manual_inference",
+      "confidence": 0.6,
+      "status": "accepted",
+      "proposed_by": "extractions/01-extraction-research.json",
+      "manual_review_required": true,
+      "notes": "Forward direction (Entrance 4 → south) only; no reverse wording exists.",
+      "subject": "edge:grm-walkway-e7__grm-walkway-bend-toilets",
+      "predicate": "instruction_forward",
+      "value": "Keep going as the walkway bends left again, with the toilets on your left.",
+      "decision": {
+        "by": "dry-run transcriber (Sprint 5)",
+        "at": "2026-09-13T15:00:00Z",
+        "action": "accept",
+        "reason": "Wording exists only in the legacy dataset (7d638f9); carried over unchanged for the Entrance 4 → south direction. Not research-backed — provenance gap recorded."
+      }
+    },
+    {
+      "fact_id": "instruction:grm-i-8",
+      "source_id": "grm-legacy-wording",
+      "evidence_class": "manual_inference",
+      "confidence": 0.6,
+      "status": "accepted",
+      "proposed_by": "extractions/01-extraction-research.json",
+      "manual_review_required": true,
+      "notes": "Forward direction (Entrance 4 → south) only; no reverse wording exists.",
+      "subject": "edge:grm-walkway-bend-toilets__grm-clicks-arrival",
+      "predicate": "instruction_forward",
+      "value": "Continue towards the end of the walkway; Clicks (37/38) is on your right just before Pick n Pay.",
+      "decision": {
+        "by": "dry-run transcriber (Sprint 5)",
+        "at": "2026-09-13T15:00:00Z",
+        "action": "accept",
+        "reason": "Wording exists only in the legacy dataset (7d638f9); carried over unchanged for the Entrance 4 → south direction. Not research-backed — provenance gap recorded."
+      }
+    },
+    {
+      "fact_id": "instruction:grm-i-9",
+      "source_id": "grm-legacy-wording",
+      "evidence_class": "manual_inference",
+      "confidence": 0.6,
+      "status": "accepted",
+      "proposed_by": "extractions/01-extraction-research.json",
+      "manual_review_required": true,
+      "notes": "Forward direction (Entrance 4 → south) only; no reverse wording exists.",
+      "subject": "edge:grm-clicks-arrival__grm-picknpay-arrival",
+      "predicate": "instruction_forward",
+      "value": "Pick n Pay is straight ahead at the end of the walkway.",
+      "decision": {
+        "by": "dry-run transcriber (Sprint 5)",
+        "at": "2026-09-13T15:00:00Z",
+        "action": "accept",
+        "reason": "Wording exists only in the legacy dataset (7d638f9); carried over unchanged for the Entrance 4 → south direction. Not research-backed — provenance gap recorded."
+      }
+    },
+    {
+      "fact_id": "destination:grm-woolworths-9",
+      "source_id": "grm-directory",
+      "evidence_class": "secondary_corroboration",
+      "confidence": 0.7,
+      "status": "accepted",
+      "proposed_by": "extractions/01-extraction-research.json",
+      "manual_review_required": false,
+      "notes": "G03: Woolworths is Store 9 (search snippet of the first-party directory); map label 'Woolworths ⑨'.",
+      "subject": "destination:grm-woolworths-9",
+      "predicate": "destination",
+      "value": {
+        "name": "Woolworths",
+        "kind": "store",
+        "category": null,
+        "arrival_node": "grm-woolworths-arrival",
+        "unit": "9",
+        "aliases": ""
+      },
+      "decision": {
+        "by": "dry-run transcriber (Sprint 5)",
+        "at": "2026-09-13T15:00:00Z",
+        "action": "accept",
+        "reason": "bulk accept of class secondary_corroboration"
+      }
+    },
+    {
+      "fact_id": "destination:grm-clicks-37",
+      "source_id": "grm-directory",
+      "evidence_class": "secondary_corroboration",
+      "confidence": 0.75,
+      "status": "accepted",
+      "proposed_by": "extractions/01-extraction-research.json",
+      "manual_review_required": false,
+      "notes": "G01: Clicks is Store 37 (directory snippet) + clicks.co.za store 261 'Shop 37'; map label '37/38'.",
+      "subject": "destination:grm-clicks-37",
+      "predicate": "destination",
+      "value": {
+        "name": "Clicks",
+        "kind": "store",
+        "category": null,
+        "arrival_node": "grm-clicks-arrival",
+        "unit": "37",
+        "aliases": ""
+      },
+      "decision": {
+        "by": "dry-run transcriber (Sprint 5)",
+        "at": "2026-09-13T15:00:00Z",
+        "action": "accept",
+        "reason": "bulk accept of class secondary_corroboration"
+      }
+    },
+    {
+      "fact_id": "destination:grm-picknpay-41",
+      "source_id": "grm-directory",
+      "evidence_class": "secondary_corroboration",
+      "confidence": 0.7,
+      "status": "accepted",
+      "proposed_by": "extractions/01-extraction-research.json",
+      "manual_review_required": false,
+      "notes": "G02: Pick n Pay is Store 41 (directory snippet); map label 'Pick n Pay ㊶'.",
+      "subject": "destination:grm-picknpay-41",
+      "predicate": "destination",
+      "value": {
+        "name": "Pick n Pay",
+        "kind": "store",
+        "category": null,
+        "arrival_node": "grm-picknpay-arrival",
+        "unit": "41",
+        "aliases": ""
+      },
+      "decision": {
+        "by": "dry-run transcriber (Sprint 5)",
+        "at": "2026-09-13T15:00:00Z",
+        "action": "accept",
+        "reason": "bulk accept of class secondary_corroboration"
+      }
+    },
+    {
+      "fact_id": "anchor:grm-entrance-4",
+      "source_id": "grm-map",
+      "evidence_class": "visual_first_party",
+      "confidence": 0.8,
+      "status": "accepted",
+      "proposed_by": "extractions/01-extraction-research.json",
+      "manual_review_required": false,
+      "notes": "G13/G14: Entrance 4 is the only start in the pilot.",
+      "subject": "anchor:grm-entrance-4",
+      "predicate": "anchor",
+      "value": {
+        "node": "grm-entrance-4",
+        "label": "Entrance 4",
+        "kind": "entrance",
+        "start_permitted": true,
+        "qr_eligible": true
+      },
+      "decision": {
+        "by": "dry-run transcriber (Sprint 5)",
+        "at": "2026-09-13T15:00:00Z",
+        "action": "accept",
+        "reason": "bulk accept of class visual_first_party"
+      }
+    },
+    {
+      "fact_id": "G01",
+      "source_id": "grm-directory",
+      "evidence_class": "secondary_corroboration",
+      "confidence": 0.75,
+      "status": "accepted",
+      "proposed_by": "extractions/01-extraction-research.json",
+      "manual_review_required": false,
+      "subject": "destination:grm-clicks-37",
+      "predicate": "directory_entry",
+      "value": {
+        "store": "37",
+        "phone": "044 887 0030"
+      },
+      "decision": {
+        "by": "dry-run transcriber (Sprint 5)",
+        "at": "2026-09-13T15:00:00Z",
+        "action": "accept",
+        "reason": "bulk accept of class secondary_corroboration"
+      }
+    },
+    {
+      "fact_id": "G02",
+      "source_id": "grm-directory",
+      "evidence_class": "secondary_corroboration",
+      "confidence": 0.7,
+      "status": "accepted",
+      "proposed_by": "extractions/01-extraction-research.json",
+      "manual_review_required": false,
+      "subject": "destination:grm-picknpay-41",
+      "predicate": "directory_entry",
+      "value": {
+        "store": "41",
+        "phone": "044 887 0000"
+      },
+      "decision": {
+        "by": "dry-run transcriber (Sprint 5)",
+        "at": "2026-09-13T15:00:00Z",
+        "action": "accept",
+        "reason": "bulk accept of class secondary_corroboration"
+      }
+    },
+    {
+      "fact_id": "G03",
+      "source_id": "grm-directory",
+      "evidence_class": "secondary_corroboration",
+      "confidence": 0.7,
+      "status": "accepted",
+      "proposed_by": "extractions/01-extraction-research.json",
+      "manual_review_required": false,
+      "subject": "destination:grm-woolworths-9",
+      "predicate": "directory_entry",
+      "value": {
+        "store": "9",
+        "phone": "044 803 5400"
+      },
+      "decision": {
+        "by": "dry-run transcriber (Sprint 5)",
+        "at": "2026-09-13T15:00:00Z",
+        "action": "accept",
+        "reason": "bulk accept of class secondary_corroboration"
+      }
+    },
+    {
+      "fact_id": "G12",
+      "source_id": "grm-directory",
+      "evidence_class": "manual_inference",
+      "confidence": 0,
+      "status": "proposed",
+      "proposed_by": "extractions/01-extraction-research.json",
+      "manual_review_required": true,
+      "notes": "UNKNOWN in the research ledger: not seen in any retrievable snippet; verify on the official page or on site.",
+      "subject": "landmark:centre-management",
+      "predicate": "near_entrance",
+      "value": "Entrance 2",
+      "decision": {
+        "by": "dry-run transcriber (Sprint 5)",
+        "at": "2026-09-13T15:00:00Z",
+        "action": "unresolved",
+        "reason": "Research ledger status UNKNOWN; not needed for the pilot route."
+      }
+    },
+    {
+      "fact_id": "G19",
+      "source_id": "grm-map",
+      "evidence_class": "manual_inference",
+      "confidence": 0,
+      "status": "proposed",
+      "proposed_by": "extractions/01-extraction-research.json",
+      "manual_review_required": true,
+      "notes": "UNKNOWN: no scale bar, north arrow or dimension text; pixel lengths only. One measured leg must not calibrate the map.",
+      "subject": "venue",
+      "predicate": "real_world_scale",
+      "value": null,
+      "decision": {
+        "by": "dry-run transcriber (Sprint 5)",
+        "at": "2026-09-13T15:00:00Z",
+        "action": "unresolved",
+        "reason": "Research ledger status UNKNOWN; the pack stays unscaled (px)."
+      }
+    }
+  ]
+}

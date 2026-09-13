@@ -1,28 +1,42 @@
 /**
  * registry.ts — the ONLY place the application learns which venues exist.
  *
- * Bundled packs are registered from data; tests and dev harnesses may register more with
- * `registerVenuePack`. Application code asks `getVenuePack(id)` and never branches on a venue id.
- * Unknown ids return null (never throw). Loading is cached, so a pack is validated and indexed once.
+ * Bundled packs are DATA: every `src/venue/packs/*.venue.json` is picked up by a glob and ordered
+ * by `packs/bundle.json` (the first entry is the manual-entry default). Publishing a new venue is a
+ * file copy plus one line in bundle.json — `npm run venue:publish -- --bundle` does both; no code
+ * changes. Tests and dev harnesses may register more with `registerVenuePack`. Application code
+ * asks `getVenuePack(id)` and never branches on a venue id. Unknown ids return null (never throw).
+ * Loading is cached, so a pack is validated and indexed once.
  */
 
 import type { VenuePack } from "./contract";
 import { loadVenuePack, type LoadedVenue } from "./load";
 import { validateVenuePack, type VenueValidation } from "./validate";
-import mallRedsPack from "./packs/mallreds-pilot.venue.json";
-import menlynParkPack from "./packs/menlyn-park.venue.json";
-import gardenRouteMallPack from "./packs/garden-route-mall.venue.json";
+import bundle from "./packs/bundle.json";
 
-/** Bundled production packs, in registry order (the first is the manual-entry default). */
-const BUNDLED: unknown[] = [mallRedsPack, menlynParkPack, gardenRouteMallPack];
-
-const sources = new Map<string, unknown>();
-const loaded = new Map<string, LoadedVenue>();
+const packModules = import.meta.glob("./packs/*.venue.json", { eager: true, import: "default" }) as Record<string, unknown>;
 
 function idOf(pack: unknown): string | null {
   const v = (pack as { venue?: { id?: unknown } })?.venue?.id;
   return typeof v === "string" ? v : null;
 }
+
+/** Bundled production packs in bundle.json order; files present but not listed are an error (never silently bundled). */
+function bundledPacks(): unknown[] {
+  const byFile = new Map(Object.entries(packModules).map(([path, mod]) => [path.replace(/^.*\//, ""), mod]));
+  const listed = (bundle as { order: string[] }).order;
+  const unlisted = [...byFile.keys()].filter((f) => !listed.includes(f));
+  if (unlisted.length) throw new Error(`Venue Pack file(s) not listed in packs/bundle.json: ${unlisted.join(", ")}`);
+  return listed.map((f) => {
+    const mod = byFile.get(f);
+    if (!mod) throw new Error(`packs/bundle.json lists "${f}" but no such pack file exists`);
+    return mod;
+  });
+}
+
+const BUNDLED: unknown[] = bundledPacks();
+const sources = new Map<string, unknown>();
+const loaded = new Map<string, LoadedVenue>();
 
 for (const p of BUNDLED) {
   const id = idOf(p);
@@ -38,6 +52,7 @@ export interface VenueSummary {
   id: string;
   name: string;
   shortName: string;
+  packVersion: number;
   evidence: LoadedVenue["evidence"];
   deployment: VenuePack["venue"]["deployment"];
   metric: boolean;
@@ -48,7 +63,7 @@ export interface VenueSummary {
 export function listVenuePacks(): VenueSummary[] {
   return [...sources.keys()].map((id) => {
     const v = getVenuePack(id) as LoadedVenue;
-    return { id: v.id, name: v.name, shortName: v.shortName, evidence: v.evidence, deployment: v.pack.venue.deployment, metric: v.metric, distanceUnit: v.distanceUnit };
+    return { id: v.id, name: v.name, shortName: v.shortName, packVersion: v.pack.venue.pack_version, evidence: v.evidence, deployment: v.pack.venue.deployment, metric: v.metric, distanceUnit: v.distanceUnit };
   });
 }
 
@@ -86,4 +101,12 @@ export function unregisterVenuePack(id: string): boolean {
   if (bundledVenueIds().includes(id)) return false;
   loaded.delete(id);
   return sources.delete(id);
+}
+
+/** Anchors a printed QR may encode, derived from the packs (qr_eligible), never from a hand-kept list. */
+export function qrEligibleAnchors(): Array<{ venueId: string; venueName: string; anchorId: string; label: string; evidence: LoadedVenue["evidence"] }> {
+  return listVenuePacks().flatMap((s) => {
+    const v = getVenuePack(s.id) as LoadedVenue;
+    return v.anchors.filter((a) => a.qr_eligible === true && a.start_permitted).map((a) => ({ venueId: v.id, venueName: v.name, anchorId: a.id, label: a.label, evidence: v.evidence }));
+  });
 }
