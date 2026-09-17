@@ -276,7 +276,6 @@ function WayfindingPilotView({ graph, initialAnchor, anchorNotice, embedded, onO
   const destArrival = (destNode?.arrival_evidence as "verified_public_door" | "corridor_arrival" | "unknown" | null | undefined) ?? undefined;
   const legCount = Math.max(0, steps.length - 1);
   const lastStep = Math.max(0, steps.length - 1);
-  const confirmedCount = Math.min(session.stepIndex, lastStep);
   const nextIsArrival = session.stepIndex === steps.length - 2;
   /** After arrival, the destination becomes the next trusted start ONLY if the venue lists a start anchor at that node. */
   const arrivalAnchor = dest && destNode ? anchorAtNode(graph, destNode.id) : null;
@@ -507,7 +506,7 @@ function WayfindingPilotView({ graph, initialAnchor, anchorNotice, embedded, onO
           <div className="pt-1.5">{claimBadge}</div>
         </div>
 
-        {routeUpdated}
+        {!arrived && routeUpdated}
 
         {arrived ? (
           /* ARRIVAL */
@@ -528,13 +527,12 @@ function WayfindingPilotView({ graph, initialAnchor, anchorNotice, embedded, onO
                 Step {session.stepIndex + 1} of {steps.length}
                 {(multiFloor || step?.floor_change) && step?.floor ? <span> · {floorLabel(step.floor)}</span> : null}
               </p>
-              <span className="text-[11px] text-muted-foreground">{confirmedCount} of {steps.length} confirmed</span>
             </div>
-            <div className="mt-2 flex gap-1" role="progressbar" aria-label="Steps you have confirmed" aria-valuemin={0} aria-valuemax={steps.length} aria-valuenow={confirmedCount} data-testid="pilot-progress">
+            <div className="mt-2 flex gap-1" role="progressbar" aria-label="Steps you have confirmed" aria-valuemin={0} aria-valuemax={steps.length} aria-valuenow={Math.min(session.stepIndex, lastStep)} data-testid="pilot-progress">
               {steps.map((s, i) => <span key={s.step} className={`h-1.5 flex-1 rounded-full ${i < session.stepIndex ? "bg-primary" : i === session.stepIndex ? "bg-primary/60 ring-1 ring-primary" : "bg-muted"}`} />)}
             </div>
             <div ref={focusRef} tabIndex={-1} className="mt-3 outline-none">
-              <h2 className="text-2xl font-semibold leading-snug [overflow-wrap:anywhere]" data-testid="pilot-step-current">{step?.instruction}</h2>
+              <h2 className="text-[1.375rem] font-semibold leading-snug [overflow-wrap:anywhere] min-[390px]:text-2xl" data-testid="pilot-step-current">{step?.instruction}</h2>
             </div>
             {showMetrics && step?.distance_meters != null && (
               <p className="mt-1.5 text-sm text-muted-foreground" data-testid="pilot-step-distance">About {step.distance_meters} m for this step</p>
@@ -546,7 +544,7 @@ function WayfindingPilotView({ graph, initialAnchor, anchorNotice, embedded, onO
         {mapBox(184, true)}
 
         {/* NEXT PREVIEW */}
-        {!arrived && next && (
+        {!arrived && next && session.stepIndex + 1 < lastStep && (
           <p className="text-sm text-muted-foreground" data-testid="pilot-step-next">
             <span className="font-medium text-foreground">Then:</span> {next.instruction}
           </p>
@@ -574,7 +572,7 @@ function WayfindingPilotView({ graph, initialAnchor, anchorNotice, embedded, onO
               </Button>
             ) : (
               <p className="text-xs leading-snug text-muted-foreground" data-testid="pilot-navigate-from-here-unavailable">
-                Your next route will still start from {anchor.label}. To start from here, scan the MallMind QR code nearest you or tap Update my location.
+                Your next route will still start from {anchor.label}. To start from here, scan the MallMind QR code nearest you or update your location above.
               </p>
             )}
             <div className="grid grid-cols-2 gap-2">
@@ -597,9 +595,10 @@ function WayfindingPilotView({ graph, initialAnchor, anchorNotice, embedded, onO
         )}
         {arrived && routeDetails}
 
-        {/* CONTROLS — sticky, safe-area aware, manual by design */}
+        {/* CONTROLS — pinned to the bottom of the phone screen (fixed; sticky inside the desktop frame), safe-area aware, manual by design */}
+        {!arrived && <div className="mm-walk-spacer h-24 md:hidden" aria-hidden />}
         {!arrived && (
-          <div className="sticky bottom-0 -mx-4 border-t bg-background/95 px-4 pt-2 backdrop-blur" style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom, 0px))" }} data-testid="pilot-controls">
+          <div className="mm-walk-controls fixed inset-x-0 bottom-0 z-20 border-t bg-background/95 px-4 pt-2 backdrop-blur md:sticky md:inset-x-auto md:-mx-4" style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom, 0px))" }} data-testid="pilot-controls">
             <div className="flex gap-2">
               <Button type="button" variant="outline" className="h-14 min-w-[6.5rem] shrink-0 text-base" disabled={session.stepIndex === 0} onClick={() => send({ type: "previous_step" })} data-testid="pilot-prev" aria-label="Previous step">
                 <ChevronLeft className="mr-1 h-5 w-5" aria-hidden />Previous
@@ -678,7 +677,7 @@ function WayfindingPilotView({ graph, initialAnchor, anchorNotice, embedded, onO
         ) : (
           <dl className="grid grid-cols-2 gap-2 text-center" data-testid="pilot-summary-unscaled">
             <div className="rounded-lg border py-2"><dd className="text-lg font-semibold">{legCount}</dd><dt className="text-[11px] text-muted-foreground">{legCount === 1 ? "step" : "steps"}</dt></div>
-            <div className="rounded-lg border py-2"><dd className="truncate px-1 text-lg font-semibold" title={floorLabel(steps[0]?.floor)}>{floorLabel(steps[0]?.floor)}</dd><dt className="text-[11px] text-muted-foreground">floor</dt></div>
+            <div className="rounded-lg border px-2 py-2"><dd className="line-clamp-2 text-sm font-semibold leading-tight">{floorLabel(steps[0]?.floor)}</dd><dt className="text-[11px] text-muted-foreground">floor</dt></div>
             <p className="col-span-2 text-xs text-muted-foreground" data-testid="pilot-distance-unmeasured">Distance not yet measured</p>
           </dl>
         )}

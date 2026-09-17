@@ -127,3 +127,13 @@
                 0 8px 30px hsl(240 100% 0% / 0.4);
   }
 }
+
+/* A phone held in landscape is wider than the desktop breakpoint but far shorter than the
+   860px desktop phone frame; let the shell flow with the page height there so pinned
+   navigation controls stay on screen. */
+@media (min-width: 768px) and (max-height: 699px) {
+  .mm-shell-frame { height: auto !important; min-height: 100vh !important; }
+  .mm-walk-controls { position: fixed !important; left: 0 !important; right: 0 !important; margin-left: 0 !important; margin-right: 0 !important; }
+  .mm-walk-spacer { display: block !important; }
+  .mm-walk-controls > * { max-width: 420px; margin-inline: auto; }
+}

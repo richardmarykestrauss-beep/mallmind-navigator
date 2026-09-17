@@ -51,8 +51,10 @@ export interface IndoorMapCanvasProps {
 
 const OVERVIEW_PAD = 150;
 const WALK_PAD = 130;
-const WALK_MIN_W = 360;
-const WALK_MIN_H = 224;
+const WALK_MIN_W = 520;
+const WALK_MIN_H = 322;
+const OVERVIEW_MIN_W = 500;
+const OVERVIEW_MIN_H = 310;
 const CAPTION_LIVE = "Map preview · your position is not tracked";
 const CAPTION_SCHEMATIC = "Simplified map · not to scale";
 
@@ -247,7 +249,7 @@ export default function IndoorMapCanvas({
         .filter((p): p is RoutePolylinePoint => Boolean(p) && floorKey(p.floor) === target);
       return fit(ctx.length ? ctx : floorPts, WALK_PAD, WALK_MIN_W, WALK_MIN_H);
     }
-    return fit(floorPts, OVERVIEW_PAD, 120, 90);
+    return fit(floorPts, OVERVIEW_PAD, OVERVIEW_MIN_W, OVERVIEW_MIN_H);
   }, [walking, confirmed, routePolyline, floorPts, target, W, H, fullVB]);
 
   if (!floor) {
@@ -377,7 +379,7 @@ export default function IndoorMapCanvas({
       {/* Pins */}
       {startOnFloor && <StartPin x={startOnFloor.x} y={startOnFloor.y} />}
       {destOnFloor && <DestinationPin x={destOnFloor.x} y={destOnFloor.y} label={destName} motion={motion} />}
-      {confirmed != null && confirmedOnFloor && confirmed > 0 && <ConfirmedMarker x={confirmedOnFloor.x} y={confirmedOnFloor.y} />}
+      {confirmed != null && confirmedOnFloor && confirmed > 0 && confirmedPt?.nodeId !== lastPt?.nodeId && <ConfirmedMarker x={confirmedOnFloor.x} y={confirmedOnFloor.y} />}
       {confirmed != null && targetOnFloor && targetPt !== lastPt && targetPt?.nodeId !== lastPt?.nodeId && <StepTargetMarker x={targetOnFloor.x} y={targetOnFloor.y} label={stepNumber} />}
       {confirmed == null && legacyPos && (markerStyle === "step"
         ? <StepTargetMarker x={legacyPos.x} y={legacyPos.y} label={String((currentStepIndex ?? 0) + 1)} />
