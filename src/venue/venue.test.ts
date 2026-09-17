@@ -135,11 +135,11 @@ describe("evidence model — provenance-aware truth, field verification as a dat
     expect(routeEvidenceTier(ev("source-backed", "pending"))).toBe("source-backed");
     expect(routeEvidenceTier(ev("source-backed", "partial"))).toBe("source-backed");
     expect(routeEvidenceTier(ev("source-backed", "verified"))).toBe("field-verified");
-    expect(routeClaim(ev("field-verified", "verified"))).toBe("Field-verified route");
+    expect(routeClaim(ev("field-verified", "verified"))).toBe("Verified route");
     expect(arrivalWording("Bookshop", "verified_public_door")).toBe("You’ve reached Bookshop.");
     expect(arrivalWording("Cafe", "unknown")).toBe("You’ve reached the mapped arrival point for Cafe.");
     expect(arrivalWording("Cafe", undefined)).toBe("You’ve reached the mapped arrival point for Cafe.");
-    expect(arrivalNote({ name: "Cafe", evidence: { identity: "unverified", arrival: "unknown" } })).toMatch(/not at its door/);
+    expect(arrivalNote({ name: "Cafe", evidence: { identity: "unverified", arrival: "unknown" } })).toMatch(/not at its entrance/);
   });
 
   it("upgrading a pack's evidence (the field-verification seam) changes the wording only — routes and steps are identical", () => {
@@ -155,20 +155,21 @@ describe("evidence model — provenance-aware truth, field verification as a dat
     expect(b.steps.slice(0, -1).map((s) => s.instruction)).toEqual(a.steps.slice(0, -1).map((s) => s.instruction));
     expect(a.steps.at(-1)!.instruction).toBe("You’ve reached the mapped arrival point for Pharmacy.");
     expect(b.steps.at(-1)!.instruction).toBe("You’ve reached Pharmacy.");
-    expect(routeClaim(before.evidence)).toBe("Source-backed route");
-    expect(routeClaim(after.evidence)).toBe("Field-verified route");
-    expect(truthCopy(after.pack.venue, after.metric).details).toContain("Accessibility of this route was verified on site.");
-    expect(truthCopy(before.pack.venue, before.metric).details).toContain("Not accessibility-verified. Not for emergency or evacuation use.");
+    expect(routeClaim(before.evidence)).toBe("Mapped route");
+    expect(routeClaim(after.evidence)).toBe("Verified route");
+    expect(truthCopy(after.pack.venue, after.metric).details).toContain("The accessibility of this route was checked on site.");
+    expect(truthCopy(before.pack.venue, before.metric).details).toContain("Route accessibility has not been checked. Not for emergency or evacuation use.");
   });
 
   it("truth copy for each tier never claims what the evidence lacks", () => {
     const reds = getVenuePack("mallreds-pilot")!;
-    expect(truthCopy(reds.pack.venue, reds.metric).statusLine).toBe("Route preview — your position is not tracked.");
+    expect(truthCopy(reds.pack.venue, reds.metric).statusLine).toBe("Preview route · not yet walked on site");
     const grm = getVenuePack("garden-route-mall")!;
     const c = truthCopy(grm.pack.venue, grm.metric);
-    expect(c.statusLine).toBe("Source-backed route preview. Distance not yet measured. Your position is not tracked.");
-    expect(c.details).toContain("Not an official Garden Route Mall deployment. Controlled pilot only.");
-    expect(c.details).toContain("Distance not yet measured — no walking time is shown.");
+    expect(c.statusLine).toBe("Mapped route · not yet walked on site · distance not measured");
+    expect(c.details.some((d) => d.startsWith("Not an official Garden Route Mall service."))).toBe(true);
+    expect(c.details).toContain("Distances have not been measured yet, so no walking time is shown.");
+    expect(c.details.join(" ")).not.toMatch(/source-backed|corridor_arrival|schematic|pilot/i);
   });
 });
 

@@ -14,10 +14,15 @@ export function routeEvidenceTier(evidence: Pick<VenueEvidence, "geometry" | "fi
   return "schematic";
 }
 
+/**
+ * Product language for evidence tiers. Raw enums (source-backed, corridor_arrival, …) never reach
+ * the visitor; these three phrases do. They deliberately do not oversell: "Mapped" means traced
+ * from the mall's published plan and not yet walked; only field verification earns "Verified".
+ */
 const CLAIM: Record<RouteEvidenceTier, string> = {
-  schematic: "Schematic route preview",
-  "source-backed": "Source-backed route",
-  "field-verified": "Field-verified route",
+  schematic: "Preview route",
+  "source-backed": "Mapped route",
+  "field-verified": "Verified route",
 };
 
 /** The one-line claim shown next to a route. */
@@ -25,23 +30,36 @@ export function routeClaim(evidence: Pick<VenueEvidence, "geometry" | "field_ver
   return CLAIM[routeEvidenceTier(evidence)];
 }
 
-/** Arrival wording from the destination's OWN arrival evidence — never from the venue headline. */
-export function arrivalWording(name: string, arrival: ArrivalEvidence | undefined): string {
-  return arrival === "verified_public_door" ? `You’ve reached ${name}.` : `You’ve reached the mapped arrival point for ${name}.`;
+/** One plain sentence explaining what the claim rests on. */
+export function routeClaimExplanation(tier: RouteEvidenceTier): string {
+  if (tier === "field-verified") return "This route was walked and checked on site.";
+  if (tier === "source-backed") return "Traced from the mall’s published floor plan. Not yet walked on site.";
+  return "Drawn from a simplified sketch of the mall, not from a surveyed floor plan.";
 }
 
-export function arrivalNote(destination: Pick<VenueDestination, "name" | "evidence">): string {
-  return destination.evidence.arrival === "verified_public_door"
-    ? "This doorway was verified on site."
-    : `MallMind's map ends at the corridor point nearest ${destination.name}, not at its door. Look for the storefront from here.`;
+/**
+ * Arrival headline from the destination's OWN arrival evidence — never from the venue headline.
+ * A corridor point is never "reached X"; a preview (schematic) route ends at "the end of this
+ * preview route". Used both for the route's last step and the arrival card.
+ */
+export function arrivalWording(name: string, arrival: ArrivalEvidence | undefined, tier: RouteEvidenceTier = "source-backed"): string {
+  if (arrival === "verified_public_door") return `You’ve reached ${name}.`;
+  if (tier === "schematic") return `You’ve reached the end of this preview route to ${name}.`;
+  return `You’ve reached the mapped arrival point for ${name}.`;
+}
+
+export function arrivalNote(destination: Pick<VenueDestination, "name" | "evidence">, tier: RouteEvidenceTier = "source-backed"): string {
+  if (destination.evidence.arrival === "verified_public_door") return "This entrance was checked on site.";
+  if (tier === "schematic") return `This sketch ends near ${destination.name}, not at its entrance. Look around for the storefront.`;
+  return `The map ends at the walkway point nearest ${destination.name}, not at its entrance. Look around for the storefront.`;
 }
 
 export interface TruthCopy {
-  /** Compact status shown in the footer summary. */
+  /** Compact status line shown with a route (one line, product language). */
   summary: string;
-  /** Status line under a route. */
+  /** Alias of summary (kept for callers). */
   statusLine: string;
-  /** Expandable details. */
+  /** Expandable "Route details". */
   details: string[];
 }
 
@@ -51,34 +69,22 @@ export interface TruthCopy {
  */
 export function truthCopy(venue: Pick<VenueMeta, "name" | "deployment" | "evidence">, metric: boolean): TruthCopy {
   const tier = routeEvidenceTier(venue.evidence);
-  const measured = metric ? "" : " Distance not yet measured.";
-  const official = venue.deployment.official ? `An official ${venue.name} deployment.` : `Not an official ${venue.name} deployment. Controlled pilot only.`;
-  const accessibility = venue.evidence.accessibility === "verified" ? "Accessibility of this route was verified on site." : "Not accessibility-verified. Not for emergency or evacuation use.";
-  if (tier === "schematic") {
-    return {
-      summary: "Pilot schematic · not an official floorplan · route preview only",
-      statusLine: `Route preview — your position is not tracked.${measured}`,
-      details: [
-        "Pilot schematic — route geometry awaits on-site verification.",
-        `Not an official ${venue.name} floorplan.`,
-        "Route preview only — live indoor positioning is not active.",
-        accessibility,
-      ],
-    };
-  }
-  const walked = tier === "field-verified" ? "walked on site" : "not yet walked on site";
-  const claim = tier === "field-verified" ? "Field-verified route" : "Source-backed route preview";
-  return {
-    summary: `${claim} · ${walked}${metric ? "" : " · distance not measured"}`,
-    statusLine: `${claim}.${measured} Your position is not tracked.`,
-    details: [
-      `Route traced from ${venue.name}'s published floor plan; ${walked}.`,
-      official,
-      metric ? "Distances are measured." : "Distance not yet measured — no walking time is shown.",
-      tier === "field-verified" ? "Store arrival points reflect what was verified on site." : "Store entrances shown as the nearest corridor point, not the door.",
-      accessibility,
-    ],
-  };
+  const claim = CLAIM[tier];
+  const walked = tier === "field-verified" ? "checked on site" : "not yet walked on site";
+  const summary = `${claim} · ${walked}${metric ? "" : " · distance not measured"}`;
+  const official = venue.deployment.official
+    ? `An official ${venue.name} service.`
+    : `Not an official ${venue.name} service. MallMind is being trialled here with the centre’s knowledge but without its endorsement.`;
+  const accessibility = venue.evidence.accessibility === "verified"
+    ? "The accessibility of this route was checked on site."
+    : "Route accessibility has not been checked. Not for emergency or evacuation use.";
+  const arrival = tier === "field-verified"
+    ? "Store entrances reflect what was checked on site."
+    : "Routes end at the walkway point nearest a store, not at its door.";
+  const distance = metric ? "Distances were measured." : "Distances have not been measured yet, so no walking time is shown.";
+  const details = [routeClaimExplanation(tier), official, distance, arrival, accessibility, "MallMind does not track your position. You confirm each step yourself."];
+  if (tier === "schematic") details.splice(1, 0, `Not an official ${venue.name} floor plan.`);
+  return { summary, statusLine: summary, details };
 }
 
 /** Which of two geometry evidence levels is stronger (for summaries). */

@@ -70,16 +70,16 @@ describe("Test Mall Alpha — a venue that exists only as data", () => {
     expect(screen.getByTestId("wayfinding-pilot")).toHaveAttribute("data-mall-id", ID);
     expect(screen.getByTestId("pilot-anchor-summary")).toHaveTextContent(/North Entrance/);
     const list = screen.getByTestId("pilot-suggestions");
-    for (const name of ["Bookshop", "Pharmacy", "Cafe", "Toilets"]) expect(within(list).getByText(name)).toBeInTheDocument();
-    expect(within(list).queryByText("ATM")).toBeNull(); // non-routable amenity never offered
+    for (const name of ["Bookshop", "Pharmacy", "Cafe", "Toilets"]) expect(within(list).getByRole("button", { name: new RegExp(`^${name}`) })).toBeInTheDocument();
+    expect(within(list).queryByRole("button", { name: /^ATM/ })).toBeNull(); // non-routable amenity never offered
     fireEvent.change(screen.getByTestId("pilot-search"), { target: { value: "chemist" } });
     fireEvent.click(within(screen.getByTestId("pilot-suggestions")).getByText("Pharmacy"));
-    expect(screen.getByTestId("pilot-route-claim")).toHaveTextContent("Source-backed route");
+    expect(screen.getByTestId("pilot-route-claim")).toHaveTextContent("Mapped route");
     expect(screen.getByTestId("pilot-summary-unscaled")).toHaveTextContent(/Upper Mall/); // floor label from the pack
     expect(screen.queryByTestId("pilot-summary")).toBeNull();                              // unmeasured leg → no metres
     fireEvent.click(screen.getByTestId("pilot-start-navigation"));
     expect(screen.getByTestId("pilot-step-counter")).toHaveTextContent("Step 1 of 4"); // north → A → B → pharmacy + arrival
-    expect(screen.getByTestId("pilot-step-counter")).toHaveTextContent("Floor Upper Mall");
+    expect(screen.getByTestId("pilot-step-counter")).not.toHaveTextContent(/Ground|Level/); // single-floor venue: no invented floor
     fireEvent.click(screen.getByTestId("pilot-reanchor"));
     fireEvent.click(within(screen.getByTestId("pilot-reanchor-panel")).getByRole("button", { name: /East Entrance/ }));
     expect(screen.getByTestId("pilot-route-updated")).toHaveTextContent("now starting from East Entrance");

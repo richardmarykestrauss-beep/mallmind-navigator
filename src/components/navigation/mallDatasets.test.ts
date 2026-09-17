@@ -58,7 +58,7 @@ describe("Menlyn Park — source-backed, unscaled controlled pilot (migrated Ven
   });
 
   it("finder exposes Clicks as the only destination and Entrance 13 as the only start", () => {
-    expect(pointsOfInterest(g)).toEqual([{ id: "menlyn-clicks-lf72", name: "Clicks", kind: "store", type: "shop" }]);
+    expect(pointsOfInterest(g)).toEqual([{ id: "menlyn-clicks-lf72", name: "Clicks", kind: "store", type: "store" }]);
     expect(searchPois(g, "cli").map((p) => p.name)).toEqual(["Clicks"]);
     expect(searchPois(g, "toilet")).toEqual([]);
     expect(startOptions(g)).toEqual([{ id: "menlyn-lf-entrance-13", label: "Entrance 13", nodeId: "menlyn-lf-entrance-13" }]);
