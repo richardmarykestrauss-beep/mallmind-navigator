@@ -123,9 +123,9 @@ describe("NavigationSession — the visitor journey as a pure reducer", () => {
 
   it("evidence never changes how the session behaves — only what is claimed", () => {
     const journeys = [
-      { g: reds, start: "entrance-main", dest: "Clicks", tier: "schematic", claim: "Schematic route preview" },
-      { g: menlyn, start: "menlyn-lf-entrance-13", dest: "Clicks", tier: "source-backed", claim: "Source-backed route" },
-      { g: grm, start: "grm-entrance-4", dest: "Clicks", tier: "source-backed", claim: "Source-backed route" },
+      { g: reds, start: "entrance-main", dest: "Clicks", tier: "schematic", claim: "Preview route" },
+      { g: menlyn, start: "menlyn-lf-entrance-13", dest: "Clicks", tier: "source-backed", claim: "Mapped route" },
+      { g: grm, start: "grm-entrance-4", dest: "Clicks", tier: "source-backed", claim: "Mapped route" },
     ] as const;
     for (const j of journeys) {
       let s = run(j.g, createNavigationSession(j.g.id, anchorFor(j.g, j.start)), { type: "select_destination", destination: poi(j.g, j.dest) }, { type: "start_navigation" });
@@ -138,8 +138,8 @@ describe("NavigationSession — the visitor journey as a pure reducer", () => {
     }
     const ev = (geometry: "schematic" | "source-backed" | "field-verified", fv: "not-started" | "pending" | "verified") =>
       ({ evidence: { geometry, measurement: "unmeasured" as const, field_verification: fv, accessibility: "unverified" as const } });
-    expect(routeClaim(ev("source-backed", "verified"))).toBe("Field-verified route");
-    expect(routeClaim(ev("field-verified", "pending"))).toBe("Field-verified route");
+    expect(routeClaim(ev("source-backed", "verified"))).toBe("Verified route");
+    expect(routeClaim(ev("field-verified", "pending"))).toBe("Verified route");
     expect(arrivalWording({ name: "Clicks", arrival_evidence: "verified_public_door" })).toBe("You’ve reached Clicks.");
     expect(arrivalWording({ name: "Clicks", arrival_evidence: "corridor_arrival" })).toBe("You’ve reached the mapped arrival point for Clicks.");
     expect(arrivalWording({ name: "Clicks" })).toBe("You’ve reached the mapped arrival point for Clicks."); // hosted nodes carry no evidence
@@ -164,7 +164,7 @@ describe("navigationSessionStore — remembers the destination for deep-link re-
     localStorage.clear();
     persistNavigationSession(base(), 1_000);
     const raw = JSON.parse(localStorage.getItem(SESSION_STORE_KEY)!);
-    expect(raw).toEqual({ mallId: "garden-route-mall", anchorNodeId: "grm-entrance-4", anchorLabel: "Entrance 4", destinationId: "grm-picknpay-41", status: "navigating", savedAt: 1_000 });
+    expect(raw).toEqual({ mallId: "garden-route-mall", anchorNodeId: "grm-entrance-4", anchorId: "grm-entrance-4", anchorLabel: "Entrance 4", anchorSource: "qr", destinationId: "grm-picknpay-41", status: "navigating", stepIndex: 0, savedAt: 1_000 });
     expect(loadPersistedNavigationSession("garden-route-mall", 2_000)).toEqual(raw);
     expect(loadPersistedNavigationSession("menlyn-park", 2_000)).toBeNull();
     expect(loadPersistedNavigationSession("garden-route-mall", 1_000 + SESSION_STORE_TTL_MS + 1)).toBeNull();

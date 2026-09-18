@@ -1,60 +1,64 @@
 /**
- * WayfindingPilot.tsx — the shared visitor navigation experience.
+ * WayfindingPilot.tsx — the visitor navigation experience (one implementation, one journey).
  *
- * One implementation, two mounts:
- *   • /navigate (NavigateScreen) — embedded inside MobileShell for shoppers.
- *   • /pilot (WayfindingPilotPage) — standalone, for controlled testing.
+ *   OPEN / SCAN → START LOCATION → FIND DESTINATION → ROUTE OVERVIEW → START NAVIGATION →
+ *   STEP-BY-STEP WALK (manual Next / Previous) → optional UPDATE MY LOCATION → ARRIVAL → NEXT ACTION
  *
- * Journey (navigationSession.ts): scan QR / open link → mall + trusted start anchor → "Where do
- * you want to go?" → route calculated → START NAVIGATION → focused instruction view with MANUAL
- * Next / Previous → arrival. "Update my location" re-anchors from another trusted start (manual
- * pick, or a second QR / deep link) and recalculates the route while keeping the destination.
+ * Mounted embedded in the Navigate tab (NavigateScreen) and standalone at /pilot for controlled
+ * testing. Mall-specific facts (names, starts, destinations, floors, evidence) come only from the
+ * Venue Pack registry — this file contains no venue-specific logic.
  *
- * The route depends ONLY on a trusted anchor (anchorProvider.ts). NO live positioning, NO
- * simulated movement, NO blue dot: every step change is the visitor's own tap, and the wording
- * says so. Mall-specific facts (names, starts, destinations, evidence) come from the registry —
- * this file contains no mall-specific logic.
- *
- * DISTANCE TRUTH: metres and minutes are rendered only when the route reports `metric: true`.
- * EVIDENCE TRUTH: the claim ("Schematic route preview" / "Source-backed route" / "Field-verified
- * route") and the arrival wording come from routeEvidence.ts — field verification changes what is
- * claimed, never how the session works.
+ * PRODUCT TRUTH: MallMind has no live indoor positioning. Progress is the visitor's own taps; the
+ * map marks "the point this step takes you to" and "the point you last confirmed", never "you are
+ * here". Metres and minutes appear only when the route is fully measured. Evidence is translated
+ * into product language (Preview / Mapped / Verified route) by src/venue/evidence.ts.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ChevronLeft, ChevronRight, Search, MapPin, Navigation, QrCode, LocateFixed, CheckCircle2, RotateCcw, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { ArrowLeft, ChevronLeft, ChevronRight, Search, MapPin, Navigation, QrCode, LocateFixed, CheckCircle2, RotateCcw, X, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import IndoorMapCanvas from "@/components/navigation/IndoorMapCanvas";
 import { toFloorplanModel, buildRoutePolyline, attachFloorImages, floorKey } from "@/components/navigation/floorplanModel";
 import {
-  getWayfindingMall, startOptions, searchPois, defaultAnchor, anchorFor, pointsOfInterest, DEFAULT_WAYFINDING_MALL_ID,
+  getWayfindingMall, listWayfindingMalls, startOptions, searchPois, defaultAnchor, anchorFor, anchorAtNode, pointsOfInterest, DEFAULT_WAYFINDING_MALL_ID,
   type PilotPoi, type PilotAnchor,
 } from "@/components/navigation/mallDatasets";
 import type { LoadedPilotDataset } from "@/components/navigation/mallDatasets";
-import { truthCopy as venueTruthCopy } from "@/venue/evidence";
+import { truthCopy as venueTruthCopy, routeClaimExplanation, arrivalWording, arrivalNote } from "@/venue/evidence";
 import { floorLabelFor } from "@/venue/instructions";
 import {
   createNavigationSession, navigationReducer, sessionSteps, currentStep, upcomingStep, isRoutable,
   type NavigationSession, type NavigationAction,
 } from "@/components/navigation/navigationSession";
-import { routeClaim, routeEvidenceTier, isArrivalVerified } from "@/components/navigation/routeEvidence";
+import { routeClaim, routeEvidenceTier } from "@/components/navigation/routeEvidence";
 import { safeSink, type NavigationEventSink } from "@/components/navigation/navigationEvents";
-import { persistNavigationSession, loadPersistedNavigationSession } from "@/components/navigation/navigationSessionStore";
+import { persistNavigationSession, loadPersistedNavigationSession, type PersistedNavigationSession } from "@/components/navigation/navigationSessionStore";
 
-const poiIcon = (p: PilotPoi): string =>
-  p.kind === "store" ? "🛍️" : ({ toilet: "🚻", lift: "🛗", escalator: "🪜", stairs: "🪜", food_court: "🍽️", landmark: "ℹ️" }[p.type] ?? "📍");
+// ── Product language ─────────────────────────────────────────────────────────
 
-const ANCHOR_SOURCE_LABEL: Partial<Record<PilotAnchor["source"], string>> = {
-  url: "from your link",
-  qr: "from the QR code you scanned",
+/** How the trusted start was obtained, in visitor words (internal sources never leak). */
+const START_SOURCE_LABEL: Partial<Record<PilotAnchor["source"], string>> = {
+  url: "Location set from your link",
+  qr: "Location set from MallMind QR",
 };
 
-/** Honest status wording derived from the Venue Pack's evidence, never from the UI's optimism. */
-function truthCopy(g: LoadedPilotDataset): { summary: string; statusLine: string; details: string[] } {
-  return venueTruthCopy(g.pack.venue, g.metric);
-}
+/** Visitor-facing label for a search result's kind (pack vocabulary → words). */
+const KIND_LABEL: Record<string, string> = {
+  store: "Store", service: "Service", food: "Food", entertainment: "Entertainment", landmark: "Landmark",
+  toilet: "Toilets", accessible_toilet: "Accessible toilet", baby_room: "Baby room", information: "Information", atm: "ATM",
+  lift: "Lift", escalator: "Escalator", stairs: "Stairs", parking: "Parking", charging: "Charging", security: "Security",
+  first_aid: "First aid", food_court: "Food court", seating: "Seating",
+};
+const kindLabel = (p: PilotPoi): string => KIND_LABEL[p.type] ?? (p.kind === "store" ? "Store" : "Facility");
+const poiIcon = (p: PilotPoi): string =>
+  p.kind === "store"
+    ? ({ food: "🍽️", entertainment: "🎬", service: "🛠️", landmark: "📍" }[p.type] ?? "🛍️")
+    : ({ toilet: "🚻", accessible_toilet: "♿", baby_room: "🍼", information: "ℹ️", atm: "🏧", lift: "🛗", escalator: "🪜", stairs: "🪜", parking: "🅿️", charging: "🔌", security: "🛡️", first_aid: "⛑️", food_court: "🍽️", seating: "🪑" }[p.type] ?? "📍");
+
+/** The visitor-facing states this screen can be in (reported to the host so it can adapt its chrome). */
+export type NavigationUiMode = "no-venue" | "search" | "overview" | "unroutable" | "walking" | "arrived";
 
 export interface WayfindingPilotProps {
   /** Which registered venue to route over; defaults to the registry's first bundled venue. */
@@ -69,46 +73,103 @@ export interface WayfindingPilotProps {
   onOpenAssistant?: () => void;
   /** Analytics seam — best-effort, never awaited (navigationEvents.ts). */
   onEvent?: NavigationEventSink;
-  /** Remember the destination locally so a second QR scan (fresh page load) keeps it. Default on. */
+  /** Remember the session locally so a refresh or a second QR scan continues it. Default on. */
   rememberSession?: boolean;
+  /** Tells the host which product state is showing (e.g. to hide app chrome while walking). */
+  onModeChange?: (mode: NavigationUiMode) => void;
 }
 
-export default function WayfindingPilot({ mallId, ...rest }: WayfindingPilotProps) {
+export default function WayfindingPilot({ mallId, onModeChange, ...rest }: WayfindingPilotProps) {
   const graph = useMemo(() => getWayfindingMall(mallId ?? DEFAULT_WAYFINDING_MALL_ID), [mallId]);
+  const known = useMemo(() => listWayfindingMalls(), []);
+
+  useEffect(() => { if (!graph) onModeChange?.("no-venue"); }, [graph, onModeChange]);
 
   if (!graph) {
-    // Defensive: callers validate mall ids first (wayfindingAnchor.ts); never invent a map.
+    // Never invent a map: say so, and offer the venues MallMind can guide in (data, not code).
     return (
-      <div className="px-4 py-6 text-sm text-muted-foreground" data-testid="pilot-no-map">
-        MallMind does not have a map for this mall yet.
+      <div data-testid="wayfinding-pilot" data-mall-id={mallId ?? ""} data-ui-mode="no-venue" data-session-status="none">
+      <section className="px-4 py-6" data-testid="pilot-no-map" aria-labelledby="pilot-no-map-title">
+        <h2 id="pilot-no-map-title" className="text-base font-semibold">MallMind doesn’t have a map for this mall yet.</h2>
+        <p className="mt-1 text-sm text-muted-foreground">Choose a mall MallMind can guide you in:</p>
+        <ul className="mt-3 space-y-2" data-testid="pilot-venue-choices">
+          {known.map((m) => (
+            <li key={m.id}>
+              <a href={`/navigate?mall=${encodeURIComponent(m.id)}`} className="flex min-h-12 items-center gap-3 rounded-xl border bg-card px-4 py-3 text-base font-medium">
+                <MapPin className="h-4 w-4 text-muted-foreground" aria-hidden />{m.name}
+              </a>
+            </li>
+          ))}
+        </ul>
+      </section>
       </div>
     );
   }
-  return <WayfindingPilotView key={graph.id} graph={graph} {...rest} />;
+  return <WayfindingPilotView key={graph.id} graph={graph} onModeChange={onModeChange} {...rest} />;
+}
+
+/** Rebuild a session from a remembered record (validated against the venue; anything stale → null). */
+function restoreSession(graph: LoadedPilotDataset, saved: PersistedNavigationSession): NavigationSession | null {
+  const destination = pointsOfInterest(graph).find((p) => p.id === saved.destinationId);
+  if (!destination) return null;
+  const start = startOptions(graph).find((s) => s.id === saved.anchorId || s.nodeId === saved.anchorNodeId);
+  if (!start) return null;
+  let s = createNavigationSession(graph.id, anchorFor(graph, start.id, saved.anchorSource));
+  s = navigationReducer(graph, s, { type: "select_destination", destination });
+  if (s.status !== "route_ready") return s.status === "unroutable" ? s : null;
+  if (saved.status === "navigating" || saved.status === "arrived") {
+    s = navigationReducer(graph, s, { type: "start_navigation" });
+    // Clamp: a walking session never restores onto the arrival step; an arrived one restores as arrived.
+    const last = sessionSteps(s).length - 1;
+    const cap = saved.status === "arrived" ? last : Math.max(0, last - 1);
+    for (let i = 0; i < Math.min(saved.stepIndex, cap); i++) s = navigationReducer(graph, s, { type: "next_step" });
+  }
+  return s;
 }
 
 /**
- * Build the initial session. A deep-link anchor (url / qr) arriving on a fresh page load restores
- * a remembered destination for the same mall so a second scan mid-route re-anchors instead of
- * starting over. Manual entry never restores anything.
+ * Build the initial session. A remembered session for THIS venue (within its TTL) is restored so
+ * a refresh, browser back/forward or a second QR scan continues the journey; a link/QR anchor
+ * arriving on top of it re-anchors (destination kept, route recalculated). Nothing is restored
+ * across venues or after expiry, and anything that no longer resolves starts fresh.
  */
 function initialSession(graph: LoadedPilotDataset, initialAnchor: PilotAnchor | null | undefined, remember: boolean): NavigationSession {
   const anchor = initialAnchor ?? defaultAnchor(graph);
   const fresh = createNavigationSession(graph.id, anchor);
-  if (!remember || !initialAnchor || (initialAnchor.source !== "url" && initialAnchor.source !== "qr")) return fresh;
+  if (!remember) return fresh;
   const saved = loadPersistedNavigationSession(graph.id);
   if (!saved) return fresh;
-  const destination = pointsOfInterest(graph).find((p) => p.id === saved.destinationId);
-  if (!destination) return fresh;
-  // Replay: previous anchor → destination → (walking?) → re-anchor at the scanned start.
-  let s = createNavigationSession(graph.id, anchorFor(graph, saved.anchorNodeId, "manual"));
-  s = navigationReducer(graph, s, { type: "select_destination", destination });
-  if (saved.status === "navigating" || saved.status === "arrived") s = navigationReducer(graph, s, { type: "start_navigation" });
-  if (saved.anchorNodeId === initialAnchor.nodeId) return { ...s, anchor: initialAnchor };
-  return navigationReducer(graph, s, { type: "reanchor", anchor: initialAnchor });
+  const restored = restoreSession(graph, saved);
+  if (!restored) return fresh;
+  if (!initialAnchor) return restored;
+  if (saved.anchorNodeId === initialAnchor.nodeId) return { ...restored, anchor: initialAnchor };
+  return navigationReducer(graph, restored, { type: "reanchor", anchor: initialAnchor });
 }
 
-function WayfindingPilotView({ graph, initialAnchor, anchorNotice, embedded, onOpenAssistant, onEvent, rememberSession = true }: Omit<WayfindingPilotProps, "mallId"> & { graph: LoadedPilotDataset }) {
+/** Walking mode owns one history entry so the browser Back button returns to the overview instead of leaving the app. */
+function useWalkingHistory(active: boolean, onBack: () => void) {
+  const pushed = useRef(false);
+  const onBackRef = useRef(onBack);
+  onBackRef.current = onBack;
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (active && !pushed.current) {
+      try { window.history.pushState({ ...(window.history.state ?? {}), mallmindWalking: true }, ""); pushed.current = true; } catch { /* ignore */ }
+    }
+    if (!active) pushed.current = false;
+  }, [active]);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onPop = (e: PopStateEvent) => {
+      const walkingEntry = Boolean((e.state as { mallmindWalking?: boolean } | null)?.mallmindWalking);
+      if (pushed.current && !walkingEntry) { pushed.current = false; onBackRef.current(); }
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+}
+
+function WayfindingPilotView({ graph, initialAnchor, anchorNotice, embedded, onOpenAssistant, onEvent, rememberSession = true, onModeChange }: Omit<WayfindingPilotProps, "mallId"> & { graph: LoadedPilotDataset }) {
   const starts = useMemo(() => startOptions(graph), [graph]);
   const floorplan = useMemo(
     () => attachFloorImages(
@@ -117,23 +178,28 @@ function WayfindingPilotView({ graph, initialAnchor, anchorNotice, embedded, onO
     ),
     [graph],
   );
-  const copy = useMemo(() => truthCopy(graph), [graph]);
+  const copy = useMemo(() => venueTruthCopy(graph.pack.venue, graph.metric), [graph]);
+  const tier = routeEvidenceTier(graph);
   const claim = routeClaim(graph);
+  const multiFloor = graph.floors.length > 1;
   const emit = useMemo(() => safeSink(onEvent), [onEvent]);
 
   const [session, setSession] = useState<NavigationSession>(() => initialSession(graph, initialAnchor, rememberSession));
   const [query, setQuery] = useState("");
-  const [reanchorOpen, setReanchorOpen] = useState(false);
-  const stepHeadingRef = useRef<HTMLDivElement>(null);
+  const [locationOpen, setLocationOpen] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const focusRef = useRef<HTMLDivElement>(null);
 
   /** Apply an action and emit the matching lightweight events (best-effort, never blocking). */
   function send(action: NavigationAction) {
     const next = navigationReducer(graph, session, action);
     setSession(next);
-    const base = { destination: next.destination?.id ?? null, anchor: next.anchor.nodeId, anchorSource: next.anchor.source, evidence: routeEvidenceTier(graph) };
+    const base = { destination: next.destination?.id ?? null, anchor: next.anchor.nodeId, anchorSource: next.anchor.source, evidence: tier };
     switch (action.type) {
       case "select_destination":
-        if (next.status === "unroutable") emit({ name: "navigation_failed", mallId: graph.id, detail: { ...base, reason: next.route?.message ?? "unroutable" } });
+        emit({ name: "destination_selected", mallId: graph.id, detail: { ...base, kind: action.destination.kind } });
+        if (next.status === "unroutable") emit({ name: "navigation_unroutable", mallId: graph.id, detail: { ...base, reason: next.route?.message ?? "unroutable" } });
+        else emit({ name: "route_overview_opened", mallId: graph.id, detail: { ...base, steps: sessionSteps(next).length, metric: Boolean(next.route?.metric) } });
         break;
       case "start_navigation":
         if (next.status !== session.status) emit({ name: "navigation_session_started", mallId: graph.id, detail: { ...base, steps: sessionSteps(next).length, metric: Boolean(next.route?.metric) } });
@@ -147,39 +213,50 @@ function WayfindingPilotView({ graph, initialAnchor, anchorNotice, embedded, onO
         break;
       case "reanchor":
         emit({ name: "navigation_reanchored", mallId: graph.id, detail: { ...base, from: session.anchor.nodeId, routable: isRoutable(next) } });
-        if (next.status === "unroutable") emit({ name: "navigation_failed", mallId: graph.id, detail: { ...base, reason: next.route?.message ?? "unroutable" } });
+        if (next.status === "unroutable") emit({ name: "navigation_unroutable", mallId: graph.id, detail: { ...base, reason: next.route?.message ?? "unroutable" } });
+        break;
+      case "restart":
+        emit({ name: "navigation_restarted", mallId: graph.id, detail: base });
         break;
       default:
         break;
     }
+    return next;
   }
 
-  // A new incoming link anchor (e.g. scanning a second QR in the same page) re-anchors the session:
-  // destination preserved, trusted start replaced, route recalculated.
+  // A new incoming link anchor (e.g. scanning a second QR in the same page) re-anchors the session.
   const lastLinkAnchor = useRef<PilotAnchor | null | undefined>(initialAnchor);
   useEffect(() => {
     if (initialAnchor && initialAnchor !== lastLinkAnchor.current) {
       lastLinkAnchor.current = initialAnchor;
-      setReanchorOpen(false);
+      setLocationOpen(false);
       send({ type: "reanchor", anchor: initialAnchor });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialAnchor]);
 
-  // Remember the destination for deep-link re-entry (best-effort).
+  // Remember the session for refresh / re-entry (best-effort).
   useEffect(() => { if (rememberSession) persistNavigationSession(session); }, [session, rememberSession]);
 
-  // Move focus to the step heading whenever the step or route changes while navigating.
-  useEffect(() => {
-    if (session.status === "navigating" || session.status === "arrived") stepHeadingRef.current?.focus();
-  }, [session.status, session.stepIndex, session.routeRevision]);
-
   const { anchor, destination: dest, route, status } = session;
-  const results = useMemo(() => searchPois(graph, query), [graph, query]);
   const hasRoute = isRoutable(session);
   const steps = sessionSteps(session);
+  const walking = status === "navigating";
+  const arrived = status === "arrived";
+  const mode: NavigationUiMode = !dest ? "search" : status === "unroutable" ? "unroutable" : walking ? "walking" : arrived ? "arrived" : "overview";
+  useEffect(() => { onModeChange?.(mode); }, [mode, onModeChange]);
+
+  // Move focus to the instruction whenever the step or route changes while walking.
+  useEffect(() => {
+    if (walking || arrived) focusRef.current?.focus();
+  }, [walking, arrived, session.stepIndex, session.routeRevision]);
+
+  // Browser Back while walking → route overview (route kept). Never destroys the route.
+  useWalkingHistory(walking || arrived, () => setSession((s) => (s.status === "navigating" || s.status === "arrived" ? navigationReducer(graph, s, { type: "restart" }) : s)));
+
+  const results = useMemo(() => searchPois(graph, query), [graph, query]);
   // Steps record their "to" node, so prepend the chosen start node: the START pin and the first
-  // route segment then begin at the entrance the shopper actually chose, not at the first junction.
+  // route segment then begin at the entrance the visitor actually chose, not at the first junction.
   const polyline = useMemo(() => {
     if (!hasRoute) return [];
     const startNode = graph.nodes.find((n) => n.id === anchor.nodeId);
@@ -188,48 +265,72 @@ function WayfindingPilotView({ graph, initialAnchor, anchorNotice, embedded, onO
       : [];
     return buildRoutePolyline([...lead, ...steps]);
   }, [hasRoute, graph, anchor.nodeId, steps]);
-  const navigating = status === "navigating" || status === "arrived";
-  // Canvas floor KEY = the pack's floor id (no inference); display labels come from the pack's floors.
-  const activeFloor = floorKey(steps[navigating ? session.stepIndex : 0]?.floor ?? graph.floors[0]?.id);
+  const stepFloor = (i: number) => floorKey(steps[i]?.floor ?? graph.floors[0]?.id);
+  const activeFloor = stepFloor(walking || arrived ? session.stepIndex : 0);
   const floorLabel = (id: string | null | undefined) => floorLabelFor(graph.floors, id ?? graph.floors[0]?.id, graph.policies.floors.display);
   const currentAnchorId = anchor.anchorId ?? starts.find((s) => s.nodeId === anchor.nodeId)?.id ?? anchor.nodeId;
-  const anchorSourceLabel = ANCHOR_SOURCE_LABEL[anchor.source] ?? null;
+  const startSource = START_SOURCE_LABEL[anchor.source] ?? null;
   const showMetrics = Boolean(hasRoute && route!.metric && route!.total_distance_meters !== null && route!.estimated_minutes !== null);
-  const exampleNames = useMemo(() => searchPois(graph, "").slice(0, 5).map((p) => p.name).join(", "), [graph]);
+  const exampleNames = useMemo(() => searchPois(graph, "").slice(0, 4).map((p) => p.name).join(", "), [graph]);
   const destNode = dest ? graph.nodes.find((n) => n.linked_shop_id === dest.id || n.id === dest.id) ?? null : null;
-  const arrivalVerified = destNode ? isArrivalVerified(destNode) : false;
+  const destArrival = (destNode?.arrival_evidence as "verified_public_door" | "corridor_arrival" | "unknown" | null | undefined) ?? undefined;
+  const legCount = Math.max(0, steps.length - 1);
+  const lastStep = Math.max(0, steps.length - 1);
+  const nextIsArrival = session.stepIndex === steps.length - 2;
+  /** After arrival, the destination becomes the next trusted start ONLY if the venue lists a start anchor at that node. */
+  const arrivalAnchor = dest && destNode ? anchorAtNode(graph, destNode.id) : null;
 
-  function choose(p: PilotPoi) { send({ type: "select_destination", destination: p }); }
-  function clearDest() { setQuery(""); setReanchorOpen(false); send({ type: "clear_destination" }); }
-  function changeAnchor(nodeId: string, source: PilotAnchor["source"] = "manual") {
-    setReanchorOpen(false);
-    send({ type: "reanchor", anchor: anchorFor(graph, nodeId, source) });
+  function choose(p: PilotPoi) { setLocationOpen(false); send({ type: "select_destination", destination: p }); }
+  function changeDestination() { setQuery(""); setLocationOpen(false); send({ type: "clear_destination" }); }
+  function changeAnchor(anchorId: string, source: PilotAnchor["source"] = "manual") {
+    setLocationOpen(false);
+    send({ type: "reanchor", anchor: anchorFor(graph, anchorId, source) });
+  }
+  function openLocation() {
+    setLocationOpen(true);
+    emit({ name: "location_update_opened", mallId: graph.id, detail: { destination: dest?.id ?? null, anchor: anchor.nodeId, status } });
+  }
+  function restart() {
+    setLocationOpen(false);
+    const back = send({ type: "restart" });
+    setSession(navigationReducer(graph, back, { type: "start_navigation" }));
+  }
+  function navigateFromHere() {
+    if (!arrivalAnchor) return;
+    setQuery("");
+    const moved = send({ type: "reanchor", anchor: arrivalAnchor });
+    setSession(navigationReducer(graph, moved, { type: "clear_destination" }));
+  }
+  function onSearchKey(e: KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter" && results.length > 0) { e.preventDefault(); choose(results[0]); }
+    if (e.key === "Escape") setQuery("");
   }
 
-  const header = embedded ? null : (
-    <header className="sticky top-0 z-10 flex items-center gap-2 border-b bg-background/95 px-4 py-3 backdrop-blur">
-      {dest && (
-        <button aria-label="Back" onClick={clearDest} className="-ml-1 rounded-full p-1.5 hover:bg-muted">
-          <ArrowLeft className="h-5 w-5" />
-        </button>
-      )}
-      <div className="min-w-0">
-        <h1 className="truncate text-base font-semibold leading-tight">{graph.name} · Wayfinding</h1>
-        <p className="truncate text-xs text-muted-foreground">Find a shop or facility and get walked there</p>
+  // ── Shared pieces ──────────────────────────────────────────────────────────
+  const startChip = (
+    <div className="flex items-start gap-2 rounded-xl border bg-muted/40 px-3 py-2.5" data-testid="pilot-anchor-summary">
+      {anchor.source === "qr" ? <QrCode className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden /> : <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />}
+      <div className="min-w-0 flex-1">
+        <p className="text-xs text-muted-foreground">Starting from</p>
+        <p className="text-base font-semibold leading-tight">{anchor.label}</p>
+        {startSource && <p className="mt-0.5 text-[11px] text-muted-foreground" data-testid="pilot-anchor-source">{startSource}</p>}
       </div>
-    </header>
+      <Button type="button" variant="outline" size="sm" className="min-h-9 shrink-0" onClick={locationOpen ? () => setLocationOpen(false) : openLocation} data-testid="pilot-change-start" aria-expanded={locationOpen}>
+        Change start
+      </Button>
+    </div>
   );
 
-  const reanchorPanel = (
+  const locationPanel = (
     <div className="rounded-xl border bg-card p-3" role="group" aria-labelledby="pilot-reanchor-title" data-testid="pilot-reanchor-panel">
-      <div className="flex items-center justify-between">
-        <p id="pilot-reanchor-title" className="text-sm font-medium">Where are you now?</p>
-        <button type="button" aria-label="Close" onClick={() => setReanchorOpen(false)} className="grid h-11 w-11 place-items-center rounded-full hover:bg-muted">
-          <X className="h-4 w-4" />
+      <div className="flex items-center justify-between gap-2">
+        <h2 id="pilot-reanchor-title" className="text-sm font-semibold">Update my location</h2>
+        <button type="button" aria-label="Close" onClick={() => setLocationOpen(false)} className="grid h-11 w-11 place-items-center rounded-full hover:bg-muted">
+          <X className="h-4 w-4" aria-hidden />
         </button>
       </div>
-      <p className="mt-1 text-xs text-muted-foreground">
-        Choose the MallMind point nearest you. The route to <span className="font-medium text-foreground">{dest?.name}</span> will be recalculated from there.
+      <p className="mt-1 text-xs leading-snug text-muted-foreground">
+        Choose a nearby MallMind location or scan another MallMind QR code.{dest ? <> Your route to <span className="font-medium text-foreground">{dest.name}</span> will be recalculated from there.</> : null}
       </p>
       <ul className="mt-2 space-y-1.5" data-testid="pilot-reanchor-options">
         {starts.map((s) => (
@@ -238,301 +339,395 @@ function WayfindingPilotView({ graph, initialAnchor, anchorNotice, embedded, onO
               type="button"
               onClick={() => changeAnchor(s.id, "manual")}
               aria-current={s.id === currentAnchorId ? "location" : undefined}
-              className={`flex min-h-11 w-full items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm ${s.id === currentAnchorId ? "border-primary/50 bg-primary/5 font-medium" : ""}`}
+              className={`flex min-h-12 w-full items-center gap-2 rounded-lg border px-3 py-2 text-left text-base ${s.id === currentAnchorId ? "border-primary/50 bg-primary/5 font-medium" : ""}`}
             >
               <MapPin className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
               <span className="flex-1">{s.label}</span>
-              {s.id === currentAnchorId && <span className="text-[11px] text-muted-foreground">current start</span>}
+              {s.id === currentAnchorId && <span className="text-[11px] text-muted-foreground">current</span>}
             </button>
           </li>
         ))}
       </ul>
-      <p className="mt-2 flex items-start gap-1.5 text-[11px] leading-snug text-muted-foreground">
-        <QrCode className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
-        Or scan the nearest MallMind QR code with your camera — your route to {dest?.name} continues from that point.
-      </p>
     </div>
   );
+
+  const routeUpdated = session.lastReanchor && (
+    <div className="rounded-lg border border-primary/40 bg-primary/5 px-3 py-2 text-sm leading-snug" role="status" data-testid="pilot-route-updated">
+      <span className="font-medium">Route updated</span> — now starting from {session.lastReanchor.to.label}
+      {START_SOURCE_LABEL[session.lastReanchor.to.source] ? ` (${START_SOURCE_LABEL[session.lastReanchor.to.source].toLowerCase()})` : ""}.
+      {walking || arrived ? " Your steps start again from here." : ""}
+    </div>
+  );
+
+  const routeDetails = (
+    <details className="rounded-lg border px-3 py-2 text-xs text-muted-foreground" data-testid="pilot-disclaimer" open={detailsOpen} onToggle={(e) => setDetailsOpen((e.target as HTMLDetailsElement).open)}>
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-2 py-0.5">
+        <span className="flex items-center gap-1.5"><Info className="h-3.5 w-3.5 shrink-0" aria-hidden /><span data-testid="pilot-status-line">{copy.summary}</span></span>
+        <span className="shrink-0 underline">Route details</span>
+      </summary>
+      <ul className="space-y-1 pt-2 leading-snug">{copy.details.map((d) => <li key={d}>• {d}</li>)}</ul>
+    </details>
+  );
+
+  const claimBadge = <Badge variant="outline" className="shrink-0 text-[11px]" data-testid="pilot-route-claim" title={routeClaimExplanation(tier)}>{claim}</Badge>;
+
+  const header = embedded ? null : (
+    <header className="sticky top-0 z-10 flex items-center gap-2 border-b bg-background/95 px-4 py-3 backdrop-blur">
+      {dest && (
+        <button type="button" aria-label="Back" onClick={changeDestination} className="-ml-1 grid h-11 w-11 place-items-center rounded-full hover:bg-muted">
+          <ArrowLeft className="h-5 w-5" aria-hidden />
+        </button>
+      )}
+      <div className="min-w-0">
+        <h1 className="truncate text-base font-semibold leading-tight">{graph.name}</h1>
+        <p className="truncate text-xs text-muted-foreground">Find a place and get walked there</p>
+      </div>
+    </header>
+  );
+
+  const mapBox = (height: number, walk: boolean) => (
+    <div className="overflow-hidden rounded-xl border" style={{ height, background: "hsl(240 24% 4%)" }}>
+      <IndoorMapCanvas
+        floorplan={floorplan}
+        activeFloor={activeFloor}
+        routePolyline={polyline}
+        progress={walk ? { confirmedIndex: Math.min(session.stepIndex, Math.max(0, polyline.length - 1)) } : null}
+        mode={walk ? "walking" : "overview"}
+      />
+    </div>
+  );
+
+  // ── Views ──────────────────────────────────────────────────────────────────
+  let view: ReactNode;
+
+  if (!dest) {
+    view = (
+      <section data-testid="pilot-finder" className="space-y-4" aria-label="Find a destination">
+        {startChip}
+        {locationOpen && locationPanel}
+        {routeUpdated}
+        <div>
+          <label htmlFor="pilot-search" id="pilot-search-title" className="mb-1.5 block text-base font-semibold">Where do you want to go?</label>
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+            <Input
+              id="pilot-search"
+              type="search"
+              inputMode="search"
+              enterKeyHint="go"
+              autoComplete="off"
+              autoFocus={!locationOpen}
+              className="h-12 pl-9 text-base"
+              placeholder="Search a shop, toilets, ATM…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={onSearchKey}
+              aria-describedby="pilot-search-help"
+              data-testid="pilot-search"
+            />
+          </div>
+          <p id="pilot-search-help" className="mt-1.5 text-xs text-muted-foreground">Type a name, or pick from the list. Results show where MallMind can walk you to.</p>
+        </div>
+
+        {results.length === 0 ? (
+          <div className="rounded-xl border border-dashed px-4 py-6 text-center text-sm text-muted-foreground" data-testid="pilot-no-result" role="status">
+            <p className="font-medium text-foreground">No match for “{query.trim()}”.</p>
+            <p className="mt-1">Try another spelling, or a place like {exampleNames}.</p>
+            <Button type="button" variant="outline" size="sm" className="mt-3 min-h-10" onClick={() => setQuery("")}>Show all places</Button>
+          </div>
+        ) : (
+          <ul className="grid grid-cols-1 gap-2" data-testid="pilot-suggestions" aria-label="Places you can walk to">
+            {results.map((p) => (
+              <li key={`${p.kind}-${p.id}`}>
+                <button
+                  type="button"
+                  onClick={() => choose(p)}
+                  className="flex min-h-12 w-full items-center gap-3 rounded-xl border bg-card px-4 py-3 text-left active:scale-[0.99]"
+                >
+                  <span className="text-xl" aria-hidden>{poiIcon(p)}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-base font-medium leading-snug">{p.name}</span>
+                    <span className="block text-xs text-muted-foreground">{kindLabel(p)}</span>
+                  </span>
+                  <Navigation className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {onOpenAssistant && (
+          <Button type="button" variant="ghost" size="sm" className="h-auto min-h-10 w-full whitespace-normal text-muted-foreground" onClick={onOpenAssistant}>
+            Looking for a product instead? Ask the assistant
+          </Button>
+        )}
+        {routeDetails}
+      </section>
+    );
+  } else if (status === "unroutable") {
+    view = (
+      <section className="space-y-4" data-testid="pilot-route-view" aria-labelledby="pilot-unroutable-title">
+        <div className="flex items-center gap-2">
+          <button type="button" aria-label="Back to search" onClick={changeDestination} className="-ml-1 grid h-11 w-11 place-items-center rounded-full hover:bg-muted">
+            <ArrowLeft className="h-5 w-5" aria-hidden />
+          </button>
+          <div className="min-w-0 flex-1">
+            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Going to</p>
+            <p className="line-clamp-2 text-lg font-semibold leading-tight" data-testid="pilot-dest-name">{dest.name}</p>
+          </div>
+        </div>
+        {startChip}
+        {locationOpen && locationPanel}
+        <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3" role="alert" data-testid="pilot-failure">
+          <h2 id="pilot-unroutable-title" className="text-base font-semibold">We don’t have a mapped route between these points yet.</h2>
+          <p className="mt-1 text-sm text-muted-foreground">Try starting from another MallMind location, or choose a different place.</p>
+        </div>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <Button type="button" variant="outline" className="h-auto min-h-12 whitespace-normal" onClick={openLocation} data-testid="pilot-reanchor"><LocateFixed className="mr-1.5 h-4 w-4 shrink-0" aria-hidden />Update my location</Button>
+          <Button type="button" className="h-auto min-h-12 whitespace-normal" onClick={changeDestination} data-testid="pilot-change-destination">Choose another destination</Button>
+        </div>
+        {routeDetails}
+      </section>
+    );
+  } else if (walking || arrived) {
+    const step = currentStep(session);
+    const next = upcomingStep(session);
+    view = (
+      <section className="space-y-3" data-testid="pilot-navigation" aria-label={arrived ? `Arrived at ${dest.name}` : `Walking to ${dest.name}`}>
+        {/* DESTINATION */}
+        <div className="flex items-start gap-2">
+          <button type="button" aria-label="Back to route overview" onClick={() => setSession((s) => navigationReducer(graph, s, { type: "restart" }))} className="-ml-1 grid h-11 w-11 shrink-0 place-items-center rounded-full hover:bg-muted">
+            <ArrowLeft className="h-5 w-5" aria-hidden />
+          </button>
+          <div className="min-w-0 flex-1 pt-1">
+            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Going to</p>
+            <p className="line-clamp-2 text-lg font-semibold leading-tight" data-testid="pilot-dest-name">{dest.name}</p>
+          </div>
+          <div className="pt-1.5">{claimBadge}</div>
+        </div>
+
+        {!arrived && routeUpdated}
+
+        {arrived ? (
+          /* ARRIVAL */
+          <div ref={focusRef} tabIndex={-1} className="rounded-xl border border-emerald-500/40 bg-emerald-500/10 p-4 outline-none" data-testid="pilot-arrival" role="status">
+            <div className="flex items-start gap-2">
+              <CheckCircle2 className="mt-0.5 h-6 w-6 shrink-0 text-emerald-500" aria-hidden />
+              <h2 className="text-xl font-semibold leading-snug">{arrivalWording(dest.name, destArrival, tier)}</h2>
+            </div>
+            <p className="mt-2 text-sm text-muted-foreground" data-testid="pilot-arrival-note">
+              {arrivalNote({ name: dest.name, evidence: { identity: "unverified", arrival: destArrival ?? "unknown" } }, tier)}
+            </p>
+          </div>
+        ) : (
+          /* PROGRESS + CURRENT INSTRUCTION */
+          <div className="rounded-xl border bg-primary/5 p-4" data-testid="pilot-step-card">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-sm font-medium text-muted-foreground" data-testid="pilot-step-counter">
+                Step {session.stepIndex + 1} of {steps.length}
+                {(multiFloor || step?.floor_change) && step?.floor ? <span> · {floorLabel(step.floor)}</span> : null}
+              </p>
+            </div>
+            <div className="mt-2 flex gap-1" role="progressbar" aria-label="Steps you have confirmed" aria-valuemin={0} aria-valuemax={steps.length} aria-valuenow={Math.min(session.stepIndex, lastStep)} data-testid="pilot-progress">
+              {steps.map((s, i) => <span key={s.step} className={`h-1.5 flex-1 rounded-full ${i < session.stepIndex ? "bg-primary" : i === session.stepIndex ? "bg-primary/60 ring-1 ring-primary" : "bg-muted"}`} />)}
+            </div>
+            <div ref={focusRef} tabIndex={-1} className="mt-3 outline-none">
+              <h2 className="text-[1.375rem] font-semibold leading-snug [overflow-wrap:anywhere] min-[390px]:text-2xl" data-testid="pilot-step-current">{step?.instruction}</h2>
+            </div>
+            {showMetrics && step?.distance_meters != null && (
+              <p className="mt-1.5 text-sm text-muted-foreground" data-testid="pilot-step-distance">About {step.distance_meters} m for this step</p>
+            )}
+          </div>
+        )}
+
+        {/* MAP: current leg highlighted, target waypoint numbered */}
+        {mapBox(184, true)}
+
+        {/* NEXT PREVIEW */}
+        {!arrived && next && session.stepIndex + 1 < lastStep && (
+          <p className="text-sm text-muted-foreground" data-testid="pilot-step-next">
+            <span className="font-medium text-foreground">Then:</span> {next.instruction}
+          </p>
+        )}
+
+        {/* RECOVERY */}
+        {locationOpen ? locationPanel : (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+            <span className="text-muted-foreground">Not sure where you are?</span>
+            <Button type="button" variant="link" className="h-auto min-h-10 px-0 text-sm" onClick={openLocation} data-testid="pilot-reanchor">
+              <LocateFixed className="mr-1 h-4 w-4" aria-hidden />Update my location
+            </Button>
+          </div>
+        )}
+
+        {arrived ? (
+          /* NEXT ACTION after arrival */
+          <div className="space-y-2" data-testid="pilot-arrival-actions">
+            <Button type="button" className="h-14 w-full text-base" onClick={changeDestination} data-testid="pilot-new-destination">
+              <Search className="mr-2 h-4 w-4" aria-hidden />Find another place
+            </Button>
+            {arrivalAnchor ? (
+              <Button type="button" variant="outline" className="h-auto min-h-12 w-full whitespace-normal" onClick={navigateFromHere} data-testid="pilot-navigate-from-here">
+                <MapPin className="mr-2 h-4 w-4 shrink-0" aria-hidden />Navigate from {arrivalAnchor.label}
+              </Button>
+            ) : (
+              <p className="text-xs leading-snug text-muted-foreground" data-testid="pilot-navigate-from-here-unavailable">
+                Your next route will still start from {anchor.label}. To start from here, scan the MallMind QR code nearest you or update your location above.
+              </p>
+            )}
+            <div className="grid grid-cols-2 gap-2">
+              <Button type="button" variant="outline" className="h-auto min-h-11 whitespace-normal" onClick={() => send({ type: "previous_step" })} data-testid="pilot-prev">
+                <ChevronLeft className="mr-1 h-4 w-4 shrink-0" aria-hidden />Not there yet
+              </Button>
+              <Button type="button" variant="outline" className="h-auto min-h-11 whitespace-normal" onClick={restart} data-testid="pilot-restart">
+                <RotateCcw className="mr-1 h-4 w-4 shrink-0" aria-hidden />Restart route
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="flex flex-wrap gap-x-4 gap-y-1">
+              <Button type="button" variant="link" className="h-auto min-h-10 px-0 text-sm text-muted-foreground" onClick={restart} data-testid="pilot-restart"><RotateCcw className="mr-1 h-4 w-4" aria-hidden />Restart route</Button>
+              <Button type="button" variant="link" className="h-auto min-h-10 px-0 text-sm text-muted-foreground" onClick={changeDestination} data-testid="pilot-change-destination"><Search className="mr-1 h-4 w-4" aria-hidden />Change destination</Button>
+            </div>
+            {routeDetails}
+          </>
+        )}
+        {arrived && routeDetails}
+
+        {/* CONTROLS — pinned to the bottom of the phone screen (fixed; sticky inside the desktop frame), safe-area aware, manual by design */}
+        {!arrived && <div className="mm-walk-spacer h-24 md:hidden" aria-hidden />}
+        {!arrived && (
+          <div className="mm-walk-controls fixed inset-x-0 bottom-0 z-20 border-t bg-background/95 px-4 pt-2 backdrop-blur md:sticky md:inset-x-auto md:-mx-4" style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom, 0px))" }} data-testid="pilot-controls">
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" className="h-14 min-w-[6.5rem] shrink-0 text-base" disabled={session.stepIndex === 0} onClick={() => send({ type: "previous_step" })} data-testid="pilot-prev" aria-label="Previous step">
+                <ChevronLeft className="mr-1 h-5 w-5" aria-hidden />Previous
+              </Button>
+              <Button type="button" className="h-14 min-w-0 flex-1 text-base font-semibold" onClick={() => send({ type: "next_step" })} data-testid="pilot-next" aria-label={nextIsArrival ? "I’m there" : "Next step"}>
+                {nextIsArrival ? "I’m there" : "Next"}<ChevronRight className="ml-1 h-5 w-5 shrink-0" aria-hidden />
+              </Button>
+            </div>
+            <p className="mt-1.5 text-center text-[11px] leading-snug text-muted-foreground" data-testid="pilot-manual-note">
+              When you reach this point, tap {nextIsArrival ? "I’m there" : "Next"}. MallMind does not track your movement.
+            </p>
+          </div>
+        )}
+        {arrived && (
+          <p className="text-[11px] leading-snug text-muted-foreground" data-testid="pilot-manual-note">MallMind does not track your movement — you confirmed each step yourself.</p>
+        )}
+      </section>
+    );
+  } else {
+    /* ROUTE OVERVIEW */
+    view = (
+      <section className="space-y-4" data-testid="pilot-route-view" aria-labelledby="pilot-overview-title">
+        <div className="flex items-center gap-2">
+          <button type="button" aria-label="Back to search" onClick={changeDestination} className="-ml-1 grid h-11 w-11 shrink-0 place-items-center rounded-full hover:bg-muted">
+            <ArrowLeft className="h-5 w-5" aria-hidden />
+          </button>
+          <div className="min-w-0 flex-1">
+            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Route overview</p>
+            <h2 id="pilot-overview-title" className="line-clamp-2 text-lg font-semibold leading-tight"><span className="sr-only">Going to </span><span data-testid="pilot-dest-name">{dest.name}</span></h2>
+          </div>
+          {claimBadge}
+        </div>
+
+        {/* FROM / TO */}
+        <div className="rounded-xl border bg-card p-3" data-testid="pilot-from-to">
+          <div className="flex items-start gap-2">
+            {anchor.source === "qr" ? <QrCode className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden /> : <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />}
+            <div className="min-w-0 flex-1">
+              <p className="text-[11px] uppercase tracking-wide text-muted-foreground">From</p>
+              <p className="text-base font-semibold leading-tight">{anchor.label}</p>
+              {startSource && <p className="text-[11px] text-muted-foreground" data-testid="pilot-anchor-source">{startSource}</p>}
+            </div>
+            <label className="sr-only" htmlFor="pilot-start-select">Starting point</label>
+            <select
+              id="pilot-start-select"
+              className="min-h-9 max-w-[45%] rounded-md border bg-background px-2 py-1 text-sm"
+              value={currentAnchorId}
+              onChange={(e) => changeAnchor(e.target.value)}
+              data-testid="pilot-start-select"
+            >
+              {starts.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+            </select>
+          </div>
+          <div className="mt-2 flex items-start gap-2 border-t pt-2">
+            <span className="mt-0.5 text-base leading-none" aria-hidden>{poiIcon(dest)}</span>
+            <div className="min-w-0 flex-1">
+              <p className="text-[11px] uppercase tracking-wide text-muted-foreground">To</p>
+              <p className="text-base font-semibold leading-tight">{dest.name} <span className="text-xs font-normal text-muted-foreground">· {kindLabel(dest)}</span></p>
+            </div>
+          </div>
+        </div>
+
+        {routeUpdated}
+        {locationOpen && locationPanel}
+
+        {/* MAP: whole route */}
+        {mapBox(220, false)}
+
+        {/* DETAILS */}
+        {showMetrics ? (
+          <dl className="grid grid-cols-3 gap-2 text-center" data-testid="pilot-summary">
+            <div className="rounded-lg border py-2"><dd className="text-lg font-semibold">{route!.total_distance_meters}<span className="text-xs font-normal"> m</span></dd><dt className="text-[11px] text-muted-foreground">distance</dt></div>
+            <div className="rounded-lg border py-2"><dd className="text-lg font-semibold">{route!.estimated_minutes}<span className="text-xs font-normal"> min</span></dd><dt className="text-[11px] text-muted-foreground">walk</dt></div>
+            <div className="rounded-lg border py-2"><dd className="text-lg font-semibold">{legCount}</dd><dt className="text-[11px] text-muted-foreground">{legCount === 1 ? "step" : "steps"}</dt></div>
+          </dl>
+        ) : (
+          <dl className="grid grid-cols-2 gap-2 text-center" data-testid="pilot-summary-unscaled">
+            <div className="rounded-lg border py-2"><dd className="text-lg font-semibold">{legCount}</dd><dt className="text-[11px] text-muted-foreground">{legCount === 1 ? "step" : "steps"}</dt></div>
+            <div className="rounded-lg border px-2 py-2"><dd className="line-clamp-2 text-sm font-semibold leading-tight">{floorLabel(steps[0]?.floor)}</dd><dt className="text-[11px] text-muted-foreground">floor</dt></div>
+            <p className="col-span-2 text-xs text-muted-foreground" data-testid="pilot-distance-unmeasured">Distance not yet measured</p>
+          </dl>
+        )}
+        {showMetrics && <p className="text-xs text-muted-foreground">Floor: {floorLabel(steps[0]?.floor)}</p>}
+
+        {/* PRIMARY */}
+        <Button type="button" className="h-14 w-full text-base font-semibold" onClick={() => send({ type: "start_navigation" })} data-testid="pilot-start-navigation">
+          <Navigation className="mr-2 h-5 w-5" aria-hidden />Start navigation
+        </Button>
+        <div className="grid grid-cols-2 gap-2">
+          <Button type="button" variant="outline" className="h-auto min-h-11 whitespace-normal" onClick={changeDestination} data-testid="pilot-change-destination">Change destination</Button>
+          <Button type="button" variant="outline" className="h-auto min-h-11 whitespace-normal" onClick={locationOpen ? () => setLocationOpen(false) : openLocation} data-testid="pilot-reanchor" aria-expanded={locationOpen}><LocateFixed className="mr-1.5 h-4 w-4 shrink-0" aria-hidden />Update my location</Button>
+        </div>
+
+        {/* STEPS */}
+        <div>
+          <h3 className="mb-2 text-sm font-medium">Directions</h3>
+          <ol className="space-y-2" data-testid="pilot-steps">
+            {steps.map((s, i) => (
+              <li key={s.step} className="flex gap-3 rounded-lg border px-3 py-2.5">
+                <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-muted text-xs font-semibold" aria-hidden>{s.step}</span>
+                <span className="text-sm leading-snug"><span className="sr-only">Step {s.step}: </span>{s.instruction}</span>
+              </li>
+            ))}
+          </ol>
+        </div>
+        {routeDetails}
+      </section>
+    );
+  }
 
   return (
     <div
       className={embedded ? "flex flex-col" : "mx-auto flex min-h-[100dvh] max-w-md flex-col bg-background"}
       data-testid="wayfinding-pilot"
       data-mall-id={graph.id}
-      data-dataset-status={routeEvidenceTier(graph)}
+      data-dataset-status={tier}
       data-metric={graph.metric ? "true" : "false"}
       data-session-status={status}
+      data-ui-mode={mode}
     >
       {header}
-
       <main className={embedded ? "flex-1 px-4 pb-2" : "flex-1 px-4 py-4"}>
         {anchorNotice && (
-          <div className="mb-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs leading-snug" role="status" data-testid="pilot-anchor-notice">
+          <div className="mb-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm leading-snug" role="status" data-testid="pilot-anchor-notice">
             {anchorNotice}
           </div>
         )}
-
-        {!dest ? (
-          /* ── Destination-first finder ─────────────────────────────────── */
-          <section data-testid="pilot-finder" className="space-y-4">
-            <div>
-              <label htmlFor="pilot-search" className="mb-1.5 block text-sm font-medium">Where do you want to go?</label>
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  id="pilot-search"
-                  autoFocus
-                  className="h-12 pl-9 text-base"
-                  placeholder="Search e.g. Clicks, toilets, lifts"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  data-testid="pilot-search"
-                />
-              </div>
-              <p className="mt-1.5 flex items-center gap-1 text-xs text-muted-foreground" data-testid="pilot-anchor-summary">
-                <MapPin className="h-3 w-3" />
-                Starting from <span className="font-medium text-foreground">{anchor.label}</span>
-                {anchorSourceLabel && <span>· {anchorSourceLabel}</span>}
-              </p>
-            </div>
-
-            {results.length === 0 ? (
-              <div className="rounded-lg border border-dashed px-4 py-6 text-center text-sm text-muted-foreground" data-testid="pilot-no-result">
-                No match for “{query.trim()}” in this pilot.<br />Try {exampleNames}.
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 gap-2" data-testid="pilot-suggestions">
-                {results.map((p) => (
-                  <button
-                    key={`${p.kind}-${p.id}`}
-                    onClick={() => choose(p)}
-                    className="flex min-h-12 items-center gap-3 rounded-xl border bg-card px-4 py-3 text-left active:scale-[0.99]"
-                  >
-                    <span className="text-xl" aria-hidden>{poiIcon(p)}</span>
-                    <span className="flex-1 text-base font-medium">{p.name}</span>
-                    <Badge variant="secondary" className="text-[11px]">{p.kind === "store" ? "Store" : "Facility"}</Badge>
-                    <Navigation className="h-4 w-4 text-muted-foreground" />
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {onOpenAssistant && (
-              <Button variant="ghost" size="sm" className="w-full text-muted-foreground" onClick={onOpenAssistant}>
-                Looking for a product instead? Ask the assistant
-              </Button>
-            )}
-          </section>
-        ) : navigating && hasRoute ? (
-          /* ── Navigation session: focused instruction view ─────────────── */
-          <section className="space-y-3" data-testid="pilot-navigation" aria-label={`Navigating to ${dest.name}`}>
-            <div className="flex items-center gap-2">
-              {embedded && (
-                <button aria-label="Back" onClick={clearDest} className="-ml-1 rounded-full p-1.5 hover:bg-muted">
-                  <ArrowLeft className="h-5 w-5" />
-                </button>
-              )}
-              <div className="min-w-0 flex-1">
-                <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Going to</p>
-                <p className="truncate text-base font-semibold leading-tight" data-testid="pilot-dest-name">{dest.name}</p>
-              </div>
-              <Badge variant="outline" className="shrink-0 text-[11px]" data-testid="pilot-route-claim">{claim}</Badge>
-            </div>
-
-            {session.lastReanchor && (
-              <div className="rounded-lg border border-primary/40 bg-primary/5 px-3 py-2 text-xs leading-snug" role="status" data-testid="pilot-route-updated">
-                Route updated — now starting from <span className="font-medium">{session.lastReanchor.to.label}</span>
-                {ANCHOR_SOURCE_LABEL[session.lastReanchor.to.source] ? ` (${ANCHOR_SOURCE_LABEL[session.lastReanchor.to.source]})` : ""}. Your steps start again from here.
-              </div>
-            )}
-
-            {status === "arrived" ? (
-              <div ref={stepHeadingRef} tabIndex={-1} className="rounded-xl border border-emerald-500/40 bg-emerald-500/10 p-4 outline-none" data-testid="pilot-arrival" role="status">
-                <div className="flex items-center gap-2">
-                  <CheckCircle2 className="h-5 w-5 text-emerald-500" aria-hidden />
-                  <p className="text-lg font-semibold leading-snug">{currentStep(session)?.instruction}</p>
-                </div>
-                <p className="mt-1.5 text-xs text-muted-foreground" data-testid="pilot-arrival-note">
-                  {arrivalVerified
-                    ? "This doorway was verified on site."
-                    : `MallMind's map ends at the corridor point nearest ${dest.name}, not at its door. Look for the storefront from here.`}
-                </p>
-              </div>
-            ) : (
-              <div className="rounded-xl border bg-primary/5 p-4" data-testid="pilot-step-card">
-                <div ref={stepHeadingRef} tabIndex={-1} className="outline-none">
-                  <p className="text-xs text-muted-foreground" data-testid="pilot-step-counter">
-                    Step {session.stepIndex + 1} of {steps.length}
-                    <span aria-hidden> · </span>
-                    <span>Floor {floorLabel(currentStep(session)?.floor)}</span>
-                  </p>
-                  <p className="mt-1 text-lg font-medium leading-snug" data-testid="pilot-step-current">{currentStep(session)?.instruction}</p>
-                </div>
-                {showMetrics && currentStep(session)?.distance_meters != null && (
-                  <p className="mt-1 text-xs text-muted-foreground" data-testid="pilot-step-distance">
-                    About {currentStep(session)!.distance_meters} m for this step
-                  </p>
-                )}
-                {upcomingStep(session) && (
-                  <p className="mt-2 border-t pt-2 text-xs text-muted-foreground" data-testid="pilot-step-next">
-                    <span className="font-medium text-foreground">Then:</span> {upcomingStep(session)!.instruction}
-                  </p>
-                )}
-              </div>
-            )}
-
-            {/* Manual progression — MallMind does not detect movement. */}
-            <div className="flex gap-2">
-              <Button type="button" variant="outline" className="min-h-11 flex-1" disabled={session.stepIndex === 0} onClick={() => send({ type: "previous_step" })} data-testid="pilot-prev">
-                <ChevronLeft className="mr-1 h-4 w-4" aria-hidden />Previous
-              </Button>
-              {status === "arrived" ? (
-                <Button type="button" className="min-h-11 flex-1" onClick={clearDest} data-testid="pilot-new-destination">
-                  New destination
-                </Button>
-              ) : (
-                <Button type="button" className="min-h-11 flex-1" onClick={() => send({ type: "next_step" })} data-testid="pilot-next">
-                  {session.stepIndex === steps.length - 2 ? "I’m there" : "Next step"}<ChevronRight className="ml-1 h-4 w-4" aria-hidden />
-                </Button>
-              )}
-            </div>
-            <p className="text-[11px] text-muted-foreground" data-testid="pilot-manual-note">
-              {status === "arrived"
-                ? "Not there yet? Tap Previous to go back a step. MallMind does not track your movement."
-                : "Tap Next when you’ve done this step. MallMind does not track your movement."}
-            </p>
-
-            {reanchorOpen ? reanchorPanel : (
-              <div className="flex gap-2">
-                <Button type="button" variant="outline" className="min-h-11 flex-1" onClick={() => setReanchorOpen(true)} data-testid="pilot-reanchor">
-                  <LocateFixed className="mr-1.5 h-4 w-4" aria-hidden />Update my location
-                </Button>
-                <Button type="button" variant="ghost" className="min-h-11" onClick={() => send({ type: "restart" })} aria-label="Restart route from the beginning" data-testid="pilot-restart">
-                  <RotateCcw className="mr-1.5 h-4 w-4" aria-hidden />Restart
-                </Button>
-              </div>
-            )}
-
-            <div className="overflow-hidden rounded-xl border" style={{ height: 200, background: "hsl(240 24% 4%)" }}>
-              <IndoorMapCanvas
-                floorplan={floorplan}
-                activeFloor={activeFloor}
-                routePolyline={polyline}
-                completedStepIndices={new Set<number>(Array.from({ length: session.stepIndex + 1 }, (_, i) => i))}
-                currentStepIndex={session.stepIndex}
-                markerStyle="step"
-                simulatedPosition={null}
-                isDemo={routeEvidenceTier(graph) === "schematic"}
-              />
-            </div>
-            <p className="text-xs text-muted-foreground" data-testid="pilot-status-line">{copy.statusLine}</p>
-          </section>
-        ) : (
-          /* ── Route view (route_ready / unroutable) ────────────────────── */
-          <section className="space-y-4" data-testid="pilot-route-view">
-            {/* Destination + start */}
-            <div className="rounded-xl border bg-card p-3">
-              <div className="flex items-center gap-2">
-                {embedded && (
-                  <button aria-label="Back" onClick={clearDest} className="-ml-1 rounded-full p-1.5 hover:bg-muted">
-                    <ArrowLeft className="h-5 w-5" />
-                  </button>
-                )}
-                <span className="text-2xl" aria-hidden>{poiIcon(dest)}</span>
-                <div className="min-w-0 flex-1">
-                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Going to</p>
-                  <p className="truncate text-lg font-semibold leading-tight" data-testid="pilot-dest-name">{dest.name}</p>
-                </div>
-                <Button variant="outline" size="sm" className="min-h-9" onClick={clearDest}>Change</Button>
-              </div>
-              <label className="mt-3 flex items-center gap-2 rounded-lg bg-muted/50 px-3 py-2">
-                {anchor.source === "url" || anchor.source === "qr"
-                  ? <QrCode className="h-4 w-4 shrink-0 text-muted-foreground" aria-label="Start set from a link" />
-                  : <MapPin className="h-4 w-4 shrink-0 text-muted-foreground" />}
-                <span className="text-xs text-muted-foreground">Starting from</span>
-                <select
-                  className="ml-auto min-h-9 flex-1 rounded-md border bg-background px-2 py-1 text-sm"
-                  value={currentAnchorId}
-                  onChange={(e) => changeAnchor(e.target.value)}
-                  aria-label="Starting point"
-                  data-testid="pilot-start-select"
-                >
-                  {starts.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
-                </select>
-              </label>
-              {anchorSourceLabel && (
-                <p className="mt-1 px-1 text-[11px] text-muted-foreground" data-testid="pilot-anchor-source">
-                  Start point {anchorSourceLabel}. Not where you are now? Change it above.
-                </p>
-              )}
-            </div>
-
-            {!hasRoute ? (
-              <div className="rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm" role="alert" data-testid="pilot-failure">
-                <p>{route?.message ?? `We couldn’t route to “${dest.name}”.`}</p>
-                <p className="mt-1 text-xs text-muted-foreground">Try another starting point above, or choose a different destination.</p>
-              </div>
-            ) : (
-              <>
-                {/* Summary — metres/minutes ONLY for measured routes; never for an unscaled source. */}
-                {showMetrics ? (
-                  <div className="grid grid-cols-3 gap-2 text-center" data-testid="pilot-summary">
-                    <div className="rounded-lg border py-2"><div className="text-lg font-semibold">{route!.total_distance_meters}<span className="text-xs font-normal"> m</span></div><div className="text-[11px] text-muted-foreground">distance</div></div>
-                    <div className="rounded-lg border py-2"><div className="text-lg font-semibold">{route!.estimated_minutes}<span className="text-xs font-normal"> min</span></div><div className="text-[11px] text-muted-foreground">walk</div></div>
-                    <div className="rounded-lg border py-2"><div className="text-lg font-semibold">{floorLabel(steps[0]?.floor)}</div><div className="text-[11px] text-muted-foreground">floor</div></div>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-2 gap-2 text-center" data-testid="pilot-summary-unscaled">
-                    <div className="rounded-lg border py-2"><div className="text-lg font-semibold">{steps.length - 1}</div><div className="text-[11px] text-muted-foreground">{steps.length - 1 === 1 ? "leg" : "legs"}</div></div>
-                    <div className="rounded-lg border py-2"><div className="text-lg font-semibold">{floorLabel(steps[0]?.floor)}</div><div className="text-[11px] text-muted-foreground">floor</div></div>
-                    <p className="col-span-2 text-xs text-muted-foreground" data-testid="pilot-distance-unmeasured">Distance not yet measured — no walking time shown.</p>
-                  </div>
-                )}
-
-                <Button type="button" className="min-h-12 w-full text-base" onClick={() => send({ type: "start_navigation" })} data-testid="pilot-start-navigation">
-                  <Navigation className="mr-2 h-4 w-4" aria-hidden />Start navigation
-                </Button>
-
-                {/* Map */}
-                <div className="overflow-hidden rounded-xl border" style={{ height: 240, background: "hsl(240 24% 4%)" }}>
-                  <IndoorMapCanvas
-                    floorplan={floorplan}
-                    activeFloor={activeFloor}
-                    routePolyline={polyline}
-                    completedStepIndices={new Set<number>()}
-                    currentStepIndex={-1}
-                    simulatedPosition={null}
-                    isDemo={routeEvidenceTier(graph) === "schematic"}
-                  />
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <p className="text-sm font-medium">Directions</p>
-                  <Badge variant="outline" className="text-[11px]" data-testid="pilot-route-claim">{claim}</Badge>
-                </div>
-                <ol className="space-y-2" data-testid="pilot-steps">
-                  {steps.map((s, i) => (
-                    <li key={s.step} className={`flex gap-3 rounded-lg border px-3 py-2.5 ${i === 0 ? "border-primary/40 bg-primary/5" : ""}`}>
-                      <span className={`grid h-6 w-6 shrink-0 place-items-center rounded-full text-xs font-semibold ${i === 0 ? "bg-primary text-primary-foreground" : "bg-muted"}`}>{s.step}</span>
-                      <span className={`text-sm ${i === 0 ? "font-medium" : ""}`}>{s.instruction}</span>
-                    </li>
-                  ))}
-                </ol>
-                <p className="text-xs text-muted-foreground" data-testid="pilot-status-line">{copy.statusLine}</p>
-              </>
-            )}
-          </section>
-        )}
+        {view}
       </main>
-
-      {/* Compact honest-status area (not visually dominant) */}
-      <details className="border-t px-4 py-2 text-xs text-muted-foreground" data-testid="pilot-disclaimer">
-        <summary className="flex cursor-pointer list-none items-center justify-between">
-          <span>{copy.summary}</span>
-          <span className="underline">details</span>
-        </summary>
-        <ul className="space-y-0.5 pt-2 leading-snug">{copy.details.map((d) => <li key={d}>• {d}</li>)}</ul>
-      </details>
     </div>
   );
 }

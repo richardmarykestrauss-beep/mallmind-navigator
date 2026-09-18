@@ -7,11 +7,16 @@
  */
 
 export type NavigationEventName =
+  | "destination_selected"
+  | "route_overview_opened"
   | "navigation_session_started"
   | "navigation_step_advanced"
   | "navigation_step_back"
+  | "location_update_opened"
   | "navigation_reanchored"
   | "navigation_arrived"
+  | "navigation_restarted"
+  | "navigation_unroutable"
   | "navigation_failed";
 
 export interface NavigationEvent {

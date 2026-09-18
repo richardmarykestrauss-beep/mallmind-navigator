@@ -9,7 +9,7 @@ import MobileShell from "@/components/MobileShell";
 import ScreenHeader from "@/components/ScreenHeader";
 import { Button } from "@/components/ui/button";
 import IndoorMapCanvas from "@/components/navigation/IndoorMapCanvas";
-import WayfindingPilot from "@/components/navigation/WayfindingPilot";
+import WayfindingPilot, { type NavigationUiMode } from "@/components/navigation/WayfindingPilot";
 import { parseWayfindingAnchor } from "@/components/navigation/wayfindingAnchor";
 import { getWayfindingMall, DEFAULT_WAYFINDING_MALL_ID } from "@/components/navigation/mallDatasets";
 import { routeClaim } from "@/components/navigation/routeEvidence";
@@ -54,9 +54,15 @@ const NavigateScreen = () => {
   const navigate = useNavigate();
   const { search } = useLocation();
   const linkAnchor = useMemo(() => parseWayfindingAnchor(search), [search]);
-  // Which bundled dataset the finder routes over: the link's mall when valid, else the default pilot.
-  const wayfindingMallId = linkAnchor.mallId ?? DEFAULT_WAYFINDING_MALL_ID;
+  // Which venue the finder routes over: the link's venue when valid; a venue MallMind does not know
+  // is passed through so the visitor gets a "choose a mall" state (never a silent fallback); with no
+  // venue in the link, the registry's default.
+  const requestedMall = useMemo(() => (new URLSearchParams(search).get("mall") ?? "").trim(), [search]);
+  const wayfindingMallId = linkAnchor.mallId ?? (requestedMall && !getWayfindingMall(requestedMall) ? requestedMall : DEFAULT_WAYFINDING_MALL_ID);
   const wayfindingMall = getWayfindingMall(wayfindingMallId);
+  // Walking / arrival are focus modes: the app's bottom nav and page header step aside.
+  const [uiMode, setUiMode] = useState<NavigationUiMode>("search");
+  const focusMode = uiMode === "walking" || uiMode === "arrived";
 
   const {
     selectedMall,
@@ -210,10 +216,10 @@ const NavigateScreen = () => {
 
   if (showWayfinding) {
     return (
-      <MobileShell>
-        <ScreenHeader
+      <MobileShell hideNav={focusMode}>
+        {!focusMode && <ScreenHeader
           title="Navigate"
-          subtitle={`${wayfindingMall?.name ?? "Mall"} · ${wayfindingMall ? routeClaim(wayfindingMall).toLowerCase() : "no map yet"}`}
+          subtitle={wayfindingMall ? `${wayfindingMall.name} · ${routeClaim(wayfindingMall)}` : "Choose a mall"}
           back={false}
           right={
             (hasRealRoute || routeStops.length > 0) ? (
@@ -226,12 +232,14 @@ const NavigateScreen = () => {
               </button>
             ) : undefined
           }
-        />
+        />}
+        {focusMode && <div className="h-3" aria-hidden />}
         <WayfindingPilot
           embedded
           mallId={wayfindingMallId}
           initialAnchor={linkAnchor.status === "ok" ? linkAnchor.anchor : null}
-          anchorNotice={linkAnchor.status === "invalid" ? linkAnchor.reason : null}
+          anchorNotice={linkAnchor.status === "invalid" && wayfindingMall ? linkAnchor.reason : null}
+          onModeChange={setUiMode}
           onOpenAssistant={() => navigate("/assistant")}
           onEvent={(e: NavigationEvent) => trackEvent(e.name, { userId: user?.id ?? null, mallId: e.mallId, mallName: wayfindingMall?.name ?? null, metadata: e.detail })}
         />
@@ -300,7 +308,7 @@ const NavigateScreen = () => {
             routePolyline={routePolyline}
             completedStepIndices={completedStepIndices}
             currentStepIndex={currentStepNum}
-            simulatedPosition={null}
+            markerStyle="step"
           />
         </div>
       </div>

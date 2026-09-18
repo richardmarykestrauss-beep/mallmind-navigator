@@ -98,7 +98,7 @@ describe("Factory Test Centre — raw evidence → published pack → navigation
     expect(screen.getByTestId("wayfinding-pilot")).toHaveAttribute("data-mall-id", ID);
     fireEvent.change(screen.getByTestId("pilot-search"), { target: { value: "coffee" } });
     fireEvent.click(within(screen.getByTestId("pilot-suggestions")).getByText("Cafe"));
-    expect(screen.getByTestId("pilot-route-claim")).toHaveTextContent("Source-backed route");
+    expect(screen.getByTestId("pilot-route-claim")).toHaveTextContent("Mapped route");
     expect(screen.queryByTestId("pilot-summary")).toBeNull();                       // unscaled
     expect(screen.getByTestId("pilot-summary-unscaled")).toHaveTextContent(/Ground/);
     fireEvent.click(screen.getByTestId("pilot-start-navigation"));

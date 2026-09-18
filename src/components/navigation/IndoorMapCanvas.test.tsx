@@ -37,8 +37,8 @@ describe("IndoorMapCanvas (floorplan engine)", () => {
     );
     const svg = container.querySelector("svg");
     expect(svg).not.toBeNull();
-    expect(svg?.getAttribute("aria-label")).toMatch(/schematic floorplan generated from mallmind route graph/i);
-    expect(container.textContent).toMatch(/Schematic floorplan generated from MallMind route graph/i);
+    expect(svg?.getAttribute("aria-label")).toMatch(/simplified map, not to scale/i);
+    expect(container.textContent).toMatch(/Simplified map · not to scale/i);
     expect(container.querySelector("polyline")).not.toBeNull(); // route geometry drawn
     expect(container.textContent).toMatch(/Game/);              // destination store labelled
     expect(container.textContent).toMatch(/demo/i);             // clearly labelled demo
@@ -58,7 +58,7 @@ describe("IndoorMapCanvas (floorplan engine)", () => {
     const svg = container.querySelector("svg");
     expect(svg?.getAttribute("aria-label")).toMatch(/indoor mall map/i);
     expect(container.querySelector("image")).not.toBeNull();
-    expect(container.textContent).toMatch(/not live GPS/i);
+    expect(container.textContent).toMatch(/your position is not tracked/i);
   });
 
   it("uses the active floor's real dimensions for the viewBox", () => {

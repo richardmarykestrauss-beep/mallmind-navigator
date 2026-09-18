@@ -39,7 +39,8 @@ export function getWayfindingMall(mallId: string): LoadedVenue | null {
 export type PilotPoiKind = "store" | "amenity";
 export interface PilotPoi { id: string; name: string; kind: PilotPoiKind; type: string }
 
-const toPoi = (d: SearchableDestination): PilotPoi => ({ id: d.id, name: d.name, kind: d.kind, type: d.kind === "store" ? "shop" : d.type });
+/** `type` keeps the pack's own vocabulary (store kind or amenity kind) so the UI can label results honestly. */
+const toPoi = (d: SearchableDestination): PilotPoi => ({ id: d.id, name: d.name, kind: d.kind, type: d.type });
 
 /** Everything the venue's policy offers as a destination (destinations + routable amenities), routable only. */
 export function pointsOfInterest(venue: LoadedVenue): PilotPoi[] {
@@ -73,6 +74,16 @@ export function defaultAnchor(venue: LoadedVenue): PilotAnchor {
   const preferred = venue.policies.start.default_anchor ? venue.anchorById.get(venue.policies.start.default_anchor) : undefined;
   const a = preferred && venue.startAnchors.includes(preferred) ? preferred : venue.startAnchors[0];
   return { nodeId: a.node, label: a.label, source: "manual", anchorId: a.id };
+}
+
+/**
+ * The trusted start standing AT a graph node, if the venue declares one (start-permitted anchor on
+ * that node). Used after arrival for "Navigate from here": only a node the venue itself lists as a
+ * start may become the next trusted location — an unverified arrival point never does.
+ */
+export function anchorAtNode(venue: LoadedVenue, nodeId: string, source: PilotAnchorSource = "manual"): PilotAnchor | null {
+  const a = venue.startAnchors.find((x) => x.node === nodeId);
+  return a ? { nodeId: a.node, label: a.label, source, anchorId: a.id } : null;
 }
 
 /** Build an anchor from a start anchor id (or, for compatibility, the anchor's node id). */
