@@ -50,3 +50,18 @@ Gemini (or the deterministic bypass) chooses shop ids from the retail directory;
 3. A resolved intent opens `/navigate?mall=<venue>&to=<destination>` and the same runtime (router → session → Navigation Experience V2) takes over from the visitor's current trusted start.
 4. `/build-route` is unmounted; `routingService` / `routingCore` stay (harness-tested, used by nothing customer-facing) and are marked legacy.
 5. `NavigateScreen` mode 2's route-step experience is removed; the non-spatial "stop list" checklist from Find & Compare stays as a clearly separate feature with no map and no step semantics.
+
+## Post-unification (end of Sprint 7)
+
+| Question | Answer |
+|---|---|
+| Spatial truths in the customer build | **One**: bundled Venue Packs routed on the device (`src/navigation/dataAuthority.test.ts` guards it) |
+| Assistant output | `navigation_request` intent; `route_steps` / `route_id` deprecated, always empty |
+| `/build-route` | unmounted and deleted; no server-side router replaced it; `routingService.ts` LEGACY (harness only) |
+| `NavigateScreen` mode 2 | removed (map from step coordinates, floor chips, per-step Done, progress %, XP toast) |
+| Stop list | kept as a labelled non-spatial checklist; "Guide me" hands each shop to the runtime as an intent |
+| Identity gap | `findVenueForMall(mallName)` by normalised name; no production ids in the repo; `no_venue` when no pack |
+| Multi-floor | connectors, directed expansion, cost ≠ distance, preference, confirmed-floor map (`multi-floor-foundation.md`) |
+| Real venues | untouched; router output byte-identical to the base branch for the regression journeys |
+
+Full write-ups: `unified-navigation-runtime.md`, `multi-floor-foundation.md`.

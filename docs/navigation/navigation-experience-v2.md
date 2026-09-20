@@ -123,11 +123,13 @@ screenshots: `docs/navigation/screenshots/` (dev artifacts, not shipped).
 
 ## Known limitations
 
-- The legacy assistant-route preview (`NavigateScreen` mode 2, fed by `/build-route`) still exists
-  with its own step list; it now uses the honest step marker but is not the Venue Pack journey.
+- ~~The legacy assistant-route preview (`NavigateScreen` mode 2, fed by `/build-route`)~~ Removed
+  in Sprint 7: the assistant hands a resolved destination to this runtime
+  (`docs/navigation/unified-navigation-runtime.md`).
 - `/pilot` remains a second mount of the same component (controlled testing).
-- Multi-floor packs render floor labels and `floor_change` steps, but there is no dedicated
-  floor-transition UX yet (Sprint 7); nothing in the new UX blocks it (floor comes from the step).
+- ~~No dedicated floor-transition UX~~ Sprint 7 adds the confirmed-floor map, floor strip and
+  connector markers (`docs/navigation/multi-floor-foundation.md`); no real venue has multi-floor
+  data yet.
 - "Navigate from here" depends on packs declaring start anchors at arrival points; today only
   Mall@Reds' Information Desk qualifies.
 - The overview map of a very short route (two adjacent points) still shows the START pin and the

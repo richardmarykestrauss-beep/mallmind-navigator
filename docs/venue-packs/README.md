@@ -55,9 +55,33 @@ prepared at the MallMind plane aspect (1000:620 ±2 %) and carries its own geome
 - `nodes[]`: `{ id, name, kind, floor, x_percent, y_percent, evidence { geometry }, source?, notes?, provenance? }`
   with `kind ∈ entrance | corridor | junction | arrival | amenity | landmark | vertical`.
   `provenance` holds scalar facts (source pixels, measurement notes); Core never interprets it.
-- `edges[]`: `{ id, from, to, bidirectional? (default true), floor_change?, vertical_kind?, length_px?, distance_m?,
+- `edges[]`: `{ id, from, to, bidirectional? (default true), floor_change?, vertical_kind?, connector_id?, length_px?, distance_m?,
   evidence { geometry, measurement }, instructions? { forward?, reverse? }, source?, notes? }`.
-  An edge connecting two floors must declare `floor_change: true`.
+  An edge connecting two floors must declare `floor_change: true` and `vertical_kind`, and carries
+  NO `length_px`, NO `distance_m` and never `measurement: "measured"`: a floor change has no
+  horizontal length and a lift is never a fake 1 m hop. Prefer declaring `connectors[]` (below)
+  and letting the loader expand them; hand-written floor-change edges remain valid for old packs.
+
+### `connectors[]` (Sprint 7, optional — additive)
+```json
+{ "id": "lift-a", "kind": "lift", "name": "Centre lift",
+  "landings": [{ "floor": "G", "node": "lift-a-g" }, { "floor": "L1", "node": "lift-a-l1" }],
+  "direction": "both", "availability": "open",
+  "evidence": { "geometry": "source-backed", "measurement": "unmeasured" },
+  "traversal_seconds": null, "accessibility": { "step_free": "unknown" } }
+```
+- `kind ∈ lift | escalator | stairs | ramp`; landings (≥ 2, one per floor) sit on `vertical` nodes
+  on the floor they name.
+- `direction`: `both`, or `up` / `down` = travel from the lower landing (by floor order) to the
+  higher one only (an up-only escalator is `up`).
+- `availability`: `open` or `closed`. A closed connector loads but yields no edge: it is unroutable.
+- `traversal_seconds` requires `evidence.measurement: "measured"` (a timed ride) and vice versa.
+  Ride time is never estimated.
+- `accessibility.step_free ∈ unknown | field_verified_yes | field_verified_no`. `unknown` is the
+  default and is what a lift gets until someone checks on site: **lift ≠ accessible**.
+- The loader expands every open connector into directed edges between each pair of landings
+  (`<connector>__<from>__<to>`, `floor_change: true`, `connector_id`, no length). No hub nodes,
+  no manual pairwise duplication.
 
 ### `destinations[]`
 `{ id, name, kind ∈ store | service | food | entertainment | landmark, category?, arrival_node, unit?, aliases?,
@@ -80,10 +104,14 @@ Nothing is routable by default; `routable: true` makes it a searchable destinati
   "destinations": { "searchable_kinds": ["store", "food"], "include_routable_amenities": true },
   "floors":       { "display": "label" },
   "metrics":      { "show": "when-measured" },
-  "instructions": { "generic_fallback": true, "start_prefix": true }
+  "instructions": { "generic_fallback": true, "start_prefix": true },
+  "routing":      { "connector_cost": { "lift": 30, "escalator": 20, "stairs": 25, "ramp": 15 }, "preference": "shortest" }
 }
 ```
-Every value is an enum or flag. Unknown keys are rejected.
+Every value is an enum or flag. Unknown keys are rejected. `routing` (optional, Sprint 7) is the
+ONE seam for how much a floor change "costs" the router, in the graph's unit — a policy number,
+**never displayed as distance** — and the default `preference` (`shortest` | `fewest_changes` |
+`step_free`). Without it the router uses its built-in defaults.
 
 ## Evidence model (provenance-aware; never one boolean)
 
@@ -134,7 +162,12 @@ self-loops, undeclared floors, floor-crossing edges without `floor_change`, at l
 anchor, QR-eligible ⇒ start-permitted, unit/measurement/metre consistency, unknown evidence
 values, one-way edges with reverse text, plain-text-only strings (no markup, control characters or
 template braces), plan-image aspect, coordinate range. Every destination must be reachable from
-every start anchor (routability smoke).
+every start anchor (routability smoke). Sprint 7 adds the connector rules: no metres / pixels /
+"measured" on a floor-change edge, `vertical_kind` required there, `connector_id` must name a
+declared connector, connector ids unique, kind / direction / availability / step_free vocabularies
+closed, ≥ 2 landings on distinct declared floors, landings on `vertical` nodes on the named floor,
+`traversal_seconds` ⇔ measured evidence, `up` / `down` need two floors of different order, and the
+closed `policies.routing` keys.
 
 ## Adding a venue (or a test venue)
 
