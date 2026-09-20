@@ -77,6 +77,12 @@ export interface WayfindingPilotProps {
   rememberSession?: boolean;
   /** Tells the host which product state is showing (e.g. to hide app chrome while walking). */
   onModeChange?: (mode: NavigationUiMode) => void;
+  /**
+   * A destination chosen OUTSIDE this screen (a `?to=` link, the assistant's resolved navigation
+   * intent). Validated against the venue's own vocabulary; an unknown id is ignored and the visitor
+   * lands on search. Routing, session and wording are the same as a manual pick.
+   */
+  initialDestination?: { destinationId: string; source?: "link" | "assistant" } | null;
 }
 
 export default function WayfindingPilot({ mallId, onModeChange, ...rest }: WayfindingPilotProps) {
@@ -105,7 +111,7 @@ export default function WayfindingPilot({ mallId, onModeChange, ...rest }: Wayfi
       </div>
     );
   }
-  return <WayfindingPilotView key={graph.id} graph={graph} onModeChange={onModeChange} {...rest} />;
+  return <WayfindingPilotView key={`${graph.id}:${rest.initialDestination?.destinationId ?? ""}`} graph={graph} onModeChange={onModeChange} {...rest} />;
 }
 
 /** Rebuild a session from a remembered record (validated against the venue; anything stale → null). */
@@ -133,17 +139,23 @@ function restoreSession(graph: LoadedPilotDataset, saved: PersistedNavigationSes
  * arriving on top of it re-anchors (destination kept, route recalculated). Nothing is restored
  * across venues or after expiry, and anything that no longer resolves starts fresh.
  */
-function initialSession(graph: LoadedPilotDataset, initialAnchor: PilotAnchor | null | undefined, remember: boolean): NavigationSession {
+function initialSession(graph: LoadedPilotDataset, initialAnchor: PilotAnchor | null | undefined, remember: boolean, initialDestination?: { destinationId: string } | null): NavigationSession {
   const anchor = initialAnchor ?? defaultAnchor(graph);
   const fresh = createNavigationSession(graph.id, anchor);
-  if (!remember) return fresh;
-  const saved = loadPersistedNavigationSession(graph.id);
-  if (!saved) return fresh;
-  const restored = restoreSession(graph, saved);
-  if (!restored) return fresh;
-  if (!initialAnchor) return restored;
-  if (saved.anchorNodeId === initialAnchor.nodeId) return { ...restored, anchor: initialAnchor };
-  return navigationReducer(graph, restored, { type: "reanchor", anchor: initialAnchor });
+  // An explicit destination (link / assistant intent) is validated against the venue and, when
+  // known, becomes a fresh route from the trusted start — the same reducer path as a manual pick.
+  const wanted = initialDestination ? pointsOfInterest(graph).find((p) => p.id === initialDestination.destinationId) ?? null : null;
+  const base = (() => {
+    if (!remember) return fresh;
+    const saved = loadPersistedNavigationSession(graph.id);
+    if (!saved) return fresh;
+    const restored = restoreSession(graph, saved);
+    if (!restored) return fresh;
+    if (!initialAnchor) return restored;
+    if (saved.anchorNodeId === initialAnchor.nodeId) return { ...restored, anchor: initialAnchor };
+    return navigationReducer(graph, restored, { type: "reanchor", anchor: initialAnchor });
+  })();
+  return wanted ? navigationReducer(graph, { ...base, destination: null, route: null, status: "destination_selection", stepIndex: 0, completedSteps: [], lastReanchor: null }, { type: "select_destination", destination: wanted }) : base;
 }
 
 /** Walking mode owns one history entry so the browser Back button returns to the overview instead of leaving the app. */
@@ -169,7 +181,7 @@ function useWalkingHistory(active: boolean, onBack: () => void) {
   }, []);
 }
 
-function WayfindingPilotView({ graph, initialAnchor, anchorNotice, embedded, onOpenAssistant, onEvent, rememberSession = true, onModeChange }: Omit<WayfindingPilotProps, "mallId"> & { graph: LoadedPilotDataset }) {
+function WayfindingPilotView({ graph, initialAnchor, anchorNotice, embedded, onOpenAssistant, onEvent, rememberSession = true, onModeChange, initialDestination }: Omit<WayfindingPilotProps, "mallId"> & { graph: LoadedPilotDataset }) {
   const starts = useMemo(() => startOptions(graph), [graph]);
   const floorplan = useMemo(
     () => attachFloorImages(
@@ -184,7 +196,7 @@ function WayfindingPilotView({ graph, initialAnchor, anchorNotice, embedded, onO
   const multiFloor = graph.floors.length > 1;
   const emit = useMemo(() => safeSink(onEvent), [onEvent]);
 
-  const [session, setSession] = useState<NavigationSession>(() => initialSession(graph, initialAnchor, rememberSession));
+  const [session, setSession] = useState<NavigationSession>(() => initialSession(graph, initialAnchor, rememberSession, initialDestination));
   const [query, setQuery] = useState("");
   const [locationOpen, setLocationOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
@@ -265,12 +277,37 @@ function WayfindingPilotView({ graph, initialAnchor, anchorNotice, embedded, onO
       : [];
     return buildRoutePolyline([...lead, ...steps]);
   }, [hasRoute, graph, anchor.nodeId, steps]);
-  const stepFloor = (i: number) => floorKey(steps[i]?.floor ?? graph.floors[0]?.id);
-  const activeFloor = stepFloor(walking || arrived ? session.stepIndex : 0);
+  // The map shows the floor of the point the visitor LAST CONFIRMED: while a floor-change step is
+  // current the visitor is still on the origin floor; only after tapping Next does the map switch.
+  const anchorNode = graph.nodes.find((n) => n.id === anchor.nodeId) ?? null;
+  const confirmedFloorId = (i: number) => (i <= 0 ? anchorNode?.floor : steps[i - 1]?.floor) ?? graph.floors[0]?.id;
+  const activeFloor = floorKey(walking || arrived ? confirmedFloorId(arrived ? steps.length - 1 : session.stepIndex) : anchorNode?.floor ?? graph.floors[0]?.id);
+  /** Floors this route visits, in order, with the connector that links each pair (for the floor strip). */
+  const floorPath = useMemo(() => {
+    const out: Array<{ floor: string; via: string | null }> = [];
+    const first = anchorNode?.floor ?? steps[0]?.floor ?? graph.floors[0]?.id;
+    if (first) out.push({ floor: first, via: null });
+    for (const s of steps) if (s.via && s.via.to_floor !== out[out.length - 1]?.floor) out.push({ floor: s.via.to_floor, via: s.via.kind });
+    return out;
+  }, [anchorNode, steps, graph.floors]);
   const floorLabel = (id: string | null | undefined) => floorLabelFor(graph.floors, id ?? graph.floors[0]?.id, graph.policies.floors.display);
   const currentAnchorId = anchor.anchorId ?? starts.find((s) => s.nodeId === anchor.nodeId)?.id ?? anchor.nodeId;
   const startSource = START_SOURCE_LABEL[anchor.source] ?? null;
-  const showMetrics = Boolean(hasRoute && route!.metric && route!.total_distance_meters !== null && route!.estimated_minutes !== null);
+  const showMetrics = Boolean(hasRoute && route!.metric && route!.total_distance_meters !== null);
+  const showMinutes = Boolean(showMetrics && route!.estimated_minutes !== null);
+  const connectorRides = hasRoute ? route!.connector_count : 0;
+  const CONNECTOR_WORD: Record<string, string> = { lift: "lift", escalator: "escalator", stairs: "stairs", ramp: "ramp" };
+  const connectorWord = (kind: string) => CONNECTOR_WORD[kind] ?? "floor change";
+  /** The current step's connector, positioned at its landing on the floor the visitor is on. */
+  const connectorMarker = useMemo(() => {
+    if (!walking) return null;
+    const step = steps[session.stepIndex];
+    if (!step?.via) return null;
+    const landing = graph.nodes.find((n) => n.id === (steps[session.stepIndex - 1]?.node_id ?? anchor.nodeId));
+    if (!landing) return null;
+    return { x: (landing.x_coordinate ?? 0) * 10, y: (landing.y_coordinate ?? 0) * 6.2, label: `${connectorWord(step.via.kind).replace(/^./, (c) => c.toUpperCase())} to ${floorLabel(step.via.to_floor)}`, kind: step.via.kind };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [walking, steps, session.stepIndex, graph, anchor.nodeId]);
   const exampleNames = useMemo(() => searchPois(graph, "").slice(0, 4).map((p) => p.name).join(", "), [graph]);
   const destNode = dest ? graph.nodes.find((n) => n.linked_shop_id === dest.id || n.id === dest.id) ?? null : null;
   const destArrival = (destNode?.arrival_evidence as "verified_public_door" | "corridor_arrival" | "unknown" | null | undefined) ?? undefined;
@@ -393,6 +430,7 @@ function WayfindingPilotView({ graph, initialAnchor, anchorNotice, embedded, onO
         routePolyline={polyline}
         progress={walk ? { confirmedIndex: Math.min(session.stepIndex, Math.max(0, polyline.length - 1)) } : null}
         mode={walk ? "walking" : "overview"}
+        connectorMarker={walk ? connectorMarker : null}
       />
     </div>
   );
@@ -525,7 +563,7 @@ function WayfindingPilotView({ graph, initialAnchor, anchorNotice, embedded, onO
             <div className="flex items-center justify-between gap-2">
               <p className="text-sm font-medium text-muted-foreground" data-testid="pilot-step-counter">
                 Step {session.stepIndex + 1} of {steps.length}
-                {(multiFloor || step?.floor_change) && step?.floor ? <span> · {floorLabel(step.floor)}</span> : null}
+                {multiFloor ? <span data-testid="pilot-current-floor"> · You are on {floorLabel(confirmedFloorId(session.stepIndex))}</span> : null}
               </p>
             </div>
             <div className="mt-2 flex gap-1" role="progressbar" aria-label="Steps you have confirmed" aria-valuemin={0} aria-valuemax={steps.length} aria-valuenow={Math.min(session.stepIndex, lastStep)} data-testid="pilot-progress">
@@ -536,6 +574,11 @@ function WayfindingPilotView({ graph, initialAnchor, anchorNotice, embedded, onO
             </div>
             {showMetrics && step?.distance_meters != null && (
               <p className="mt-1.5 text-sm text-muted-foreground" data-testid="pilot-step-distance">About {step.distance_meters} m for this step</p>
+            )}
+            {step?.via && (
+              <p className="mt-2 rounded-lg border border-violet-500/40 bg-violet-500/10 px-3 py-2 text-sm leading-snug" data-testid="pilot-floor-change-note">
+                When you are on <span className="font-medium">{floorLabel(step.via.to_floor)}</span>, tap {nextIsArrival ? "I’m there" : "Next"}. The map will switch floors then.
+              </p>
             )}
           </div>
         )}
@@ -608,7 +651,7 @@ function WayfindingPilotView({ graph, initialAnchor, anchorNotice, embedded, onO
               </Button>
             </div>
             <p className="mt-1.5 text-center text-[11px] leading-snug text-muted-foreground" data-testid="pilot-manual-note">
-              When you reach this point, tap {nextIsArrival ? "I’m there" : "Next"}. MallMind does not track your movement.
+              {step?.via ? `When you are on ${floorLabel(step.via.to_floor)}, tap ${nextIsArrival ? "I’m there" : "Next"}.` : `When you reach this point, tap ${nextIsArrival ? "I’m there" : "Next"}.`} MallMind does not track your movement.
             </p>
           </div>
         )}
@@ -664,14 +707,32 @@ function WayfindingPilotView({ graph, initialAnchor, anchorNotice, embedded, onO
         {routeUpdated}
         {locationOpen && locationPanel}
 
-        {/* MAP: whole route */}
+        {/* FLOORS visited (multi-floor routes only) */}
+        {floorPath.length > 1 && (
+          <ol className="flex flex-wrap items-center gap-1.5 text-sm" data-testid="pilot-floor-strip" aria-label="Floors on this route">
+            {floorPath.map((f, i) => (
+              <li key={`${f.floor}-${i}`} className="flex items-center gap-1.5">
+                {f.via && <span className="text-xs text-muted-foreground" aria-label={`then by ${connectorWord(f.via)}`}>→ {connectorWord(f.via)} →</span>}
+                <span className={`rounded-full border px-2.5 py-1 ${i === 0 ? "bg-primary/10 font-medium" : i === floorPath.length - 1 ? "bg-emerald-500/10 font-medium" : ""}`}>
+                  {floorLabel(f.floor)}{i === 0 ? " (start)" : i === floorPath.length - 1 ? " (destination)" : ""}
+                </span>
+              </li>
+            ))}
+          </ol>
+        )}
+
+        {/* MAP: whole route on the start floor */}
         {mapBox(220, false)}
 
         {/* DETAILS */}
         {showMetrics ? (
           <dl className="grid grid-cols-3 gap-2 text-center" data-testid="pilot-summary">
-            <div className="rounded-lg border py-2"><dd className="text-lg font-semibold">{route!.total_distance_meters}<span className="text-xs font-normal"> m</span></dd><dt className="text-[11px] text-muted-foreground">distance</dt></div>
-            <div className="rounded-lg border py-2"><dd className="text-lg font-semibold">{route!.estimated_minutes}<span className="text-xs font-normal"> min</span></dd><dt className="text-[11px] text-muted-foreground">walk</dt></div>
+            <div className="rounded-lg border py-2"><dd className="text-lg font-semibold">{route!.total_distance_meters}<span className="text-xs font-normal"> m</span></dd><dt className="text-[11px] text-muted-foreground">walking</dt></div>
+            {showMinutes ? (
+              <div className="rounded-lg border py-2"><dd className="text-lg font-semibold">{route!.estimated_minutes}<span className="text-xs font-normal"> min</span></dd><dt className="text-[11px] text-muted-foreground">time</dt></div>
+            ) : (
+              <div className="rounded-lg border px-1 py-2" data-testid="pilot-time-unmeasured"><dd className="text-sm font-semibold leading-tight">+ {connectorRides} {connectorRides === 1 ? "ride" : "rides"}</dd><dt className="text-[11px] text-muted-foreground">time not measured</dt></div>
+            )}
             <div className="rounded-lg border py-2"><dd className="text-lg font-semibold">{legCount}</dd><dt className="text-[11px] text-muted-foreground">{legCount === 1 ? "step" : "steps"}</dt></div>
           </dl>
         ) : (
@@ -681,7 +742,8 @@ function WayfindingPilotView({ graph, initialAnchor, anchorNotice, embedded, onO
             <p className="col-span-2 text-xs text-muted-foreground" data-testid="pilot-distance-unmeasured">Distance not yet measured</p>
           </dl>
         )}
-        {showMetrics && <p className="text-xs text-muted-foreground">Floor: {floorLabel(steps[0]?.floor)}</p>}
+        {showMetrics && floorPath.length <= 1 && <p className="text-xs text-muted-foreground">Floor: {floorLabel(steps[0]?.floor)}</p>}
+        {connectorRides > 0 && <p className="text-xs text-muted-foreground" data-testid="pilot-connector-summary">Includes {connectorRides} floor {connectorRides === 1 ? "change" : "changes"}. You confirm each one yourself.</p>}
 
         {/* PRIMARY */}
         <Button type="button" className="h-14 w-full text-base font-semibold" onClick={() => send({ type: "start_navigation" })} data-testid="pilot-start-navigation">

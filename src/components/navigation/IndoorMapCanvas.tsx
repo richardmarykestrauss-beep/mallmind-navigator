@@ -47,6 +47,11 @@ export interface IndoorMapCanvasProps {
   isDemo?: boolean;
   /** Camera: fit the whole route (overview) or the current leg with context (walking). Derived from `progress` when omitted. */
   mode?: "overview" | "walking";
+  /**
+   * A vertical connector the current step uses, drawn at its landing on THIS floor with a plain
+   * label ("Lift to Upper Mall"). The host computes it from the step; the canvas never infers floors.
+   */
+  connectorMarker?: { x: number; y: number; label: string; kind: "lift" | "escalator" | "stairs" | "ramp" } | null;
 }
 
 const OVERVIEW_PAD = 150;
@@ -168,6 +173,21 @@ function ConfirmedMarker({ x, y }: { x: number; y: number }) {
   );
 }
 
+/** Where a floor change happens: the connector's landing on the current floor, labelled with where it goes. */
+function ConnectorMarker({ x, y, label, kind }: { x: number; y: number; label: string; kind: "lift" | "escalator" | "stairs" | "ramp" }) {
+  const glyph = kind === "lift" ? "LIFT" : kind === "escalator" ? "ESC" : kind === "stairs" ? "STAIRS" : "RAMP";
+  return (
+    <g transform={`translate(${x},${y})`} data-testid="map-connector-marker">
+      <title>{label}</title>
+      <rect x={-46} y={-22} width={92} height={44} rx={12} fill="hsl(270 60% 30% / 0.9)" stroke="hsl(270 90% 78%)" strokeWidth="3" />
+      <text x={0} y={6} textAnchor="middle" fontSize="15" fontFamily="Inter, system-ui, sans-serif" fontWeight="800" letterSpacing="0.08em" fill="hsl(270 90% 90%)">{glyph}</text>
+      <text x={0} y={-32} textAnchor="middle" fontSize="18" fontFamily="Inter, system-ui, sans-serif" fontWeight="700"
+        stroke="hsl(240 30% 3%)" strokeWidth={6} fill="none" strokeLinejoin="round">{label}</text>
+      <text x={0} y={-32} textAnchor="middle" fontSize="18" fontFamily="Inter, system-ui, sans-serif" fontWeight="700" fill="hsl(270 90% 85%)">{label}</text>
+    </g>
+  );
+}
+
 /** True when the viewer asked for reduced motion (matchMedia is stubbed in tests). */
 function prefersReducedMotion(): boolean {
   try { return typeof window !== "undefined" && Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches); }
@@ -175,7 +195,7 @@ function prefersReducedMotion(): boolean {
 }
 
 export default function IndoorMapCanvas({
-  floorplan, activeFloor, routePolyline, progress, completedStepIndices, currentStepIndex, simulatedPosition, isDemo, markerStyle = "step", mode,
+  floorplan, activeFloor, routePolyline, progress, completedStepIndices, currentStepIndex, simulatedPosition, isDemo, markerStyle = "step", mode, connectorMarker,
 }: IndoorMapCanvasProps) {
   const target = floorKey(activeFloor);
   const motion = !prefersReducedMotion();
@@ -380,7 +400,8 @@ export default function IndoorMapCanvas({
       {startOnFloor && <StartPin x={startOnFloor.x} y={startOnFloor.y} />}
       {destOnFloor && <DestinationPin x={destOnFloor.x} y={destOnFloor.y} label={destName} motion={motion} />}
       {confirmed != null && confirmedOnFloor && confirmed > 0 && confirmedPt?.nodeId !== lastPt?.nodeId && <ConfirmedMarker x={confirmedOnFloor.x} y={confirmedOnFloor.y} />}
-      {confirmed != null && targetOnFloor && targetPt !== lastPt && targetPt?.nodeId !== lastPt?.nodeId && <StepTargetMarker x={targetOnFloor.x} y={targetOnFloor.y} label={stepNumber} />}
+      {connectorMarker && <ConnectorMarker x={connectorMarker.x} y={connectorMarker.y} label={connectorMarker.label} kind={connectorMarker.kind} />}
+      {confirmed != null && targetOnFloor && !connectorMarker && targetPt !== lastPt && targetPt?.nodeId !== lastPt?.nodeId && <StepTargetMarker x={targetOnFloor.x} y={targetOnFloor.y} label={stepNumber} />}
       {confirmed == null && legacyPos && (markerStyle === "step"
         ? <StepTargetMarker x={legacyPos.x} y={legacyPos.y} label={String((currentStepIndex ?? 0) + 1)} />
         : <PositionMarker x={legacyPos.x} y={legacyPos.y} animate={motion} />)}

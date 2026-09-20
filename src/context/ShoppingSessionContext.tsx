@@ -2,7 +2,7 @@ import { createContext, useContext, useState, ReactNode } from "react";
 import type { Mall, Shop } from "@/lib/supabaseClient";
 import { supabase } from "@/lib/supabaseClient";
 
-// ── Route step (from build-route Edge Function) ───────────────────────────────
+// ── Route step (produced ONLY by the Venue Pack router, src/venue/route.ts) ──────────────
 export interface RouteStep {
   step: number;
   instruction: string;
@@ -18,6 +18,18 @@ export interface RouteStep {
   x_coordinate?: number | null;
   /** Percent-style map coordinate from backend mall_nodes.y_coordinate. */
   y_coordinate?: number | null;
+  /** Set on a floor-change step: which connector carries the visitor and between which floors. */
+  via?: RouteStepVia | null;
+}
+
+/** Connector context of a floor-change step (Venue Pack floor ids; the UI maps them to labels). */
+export interface RouteStepVia {
+  connector_id: string;
+  kind: "lift" | "escalator" | "stairs" | "ramp";
+  from_floor: string;
+  to_floor: string;
+  /** Measured ride/climb time when the pack has it; null otherwise (never estimated). */
+  traversal_seconds: number | null;
 }
 
 // ── sessionStorage helpers ────────────────────────────────────────────────────
@@ -26,7 +38,6 @@ const KEYS = {
   stops:     "mm_stops",
   stopIdx:   "mm_stop_idx",
   sessionId: "mm_session_id",
-  routeId:   "mm_route_id",
 };
 
 function load<T>(key: string, fallback: T): T {
@@ -65,13 +76,6 @@ interface ShoppingSession {
     opts?: { lat?: number; lng?: number }
   ) => Promise<void>;
   updateSessionRoute: (stopIds: (string | number)[]) => Promise<void>;
-
-  // Real step-by-step route (from build-route Edge Function)
-  activeRouteId: string | null;
-  activeRouteSteps: RouteStep[];
-  loadRoute: (routeId: string) => Promise<void>;
-  setActiveRoute: (routeId: string, steps: RouteStep[]) => void;
-  clearRoute: () => void;
 }
 
 const ShoppingSessionContext = createContext<ShoppingSession | null>(null);
@@ -82,8 +86,6 @@ export function ShoppingSessionProvider({ children }: { children: ReactNode }) {
   const [currentStopIndex, setCurrentStopIndexState] = useState<number>(() => load<number>(KEYS.stopIdx, 0));
   const [dbSessionId, setDbSessionId]           = useState<string | null>(() => load<string | null>(KEYS.sessionId, null));
   const [shoppingIntent, setShoppingIntentState] = useState<string | null>(null);
-  const [activeRouteId, setActiveRouteId]       = useState<string | null>(() => load<string | null>(KEYS.routeId, null));
-  const [activeRouteSteps, setActiveRouteSteps] = useState<RouteStep[]>([]);
 
   // ── Local state setters ───────────────────────────────────────────────────
   function setSelectedMall(mall: Mall | null) { save(KEYS.mall, mall); setSelectedMallState(mall); }
@@ -95,39 +97,8 @@ export function ShoppingSessionProvider({ children }: { children: ReactNode }) {
   function resetSession() {
     setRouteStops([]);
     setCurrentStopIndex(0);
-    clearRoute();
   }
 
-  // ── Real route helpers ────────────────────────────────────────────────────
-  function setActiveRoute(routeId: string, steps: RouteStep[]) {
-    save(KEYS.routeId, routeId);
-    setActiveRouteId(routeId);
-    setActiveRouteSteps(steps);
-  }
-
-  function clearRoute() {
-    save(KEYS.routeId, null);
-    setActiveRouteId(null);
-    setActiveRouteSteps([]);
-  }
-
-  async function loadRoute(routeId: string) {
-    try {
-      const { data } = await supabase
-        .from("shopping_routes")
-        .select("id, route_steps")
-        .eq("id", routeId)
-        .single();
-      if (data?.route_steps) {
-        const steps = typeof data.route_steps === "string"
-          ? (JSON.parse(data.route_steps) as RouteStep[])
-          : (data.route_steps as RouteStep[]);
-        setActiveRoute(routeId, steps);
-      }
-    } catch (err) {
-      console.warn("loadRoute failed:", err);
-    }
-  }
 
   // ── Supabase session persistence ──────────────────────────────────────────
   async function startOrUpdateSession(
@@ -157,11 +128,8 @@ export function ShoppingSessionProvider({ children }: { children: ReactNode }) {
         save(KEYS.sessionId, existing.id);
         setDbSessionId(existing.id);
         if (existing.shopping_intent) setShoppingIntentState(existing.shopping_intent);
-
-        // Resume active route if one exists
-        if (existing.active_route_id && !activeRouteId) {
-          loadRoute(existing.active_route_id);
-        }
+        // Spatial routes are no longer stored here: the Venue Pack NavigationSession (Navigation
+        // Experience V2) owns the walk, so `active_route_id` on the row is ignored.
       } else {
         const { data: created } = await supabase.from("shopping_sessions").insert({
           user_id:     userId,
@@ -198,8 +166,6 @@ export function ShoppingSessionProvider({ children }: { children: ReactNode }) {
       advanceStop, resetSession,
       dbSessionId, shoppingIntent, setShoppingIntent,
       startOrUpdateSession, updateSessionRoute,
-      activeRouteId, activeRouteSteps,
-      loadRoute, setActiveRoute, clearRoute,
     }}>
       {children}
     </ShoppingSessionContext.Provider>
