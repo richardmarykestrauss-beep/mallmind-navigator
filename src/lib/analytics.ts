@@ -58,7 +58,9 @@ export type AppEventType =
   | "navigation_arrived"
   | "navigation_restarted"
   | "navigation_unroutable"
-  | "navigation_failed";
+  | "navigation_failed"
+  // Sprint 7: a destination intent from outside the Navigate screen (assistant / stop list) and how it resolved.
+  | "navigation_intent";
 
 export function trackEvent(
   eventType: AppEventType,

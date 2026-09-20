@@ -45,7 +45,7 @@ interface DetectedMall {
 
 const Malls = () => {
   const navigate = useNavigate();
-  const { setSelectedMall, startOrUpdateSession, setActiveRoute, dbSessionId } = useShoppingSession();
+  const { setSelectedMall, startOrUpdateSession, dbSessionId } = useShoppingSession();
   const { user } = useAuth();
 
   const [malls, setMalls]       = useState<Mall[]>([]);

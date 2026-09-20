@@ -10,12 +10,15 @@
  *   • metres appear only from an accepted field_verified measurement; a "m" pack requires one on
  *     EVERY edge, otherwise compilation fails (unsupported distance state);
  *   • a verified door needs an accepted field_verified arrival fact; otherwise corridor_arrival;
+ *   • floor changes are connectors (Sprint 7): an edge fact may not be floor_change; a connector's
+ *     traversal_seconds comes only from an accepted field_verified timing and its step_free evidence
+ *     only from an accepted field_verified accessibility fact — otherwise "unknown", never a claim;
  *   • output is the app's Venue Pack contract, validated by the app's validator before it is written.
  */
 
 import type {
-  VenuePack, VenueNode, VenueEdge, VenueDestination, VenueAnchor, VenueAmenity, VenueFloor, GeometryEvidence, IdentityEvidence,
-  VenueSource, NodeKind, VerticalKind, DestinationKind, AnchorKind, AmenityKind,
+  VenuePack, VenueNode, VenueEdge, VenueDestination, VenueAnchor, VenueAmenity, VenueFloor, VenueConnector, GeometryEvidence, IdentityEvidence,
+  VenueSource, NodeKind, VerticalKind, DestinationKind, AnchorKind, AmenityKind, ConnectorDirection, ConnectorAvailability, StepFreeEvidence,
 } from "../contract";
 import { VENUE_PACK_SCHEMA_VERSION } from "../contract";
 import { validateVenuePack } from "../validate";
@@ -129,6 +132,8 @@ export function compileDraft(job: IngestionJob, ledger: EvidenceLedger, sources:
     if (!a || !b) continue;
     const floorChange = bool(v, "floor_change", false);
     if (a.floor !== b.floor && !floorChange) fail(`edge:${id}`, `connects floors "${a.floor}" and "${b.floor}" but is not marked floor_change`);
+    // A floor change has no length: it is declared as a connector and expanded by the app, never traced as an edge.
+    if (floorChange) { fail(`edge:${id}`, `floor changes are declared as connectors (connector:<id> facts with landings), not as edges`); continue; }
     const vertical = str(v, "vertical_kind") as VerticalKind | null;
     // Geometry tier = weakest of the edge fact and its two nodes.
     const tiers: GeometryEvidence[] = [geometryTierOf(f.evidence_class), a.evidence.geometry, b.evidence.geometry];
@@ -218,8 +223,62 @@ export function compileDraft(job: IngestionJob, ledger: EvidenceLedger, sources:
   }
   amenities.sort(byId);
 
+  // ── connectors (Sprint 7) ─────────────────────────────────────────────────
+  const connectors: VenueConnector[] = [];
+  for (const f of accepted.filter((x) => x.predicate === "connector" && x.subject.startsWith("connector:"))) {
+    const id = f.subject.slice("connector:".length);
+    if (statusOf(f.subject, "connector").fact !== f) continue;
+    const list = Array.isArray(f.value) ? f.value.map(rec) : [];
+    const attrs = list[0];
+    const landingRecs = list.slice(1);
+    if (!attrs || !str(attrs, "kind") || landingRecs.length < 2 || landingRecs.some((l) => !l || !str(l, "floor") || !str(l, "node"))) { fail(`ledger:${f.fact_id}`, "connector fact needs [{kind, name, direction, availability}, {floor, node}, {floor, node}, …]"); continue; }
+    const landings: VenueConnector["landings"] = [];
+    let ok = true;
+    for (const l of landingRecs as Rec[]) {
+      const floor = str(l, "floor") as string;
+      const n = needNode(`connector:${id}.landings`, str(l, "node") as string);
+      if (!n) { ok = false; continue; }
+      if (!floorIds.has(floor)) { fail(`connector:${id}.landings`, `references floor "${floor}": ${why(`floor:${floor}`, "floor")}`); ok = false; continue; }
+      if (n.floor !== floor) { fail(`connector:${id}.landings`, `landing node "${n.id}" is on floor "${n.floor}", not "${floor}"`); ok = false; continue; }
+      if (n.kind !== "vertical") { fail(`connector:${id}.landings`, `landing node "${n.id}" is a ${n.kind} node; a connector lands on "vertical" nodes only`); ok = false; continue; }
+      landings.push({ floor, node: n.id });
+    }
+    if (!ok) continue;
+    // Geometry tier = weakest of the fact and its landing nodes (like an edge).
+    const tiers: GeometryEvidence[] = [geometryTierOf(f.evidence_class), ...landings.map((l) => nodeGeometry.get(l.node) ?? "schematic")];
+    const geometry = tiers.reduce((w, t) => (GEOMETRY_RANK[t] < GEOMETRY_RANK[w] ? t : w));
+    // Ride time ONLY from an accepted field_verified timing.
+    const timing = statusOf(f.subject, "traversal").fact;
+    let traversal_seconds: number | null = null;
+    if (timing) {
+      const tv = rec(timing.value); const secs = tv ? num(tv, "traversal_seconds") : null;
+      if (timing.evidence_class !== "field_verified") fail(`connector:${id}.traversal`, `accepted timing ${timing.fact_id} is class ${timing.evidence_class}; only field_verified timings may produce traversal_seconds`);
+      else if (secs == null || secs <= 0) fail(`connector:${id}.traversal`, `timing ${timing.fact_id} carries no positive traversal_seconds`);
+      else traversal_seconds = secs;
+    }
+    // Step-free evidence ONLY from an accepted field_verified accessibility fact; otherwise unknown (no claim).
+    const acc = statusOf(f.subject, "accessibility").fact;
+    let step_free: StepFreeEvidence = "unknown";
+    if (acc) {
+      const av = rec(acc.value);
+      if (acc.evidence_class !== "field_verified") fail(`connector:${id}.accessibility`, `accepted accessibility ${acc.fact_id} is class ${acc.evidence_class}; only a field_verified observation may set step_free`);
+      else if (!av || typeof av.step_free !== "boolean") fail(`connector:${id}.accessibility`, `accessibility ${acc.fact_id} carries no boolean step_free`);
+      else step_free = av.step_free ? "field_verified_yes" : "field_verified_no";
+    }
+    const name = str(attrs, "name");
+    connectors.push({
+      id, kind: str(attrs, "kind") as VerticalKind, ...(name ? { name } : {}), landings,
+      direction: (str(attrs, "direction") ?? "both") as ConnectorDirection, availability: (str(attrs, "availability") ?? "open") as ConnectorAvailability,
+      evidence: { geometry, measurement: traversal_seconds != null ? "measured" : "unmeasured" },
+      ...(traversal_seconds != null ? { traversal_seconds } : {}),
+      accessibility: { step_free },
+      source: cite(f), ...(f.notes ? { notes: f.notes } : {}),
+    });
+  }
+  connectors.sort(byId);
+
   // ── venue headline evidence (derived, never asserted) ─────────────────────
-  const geometries = [...nodes.map((n) => n.evidence.geometry), ...edges.map((e) => e.evidence.geometry)];
+  const geometries = [...nodes.map((n) => n.evidence.geometry), ...edges.map((e) => e.evidence.geometry), ...connectors.map((k) => k.evidence.geometry)];
   const geometry: GeometryEvidence = geometries.length ? geometries.reduce((w, t) => (GEOMETRY_RANK[t] < GEOMETRY_RANK[w] ? t : w)) : "schematic";
   const measurement = edges.length > 0 && edges.every((e) => e.evidence.measurement === "measured") ? "measured" : "unmeasured";
   const fieldFacts = accepted.filter((f) => f.evidence_class === "field_verified");
@@ -247,6 +306,7 @@ export function compileDraft(job: IngestionJob, ledger: EvidenceLedger, sources:
     floors,
     graph: { distance_unit: unit, plane: { width: VENUE_PLANE.width, height: VENUE_PLANE.height }, nodes, edges },
     destinations, anchors, amenities,
+    ...(connectors.length ? { connectors } : {}),
     policies: job.venue.policies,
   };
   // The app's own validator is the last word: a draft the app would reject is not a draft.

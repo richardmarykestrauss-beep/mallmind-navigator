@@ -8,6 +8,7 @@
  */
 
 import type {
+  VenueConnector,
   VenuePack, VenueFloor, VenueDestination, VenueAnchor, VenueAmenity, VenueNode, VenueEdge, VenueEvidence, VenuePolicies,
   DistanceUnit, GeometryEvidence,
 } from "./contract";
@@ -51,6 +52,9 @@ export interface LoadedVenue {
   destinationByNode: Map<string, VenueDestination>;
   anchors: VenueAnchor[];
   anchorById: Map<string, VenueAnchor>;
+  /** Declared vertical connectors (already expanded into `edges`). */
+  connectors: VenueConnector[];
+  connectorById: Map<string, VenueConnector>;
   /** Anchors a visitor may start from (start_permitted + allowed kinds policy). */
   startAnchors: VenueAnchor[];
   amenities: VenueAmenity[];
@@ -70,13 +74,53 @@ function toEdge(e: VenueEdge, unit: DistanceUnit): BackendEdgeLike {
     from_node_id: e.from,
     to_node_id: e.to,
     distance_meters: measured ? (e.distance_m as number) : null,
-    weight: unit === "m" ? (e.distance_m as number) : (e.length_px as number),
+    // Vertical transitions carry no horizontal length: weight null → priced by policy in the router.
+    weight: e.floor_change ? null : unit === "m" ? (e.distance_m as number) : (e.length_px as number),
     floor_change: e.floor_change === true,
     instruction: e.instructions?.forward ?? null,
     instruction_reverse: e.instructions?.reverse ?? null,
     bidirectional: e.bidirectional !== false,
     vertical_kind: e.vertical_kind ?? null,
+    connector_id: e.connector_id ?? null,
+    traversal_seconds: null,
+    step_free: e.floor_change ? "unknown" : null,
   };
+}
+
+/**
+ * Expand declared connectors into routable edges — ONCE, at load. Every pair of landings becomes an
+ * edge (two-way for "both"; one-way from the lower to the higher floor for "up", the reverse for
+ * "down"). Closed connectors expand to nothing. The edges carry no horizontal length: `weight` is
+ * null and the router prices them from policy. Deterministic: landings are ordered by floor order.
+ */
+export function expandConnectors(pack: VenuePack): BackendEdgeLike[] {
+  const order = new Map(pack.floors.map((f) => [f.id, f.order]));
+  const out: BackendEdgeLike[] = [];
+  for (const k of pack.connectors ?? []) {
+    if (k.availability !== "open") continue;
+    const landings = [...k.landings].sort((a, b) => (order.get(a.floor) ?? 0) - (order.get(b.floor) ?? 0) || (a.node < b.node ? -1 : 1));
+    for (let i = 0; i < landings.length; i++) for (let j = i + 1; j < landings.length; j++) {
+      const lower = landings[i], upper = landings[j];
+      const from = k.direction === "down" ? upper : lower;
+      const to = k.direction === "down" ? lower : upper;
+      out.push({
+        id: `${k.id}__${from.node}__${to.node}`,
+        from_node_id: from.node,
+        to_node_id: to.node,
+        distance_meters: null,
+        weight: null,
+        floor_change: true,
+        instruction: null,
+        instruction_reverse: null,
+        bidirectional: k.direction === "both",
+        vertical_kind: k.kind,
+        connector_id: k.id,
+        traversal_seconds: k.evidence.measurement === "measured" && typeof k.traversal_seconds === "number" ? k.traversal_seconds : null,
+        step_free: k.accessibility?.step_free ?? "unknown",
+      });
+    }
+  }
+  return out;
 }
 
 /** Load an already-validated pack. Throws with every issue listed if it is not valid. */
@@ -106,7 +150,7 @@ export function loadVenuePack(input: unknown): LoadedVenue {
       arrival_evidence: dest?.evidence.arrival ?? null,
     };
   });
-  const edges = pack.graph.edges.map((e) => toEdge(e, unit));
+  const edges = [...pack.graph.edges.map((e) => toEdge(e, unit)), ...expandConnectors(pack)];
 
   const adjacency = new Map<string, AdjacencyEntry[]>();
   for (const e of edges) {
@@ -137,7 +181,9 @@ export function loadVenuePack(input: unknown): LoadedVenue {
     floors,
     floorById: new Map(floors.map((f) => [f.id, f])),
     distanceUnit: unit,
-    metric: pack.policies.metrics.show !== "never" && edges.length > 0 && edges.every((e) => typeof e.distance_meters === "number" && e.distance_meters > 0),
+    // Metric = every HORIZONTAL edge carries measured metres. Floor changes (connector edges) have no
+    // length by design and never make a venue "unmeasured".
+    metric: pack.policies.metrics.show !== "never" && edges.some((e) => !e.floor_change) && edges.filter((e) => !e.floor_change).every((e) => typeof e.distance_meters === "number" && e.distance_meters > 0),
     nodes,
     edges,
     nodeById: new Map(nodes.map((n) => [n.id, n])),
@@ -147,6 +193,8 @@ export function loadVenuePack(input: unknown): LoadedVenue {
     destinationByNode,
     anchors: pack.anchors,
     anchorById: new Map(pack.anchors.map((a) => [a.id, a])),
+    connectors: pack.connectors ?? [],
+    connectorById: new Map((pack.connectors ?? []).map((k) => [k.id, k])),
     startAnchors,
     amenities: pack.amenities,
     amenityById: new Map(pack.amenities.map((a) => [a.id, a])),

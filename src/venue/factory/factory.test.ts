@@ -264,3 +264,77 @@ describe("filesystem safety", () => {
     expect(pngDimensions(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, 0, 0, 0, 0, 0, 0, 0, 0]))).toBeNull();
   });
 });
+
+describe("connectors (Sprint 7): source → ledger → review → compiler → pack", () => {
+  const accepted = (over: Partial<EvidenceFact>): EvidenceFact => ({
+    fact_id: "x", subject: "", predicate: "", value: null, source_id: "ftc-map", evidence_class: "visual_first_party", confidence: 0.9,
+    status: "accepted", proposed_by: "t", manual_review_required: false, decision: { by: "r", at: "2026-09-14", action: "accept", reason: "ok" }, ...over,
+  });
+  /** A second floor, a vertical node on each floor and one lift between them, all accepted. */
+  const twoLevel = (): EvidenceFact[] => [
+    accepted({ fact_id: "floor:l1", subject: "floor:l1", predicate: "floor", value: { label: "Level 1", order: 1, aliases: "" } }),
+    accepted({ fact_id: "node:ftc-lift-g", subject: "node:ftc-lift-g", predicate: "geometry", value: { name: "Lift (Ground)", kind: "vertical", floor: "g", x_percent: 40, y_percent: 60 } }),
+    accepted({ fact_id: "node:ftc-lift-l1", subject: "node:ftc-lift-l1", predicate: "geometry", value: { name: "Lift (Level 1)", kind: "vertical", floor: "l1", x_percent: 40, y_percent: 60 } }),
+    accepted({ fact_id: "edge:ftc-e-j1-lift", subject: "edge:ftc-e-j1-lift", predicate: "edge", value: { from: "ftc-j1", to: "ftc-lift-g", bidirectional: true, floor_change: false, vertical_kind: null, length_px: null } }),
+    accepted({ fact_id: "connector:ftc-lift", subject: "connector:ftc-lift", predicate: "connector", value: [{ kind: "lift", name: "Centre lift", direction: "both", availability: "open" }, { floor: "g", node: "ftc-lift-g" }, { floor: "l1", node: "ftc-lift-l1" }] }),
+  ];
+  const withFacts = (l: EvidenceLedger, extra: EvidenceFact[]): EvidenceLedger => ({ ...l, facts: [...l.facts, ...extra] });
+
+  it("an extraction's connectors become proposed facts; a field import's timings and step-free observations too", () => {
+    const ex = checkExtraction({
+      schema_version: 1, worker: { kind: "file", name: "t" }, source_ids: ["ftc-map"],
+      floors: [], nodes: [], unit_polygons: [], store_labels: [], corridor_centerlines: [], edges: [], instructions: [], destinations: [], anchors: [], amenities: [], facts: [],
+      connectors: [{ id: "k1", source_id: "ftc-map", evidence_class: "visual_first_party", confidence: 0.8, manual_review_required: false, kind: "escalator", direction: "up", landings: [{ floor: "g", node: "a" }, { floor: "l1", node: "b" }] }],
+    }, undefined, new Set(SRC.keys()));
+    expect(ex.status).toBe("ok");
+    if (ex.status !== "ok") return;
+    const facts = factsFromExtraction(ex.value, "t", SRC);
+    expect(facts.status === "ok" && facts.facts[0]).toMatchObject({ fact_id: "connector:k1", subject: "connector:k1", predicate: "connector", status: "proposed", value: [{ kind: "escalator", direction: "up", availability: "open", name: null }, { floor: "g", node: "a" }, { floor: "l1", node: "b" }] });
+    // Shape rules: two landings minimum, closed vocabularies, no unknown keys.
+    const bad = checkExtraction({ ...(ex.value as unknown as Record<string, unknown>), connectors: [{ id: "k1", source_id: "ftc-map", evidence_class: "visual_first_party", confidence: 0.8, manual_review_required: false, kind: "teleporter", direction: "sideways", landings: [{ floor: "g", node: "a" }], length_px: 10 }] }, undefined, new Set(SRC.keys()));
+    expect(bad.status === "failed" ? bad.errors.map((e) => e.path).join(" ") : "").toMatch(/connectors\[0\]\.kind.*connectors\[0\]\.direction.*connectors\[0\]\.landings/);
+    expect(bad.status === "failed" ? bad.errors.map((e) => e.message).join(" ") : "").toMatch(/unknown key "length_px"/);
+    const fi = checkFieldImport({ schema_version: 1, observer: "o", observed_at: "2026-09-14", source_id: "ftc-field", measurements: [], node_confirmations: [], door_confirmations: [], accessibility: [{ id: "a1", subject: "connector:ftc-lift", step_free: true }], connector_timings: [{ id: "t1", connector: "ftc-lift", traversal_seconds: 35, method: "stopwatch, door to door" }] });
+    expect(fi.status).toBe("ok");
+    if (fi.status !== "ok") return;
+    const ff = factsFromFieldImport(fi.value, "t", SRC);
+    expect(ff.status === "ok" ? ff.facts.map((f) => [f.fact_id, f.subject, f.predicate, f.status, f.evidence_class]) : []).toEqual([
+      ["accessibility:a1", "connector:ftc-lift", "accessibility", "proposed", "field_verified"],
+      ["timing:t1", "connector:ftc-lift", "traversal", "proposed", "field_verified"],
+    ]);
+  });
+
+  it("compiles connectors deterministically with unknown step-free evidence and no ride time unless field-verified", () => {
+    const l = withFacts(reviewedLedger(), twoLevel());
+    const a = compileDraft(job(), l, SOURCES);
+    expect(messages(a)).toBe("");
+    if (a.status !== "ok") return;
+    expect(a.pack.connectors).toEqual([{
+      id: "ftc-lift", kind: "lift", name: "Centre lift", landings: [{ floor: "g", node: "ftc-lift-g" }, { floor: "l1", node: "ftc-lift-l1" }],
+      direction: "both", availability: "open", evidence: { geometry: "source-backed", measurement: "unmeasured" }, accessibility: { step_free: "unknown" },
+      source: expect.stringMatching(/ftc-map/),
+    }]);
+    expect(a.pack.graph.edges.some((e) => e.floor_change)).toBe(false); // no traced floor-change edge, no fake length
+    const b = compileDraft(job(), { ...l, facts: [...l.facts].reverse() }, [...SOURCES].reverse());
+    expect(stableJson(a.pack)).toBe(stableJson(b.status === "ok" ? b.pack : null));
+
+    // Field facts upgrade truthfully: a timed ride gives traversal_seconds; an observation sets step_free evidence.
+    const field = compileDraft(job(), withFacts(l, [
+      accepted({ fact_id: "timing:t1", subject: "connector:ftc-lift", predicate: "traversal", value: { traversal_seconds: 35, method: "stopwatch" }, source_id: "ftc-field", evidence_class: "field_verified", confidence: 1 }),
+      accepted({ fact_id: "accessibility:a1", subject: "connector:ftc-lift", predicate: "accessibility", value: { step_free: false }, source_id: "ftc-field", evidence_class: "field_verified", confidence: 1 }),
+    ]), SOURCES);
+    expect(field.status === "ok" ? field.pack.connectors?.[0] : null).toMatchObject({ traversal_seconds: 35, evidence: { measurement: "measured" }, accessibility: { step_free: "field_verified_no" } });
+    // Non-field evidence can never produce a ride time or an accessibility claim.
+    expect(messages(compileDraft(job(), withFacts(l, [accepted({ fact_id: "timing:t2", subject: "connector:ftc-lift", predicate: "traversal", value: { traversal_seconds: 35, method: "guess" }, evidence_class: "operator_supplied" })]), SOURCES))).toMatch(/only field_verified timings may produce traversal_seconds/);
+    expect(messages(compileDraft(job(), withFacts(l, [accepted({ fact_id: "accessibility:a2", subject: "connector:ftc-lift", predicate: "accessibility", value: { step_free: true }, evidence_class: "operator_supplied" })]), SOURCES))).toMatch(/only a field_verified observation may set step_free/);
+  });
+
+  it("fails loudly: a floor-change edge, a landing on a corridor node, a landing off its floor, an unaccepted landing node", () => {
+    const l = withFacts(reviewedLedger(), twoLevel());
+    expect(messages(compileDraft(job(), withFacts(l, [accepted({ fact_id: "edge:ftc-e-fake-lift", subject: "edge:ftc-e-fake-lift", predicate: "edge", value: { from: "ftc-lift-g", to: "ftc-lift-l1", bidirectional: true, floor_change: true, vertical_kind: "lift", length_px: 10 } })]), SOURCES))).toMatch(/floor changes are declared as connectors/);
+    const swap = (value: unknown) => ({ ...l, facts: l.facts.map((f) => (f.fact_id === "connector:ftc-lift" ? { ...f, value: value as EvidenceFact["value"] } : f)) });
+    expect(messages(compileDraft(job(), swap([{ kind: "lift" }, { floor: "g", node: "ftc-j1" }, { floor: "l1", node: "ftc-lift-l1" }]), SOURCES))).toMatch(/landing node "ftc-j1" is a junction node/);
+    expect(messages(compileDraft(job(), swap([{ kind: "lift" }, { floor: "l1", node: "ftc-lift-g" }, { floor: "l1", node: "ftc-lift-l1" }]), SOURCES))).toMatch(/landing node "ftc-lift-g" is on floor "g", not "l1"/);
+    expect(messages(compileDraft(job(), setStatus(l, "node:ftc-lift-l1", "proposed"), SOURCES))).toMatch(/connector:ftc-lift\.landings: references node "ftc-lift-l1": node:ftc-lift-l1 is not yet accepted/);
+  });
+});

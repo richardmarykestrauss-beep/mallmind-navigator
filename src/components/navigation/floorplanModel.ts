@@ -33,7 +33,7 @@ export interface FloorplanCoordinate {
 }
 
 export type FloorplanNodeType =
-  | "entrance" | "corridor" | "shop" | "lift" | "escalator" | "stairs" | "landmark" | "amenity" | "vertical";
+  | "entrance" | "corridor" | "shop" | "lift" | "escalator" | "stairs" | "ramp" | "landmark" | "amenity" | "vertical";
 
 export interface FloorplanNode {
   id: string;
@@ -140,6 +140,7 @@ const NODE_TYPE_BY_KIND: Readonly<Record<string, FloorplanNodeType>> = {
   lift: "lift",
   escalator: "escalator",
   stairs: "stairs",
+  ramp: "ramp",
   vertical: "vertical",
 };
 export function nodeTypeFor(kind: string | null | undefined, type?: string | null): FloorplanNodeType | undefined {
@@ -185,6 +186,12 @@ export interface BackendEdgeLike {
   bidirectional?: boolean | null;
   /** lift | escalator | stairs | ramp for floor-change edges. */
   vertical_kind?: "lift" | "escalator" | "stairs" | "ramp" | null;
+  /** The declared connector this vertical edge belongs to (loader-expanded or hand-written). */
+  connector_id?: string | null;
+  /** Measured ride/climb time of a connector edge (seconds); null = not measured. Never fabricated. */
+  traversal_seconds?: number | null;
+  /** Connector accessibility EVIDENCE for step-free routing (never inferred from kind). */
+  step_free?: "unknown" | "field_verified_yes" | "field_verified_no" | null;
 }
 export interface BackendFloorplanLike {
   floor_label: string | null;
@@ -209,10 +216,13 @@ export interface DeclaredFloor { id: string; label: string; order?: number }
 export function toFloorplanModel(
   model: BackendIndoorModelLike,
   meta: { mallId: string; mallName: string },
-  opts: { floors?: DeclaredFloor[] } = {},
+  opts: { floors?: DeclaredFloor[]; connectors?: ReadonlyArray<{ kind: "lift" | "escalator" | "stairs" | "ramp"; landings: ReadonlyArray<{ node: string }> }> } = {},
 ): FloorplanModel {
   const nodes = model.nodes ?? [];
   const edges = model.edges ?? [];
+  // A declared connector says what its landing nodes ARE (lift / escalator / stairs / ramp); a bare "vertical" node only says a floor changes here.
+  const landingKind = new Map<string, FloorplanNodeType>();
+  for (const k of opts.connectors ?? []) for (const l of k.landings) landingKind.set(l.node, k.kind);
 
   const declared = new Map<string, DeclaredFloor>();
   for (const f of opts.floors ?? []) declared.set(floorKey(f.id), f);
@@ -235,7 +245,7 @@ export function toFloorplanModel(
       id: n.id,
       name: n.name,
       floor: key,
-      type: nodeTypeFor(n.kind, n.type),
+      type: landingKind.get(n.id) ?? nodeTypeFor(n.kind, n.type),
       position: { x: percentToUnits(n.x_coordinate, FLOOR_WIDTH), y: percentToUnits(n.y_coordinate, FLOOR_HEIGHT) },
     }));
 
@@ -326,47 +336,6 @@ export function routeFloors(points: RoutePolylinePoint[]): string[] {
 /** Shape the polyline for the marker simulation (computeRouteWalk input). */
 export function polylineToWalkNodes(points: RoutePolylinePoint[]): { x: number; y: number; floor: string }[] {
   return points.map((p) => ({ x: p.x, y: p.y, floor: p.floor }));
-}
-
-/**
- * Build a schematic FloorplanModel directly from route steps when no Venue Pack
- * graph is available — the route's own node coordinates become the floor graph
- * (nodes + connecting corridor edges) so the canvas still renders real geometry
- * (honestly labelled "Schematic floorplan generated from MallMind route graph").
- */
-export function schematicModelFromRoute(
-  steps: RouteStepLike[],
-  meta: { mallId: string; mallName: string },
-): FloorplanModel {
-  const keys: string[] = [];
-  for (const s of steps) {
-    const f = floorKey(s.floor);
-    if (!keys.includes(f)) keys.push(f);
-  }
-  if (keys.length === 0) keys.push(UNRECORDED_FLOOR); // an empty route still needs one plane to draw on
-
-  const floors: FloorplanFloor[] = keys.map((key) => {
-    const label = key === UNRECORDED_FLOOR ? UNRECORDED_FLOOR_LABEL : key;
-    const onFloor = steps
-      .map((s, i) => ({ s, i }))
-      .filter(({ s }) => floorKey(s.floor) === key);
-
-    const nodes: FloorplanNode[] = onFloor.map(({ s }) => ({
-      id: s.node_id,
-      name: s.node_id,
-      floor: key,
-      position: { x: percentToUnits(s.x_coordinate, FLOOR_WIDTH), y: percentToUnits(s.y_coordinate, FLOOR_HEIGHT) },
-    }));
-
-    const edges: FloorplanEdge[] = [];
-    for (let k = 0; k < onFloor.length - 1; k++) {
-      edges.push({ from: onFloor[k].s.node_id, to: onFloor[k + 1].s.node_id, type: "corridor" });
-    }
-
-    return { id: key, label, width: FLOOR_WIDTH, height: FLOOR_HEIGHT, nodes, edges, stores: [] };
-  });
-
-  return { mallId: meta.mallId, mallName: meta.mallName, floors };
 }
 
 /** Bounding box of a set of points (for the GPS-style camera). */

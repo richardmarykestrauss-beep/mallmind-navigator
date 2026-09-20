@@ -243,7 +243,7 @@ function cmdCompile(argv: string[], env: CliEnv): number {
   next = transition(next, "awaiting_review", "draft validated by the app validator; awaiting human approval", now);
   saveJob(dir, next);
   for (const w of r.warnings) env.log(`warning: ${w}`);
-  env.log(`draft compiled → ${rel} (${r.pack.graph.nodes.length} nodes, ${r.pack.graph.edges.length} edges, ${r.pack.destinations.length} destinations, ${r.pack.anchors.length} anchors, ${r.pack.amenities.length} amenities; evidence geometry=${r.pack.venue.evidence.geometry} measurement=${r.pack.venue.evidence.measurement} field_verification=${r.pack.venue.evidence.field_verification}) in ${ms} ms; sha256 ${sha.slice(0, 12)}…`);
+  env.log(`draft compiled → ${rel} (${r.pack.graph.nodes.length} nodes, ${r.pack.graph.edges.length} edges, ${r.pack.destinations.length} destinations, ${r.pack.anchors.length} anchors, ${r.pack.amenities.length} amenities, ${r.pack.connectors?.length ?? 0} connectors; evidence geometry=${r.pack.venue.evidence.geometry} measurement=${r.pack.venue.evidence.measurement} field_verification=${r.pack.venue.evidence.field_verification}) in ${ms} ms; sha256 ${sha.slice(0, 12)}…`);
   env.log("awaiting human approval (venue:review with decision.action = approve)");
   return 0;
 }

@@ -6,7 +6,7 @@
  * string is plain text, ids match their patterns, and every issue is reported with a JSON path.
  */
 
-import { VENUE_ID_PATTERN, DEPLOYMENT_STATES, DISTANCE_UNITS, NODE_KINDS, DESTINATION_KINDS, ANCHOR_KINDS, AMENITY_KINDS, VERTICAL_KINDS } from "../contract";
+import { VENUE_ID_PATTERN, DEPLOYMENT_STATES, DISTANCE_UNITS, NODE_KINDS, DESTINATION_KINDS, ANCHOR_KINDS, AMENITY_KINDS, VERTICAL_KINDS, CONNECTOR_DIRECTIONS, CONNECTOR_AVAILABILITY, ROUTE_PREFERENCES } from "../contract";
 import { UNSAFE_TEXT } from "../validate";
 import {
   FACTORY_SCHEMA_VERSION, SOURCE_TYPES, SOURCE_PARTIES, RIGHTS_STATUSES, EVIDENCE_CLASSES, FACT_STATUSES, JOB_STATUSES, INFERENCE_CLASSES,
@@ -153,7 +153,7 @@ export function checkVenueConfig(input: unknown, path = "$"): Checked<JobVenueCo
   }
   c.oneOf(`${path}.distance_unit`, input.distance_unit, DISTANCE_UNITS);
   c.oneOf(`${path}.field_verification_intent`, input.field_verification_intent, ["not-started", "pending"] as const, false);
-  if (c.obj(`${path}.policies`, input.policies, ["start", "destinations", "floors", "metrics", "instructions"])) {
+  if (c.obj(`${path}.policies`, input.policies, ["start", "destinations", "floors", "metrics", "instructions", "routing"])) {
     const p = input.policies;
     if (c.obj(`${path}.policies.start`, p.start, ["default_anchor", "allowed_anchor_kinds"])) {
       if (p.start.default_anchor != null) c.id(`${path}.policies.start.default_anchor`, p.start.default_anchor, VENUE_ID_PATTERN);
@@ -168,6 +168,13 @@ export function checkVenueConfig(input: unknown, path = "$"): Checked<JobVenueCo
     if (c.obj(`${path}.policies.instructions`, p.instructions, ["generic_fallback", "start_prefix"])) {
       c.bool(`${path}.policies.instructions.generic_fallback`, p.instructions.generic_fallback);
       c.bool(`${path}.policies.instructions.start_prefix`, p.instructions.start_prefix);
+    }
+    // Routing policy (Sprint 7): connector COST by kind — a policy number, never a distance — and the default preference.
+    if (p.routing != null && c.obj(`${path}.policies.routing`, p.routing, ["connector_cost", "preference"])) {
+      if (p.routing.connector_cost != null && c.obj(`${path}.policies.routing.connector_cost`, p.routing.connector_cost, VERTICAL_KINDS)) {
+        for (const [k, v] of Object.entries(p.routing.connector_cost)) c.num(`${path}.policies.routing.connector_cost.${k}`, v, { min: 0 });
+      }
+      c.oneOf(`${path}.policies.routing.preference`, p.routing.preference, ROUTE_PREFERENCES, false);
     }
   }
   c.text(`${path}.notes`, input.notes, false, 1000);
@@ -259,7 +266,7 @@ export function checkSourceManifest(input: unknown, jobId?: string): Checked<Sou
 export function checkExtraction(input: unknown, jobId?: string, knownSources?: ReadonlySet<string>): Checked<CandidateExtraction> {
   const c = new Check();
   const lists = ["floors", "nodes", "unit_polygons", "store_labels", "corridor_centerlines", "edges", "instructions", "destinations", "anchors", "amenities", "facts"] as const;
-  if (!c.obj("$", input, ["schema_version", "job_id", "worker", "source_ids", ...lists])) return c.done(input as CandidateExtraction);
+  if (!c.obj("$", input, ["schema_version", "job_id", "worker", "source_ids", ...lists, "connectors"])) return c.done(input as CandidateExtraction);
   c.schema("$.schema_version", input.schema_version);
   c.jobIdOptional("$.job_id", input.job_id, jobId);
   if (c.obj("$.worker", input.worker, ["kind", "name", "version", "model"])) {
@@ -271,10 +278,11 @@ export function checkExtraction(input: unknown, jobId?: string, knownSources?: R
   const sourceOk = (p: string, id: unknown) => { if (c.id(p, id, SOURCE_ID_PATTERN) && knownSources && !knownSources.has(id)) c.fail(p, `source "${id}" is not in the job's source manifest`); };
   if (c.array("$.source_ids", input.source_ids)) input.source_ids.forEach((s, i) => sourceOk(`$.source_ids[${i}]`, s));
   for (const l of lists) c.array(`$.${l}`, input[l]);
+  c.array("$.connectors", input.connectors, false); // optional: older extractions have no connectors
   if (c.errors.length) return c.done(input as unknown as CandidateExtraction);
   const each = (list: string, keys: readonly string[], fn: (p: string, v: Rec) => void) => {
     const ids: string[] = [];
-    (input[list] as unknown[]).forEach((v, i) => {
+    ((input[list] as unknown[] | undefined) ?? []).forEach((v, i) => {
       const p = `$.${list}[${i}]`;
       if (!c.obj(p, v, [...BASE_KEYS, ...keys])) return;
       c.candidateBase(p, v);
@@ -307,10 +315,18 @@ export function checkExtraction(input: unknown, jobId?: string, knownSources?: R
     c.bool(`${p}.start_permitted`, v.start_permitted); c.bool(`${p}.qr_eligible`, v.qr_eligible, false);
   });
   each("amenities", ["kind", "name", "node", "routable", "aliases"], (p, v) => { c.oneOf(`${p}.kind`, v.kind, AMENITY_KINDS); c.text(`${p}.name`, v.name, true, 120); c.id(`${p}.node`, v.node, CANDIDATE_ID_PATTERN); c.bool(`${p}.routable`, v.routable); c.aliases(`${p}.aliases`, v.aliases); });
+  each("connectors", ["kind", "name", "landings", "direction", "availability"], (p, v) => {
+    c.oneOf(`${p}.kind`, v.kind, VERTICAL_KINDS); c.text(`${p}.name`, v.name, false, 120);
+    c.oneOf(`${p}.direction`, v.direction, CONNECTOR_DIRECTIONS, false); c.oneOf(`${p}.availability`, v.availability, CONNECTOR_AVAILABILITY, false);
+    if (c.array(`${p}.landings`, v.landings)) {
+      if (v.landings.length < 2) c.fail(`${p}.landings`, "a connector needs at least 2 landings (one per floor it serves)");
+      v.landings.forEach((l, j) => { if (c.obj(`${p}.landings[${j}]`, l, ["floor", "node"])) { c.id(`${p}.landings[${j}].floor`, l.floor, CANDIDATE_ID_PATTERN); c.id(`${p}.landings[${j}].node`, l.node, CANDIDATE_ID_PATTERN); } });
+    }
+  });
   each("facts", ["subject", "predicate", "value"], (p, v) => { c.text(`${p}.subject`, v.subject, true, 160); c.text(`${p}.predicate`, v.predicate, true, 60); c.factValue(`${p}.value`, v.value); });
   // An AI worker's candidates are inference by definition unless they carry a first-party class AND are flagged for review.
   if (isRec(input.worker) && input.worker.kind === "ai") {
-    for (const l of lists) (input[l] as unknown[]).forEach((v, i) => {
+    for (const l of [...lists, "connectors"]) ((input[l] as unknown[] | undefined) ?? []).forEach((v, i) => {
       if (isRec(v) && !isAi(v) && !INFERENCE_CLASSES.includes(v.evidence_class as never) && v.manual_review_required !== true) c.fail(`$.${l}[${i}].manual_review_required`, "an AI worker may only submit non-inference classes with manual_review_required: true");
     });
   }
@@ -374,7 +390,7 @@ export function checkReview(input: unknown, jobId?: string): Checked<ReviewInput
 // ── Field verification import ───────────────────────────────────────────────
 export function checkFieldImport(input: unknown, jobId?: string): Checked<FieldImport> {
   const c = new Check();
-  if (!c.obj("$", input, ["schema_version", "job_id", "observer", "observed_at", "source_id", "measurements", "node_confirmations", "door_confirmations", "accessibility"])) return c.done(input as FieldImport);
+  if (!c.obj("$", input, ["schema_version", "job_id", "observer", "observed_at", "source_id", "measurements", "node_confirmations", "door_confirmations", "accessibility", "connector_timings"])) return c.done(input as FieldImport);
   c.schema("$.schema_version", input.schema_version);
   c.jobIdOptional("$.job_id", input.job_id, jobId);
   c.text("$.observer", input.observer, true, 120);
@@ -390,6 +406,7 @@ export function checkFieldImport(input: unknown, jobId?: string): Checked<FieldI
   list("node_confirmations", ["node", "at"], (p, v) => { c.id(`${p}.node`, v.node, CANDIDATE_ID_PATTERN); if (v.at != null) c.point(`${p}.at`, v.at); });
   list("door_confirmations", ["destination"], (p, v) => c.id(`${p}.destination`, v.destination, CANDIDATE_ID_PATTERN));
   list("accessibility", ["subject", "step_free"], (p, v) => { c.text(`${p}.subject`, v.subject, true, 160); c.bool(`${p}.step_free`, v.step_free); });
+  if (input.connector_timings != null) list("connector_timings", ["connector", "traversal_seconds", "method"], (p, v) => { c.id(`${p}.connector`, v.connector, CANDIDATE_ID_PATTERN); c.num(`${p}.traversal_seconds`, v.traversal_seconds, { min: 1, max: 3600 }); c.text(`${p}.method`, v.method, true, 120); });
   return c.done(input as unknown as FieldImport);
 }
 

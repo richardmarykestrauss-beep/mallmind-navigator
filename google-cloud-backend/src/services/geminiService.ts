@@ -1,8 +1,7 @@
 import { GoogleGenAI, Type, Tool, FunctionDeclaration, FunctionCallingConfigMode } from "@google/genai";
 import { recommendProducts, buildDeterministicShoppingAnswer } from "./productService.js";
-import { buildRoute, buildRouteNoSession } from "./routingService.js";
 import { getSupabaseClient } from "../lib/supabase.js";
-import type { ScoredProduct, RouteStep } from "../lib/types.js";
+import type { ScoredProduct, RouteStep, NavigationRequest } from "../lib/types.js";
 import { buildShoppingAnswer, normalizeAssistantSearchQuery, alignAssistantMessage, extractDirectRouteDestination, extractDeterministicShoppingIntent, mapProductRowsToCandidates, buildVerifiedOnlyNoResultMessage, ASSISTANT_DEGRADED_MESSAGE } from "./assistant/index.js";
 import type { ShoppingAnswer } from "./assistant/index.js";
 
@@ -27,46 +26,18 @@ function detectRouteIntent(message: string): boolean {
 // (extractDirectRouteDestination) so it covers more phrasings ("where is …",
 // "find …") and rejects vague/product-dependent requests.
 
-async function findRouteShopsByName(mallId: string, destinationName: string) {
-  const supabase = getSupabaseClient();
-  const cleaned = destinationName.trim();
-  if (!cleaned) return [];
-
-  const { data, error } = await supabase
-    .from("shops")
-    .select("id, name, category, floor, unit_number")
-    .eq("mall_id", mallId)
-    .ilike("name", `%${cleaned}%`)
-    .limit(5);
-
-  if (error) {
-    console.error("[assistant] store route lookup failed:", error.message);
-    return [];
-  }
-
-  return data ?? [];
+/**
+ * Navigation is a MALL operation, not an AI operation. The assistant only records WHERE the visitor
+ * wants to go (a NavigationRequest); the device resolves it against the venue's Venue Pack and the
+ * deterministic router draws the route. No route geometry, distance or time is produced here.
+ */
+function navigationRequest(destinationQuery: string, source: NavigationRequest["resolution_source"], shop?: { id?: string | null; name?: string | null }): NavigationRequest {
+  return { type: "navigate", destination_query: destinationQuery.trim(), shop_id: shop?.id ?? null, shop_name: shop?.name ?? null, resolution_source: source };
 }
 
-function buildStoreRouteMessage(
-  destinationName: string,
-  shops: Array<{ name: string; floor: string | null; unit_number: string | null }>,
-  routeSummary: string,
-): string {
-  const top = shops[0];
-  const locationBits = [
-    top?.floor ? `Floor ${top.floor}` : null,
-    top?.unit_number ? `Unit ${top.unit_number}` : null,
-  ].filter(Boolean).join(" · ");
-
-  return [
-    `I found ${top?.name ?? destinationName}.`,
-    locationBits ? locationBits + "." : "Store location is available on the route graph.",
-    routeSummary ? `Route ready: ${routeSummary}.` : "Route ready.",
-    "Tap Start Navigation and I’ll guide you there.",
-  ].join(" ");
+function buildNavigationMessage(destination: string): string {
+  return `Let’s get you to ${destination}. MallMind will show the route on the Navigate tab, starting from your current start point.`;
 }
-
-// ── SA store hours check ──────────────────────────────────────────────────────
 
 async function checkStoreHours(mallId: string, shopName: string) {
   const supabase = getSupabaseClient();
@@ -157,19 +128,15 @@ const toolDeclarations: FunctionDeclaration[] = [
     },
   },
   {
-    name: "build_route",
-    description: "Build a step-by-step navigation route to selected stores. Call when the user wants to be guided to a store.",
+    name: "navigate_to",
+    description: "Record that the user wants to be guided to ONE store or facility. Give the destination's name as the user or the product result names it. MallMind draws the route on the device; never describe corridors, distances or walking times yourself.",
     parameters: {
       type: Type.OBJECT,
       properties: {
-        shop_ids: {
-          type: Type.ARRAY,
-          items: { type: Type.STRING },
-          description: "Shop IDs from recommend_products results — ground floor first",
-        },
-        summary: { type: Type.STRING, description: "e.g. 2 stops · ~15 min walk" },
+        destination: { type: Type.STRING, description: "Store or facility name, e.g. Clicks, toilets, Woolworths" },
+        shop_id: { type: Type.STRING, description: "Shop ID from recommend_products when the destination came from a product result" },
       },
-      required: ["shop_ids"],
+      required: ["destination"],
     },
   },
 ];
@@ -202,7 +169,7 @@ function buildSystemPrompt(ctx: {
     "TOOL RULES (non-negotiable):",
     "1. Always call recommend_products FIRST for any product or price query.",
     "2. CRITICAL — Route intent: If the user says 'take me to', 'directions to', 'route to',",
-    "   'navigate to', 'show me the way to', or 'how do I get to' — call build_route",
+    "   'navigate to', 'show me the way to', or 'how do I get to' — call navigate_to with the destination name; never invent directions",
     "   IMMEDIATELY after recommend_products. No confirmation. No preamble. Just call it.",
     "   Build the route even if the shop is closed. Warn about closure in your message.",
     "   NEVER mention sessions or system state. Routing always works.",
@@ -263,13 +230,19 @@ export interface AssistantContext {
 export interface AssistantResult {
   message: string;
   products: ScoredProduct[];
+  /** @deprecated always empty since Sprint 7 — the assistant never produces route geometry. */
   route_steps: RouteStep[];
+  /** @deprecated always null since Sprint 7. */
   route_id: string | null;
+  /** @deprecated mirrors `navigation_request != null`; kept for older clients. */
   build_route: boolean;
+  /** @deprecated retail shop ids the request came from, when any. */
   route_shop_ids: string[];
   route_summary: string;
   /** Additive: structured shopper-safe answer from the assistant engine. */
   shopping_answer: ShoppingAnswer | null;
+  /** Where the visitor wants to go (intent only). The device resolves and routes it. */
+  navigation_request: NavigationRequest | null;
 }
 
 // ── Shopping Assistant Intelligence Engine bridge (additive) ─────────────────
@@ -321,6 +294,7 @@ async function resolveDeterministicShopping(
       route_shop_ids: [],
       route_summary: "",
       shopping_answer: deterministic.shopping_answer,
+      navigation_request: null,
     };
   }
 
@@ -336,6 +310,7 @@ async function resolveDeterministicShopping(
       route_shop_ids: [],
       route_summary: "",
       shopping_answer: null,
+      navigation_request: null,
     };
   }
 
@@ -377,6 +352,7 @@ async function recoverFromGeminiFailure(
     route_shop_ids: [],
     route_summary: "",
     shopping_answer: null,
+    navigation_request: null,
   };
 }
 
@@ -481,34 +457,6 @@ function buildRecommendationWhy(p: ScoredProduct, budget: number | null | undefi
 // invents a distance, a floor, a direction or a walking time: distances are 0
 // and an unknown floor stays null. (Before Sept 2026 every stop was given a
 // fabricated 100 m and a default "Floor G".)
-
-function buildFallbackRouteSteps(
-  products: ScoredProduct[],
-  shopIds: string[]
-): RouteStep[] {
-  const steps: RouteStep[] = [];
-  let stepNum = 1;
-
-  for (const shopId of shopIds) {
-    const p = products.find((x) => x.shop_id === shopId);
-    if (!p) continue;
-    const unit = p.unit_number ? ` (unit ${p.unit_number})` : "";
-    const floor = p.floor ?? null;
-    const where = floor ? ` on ${floor}` : "";
-    steps.push({
-      step: stepNum++,
-      instruction: `Find ${p.shop_name}${unit}${where}. Walking directions are not available for this mall yet.`,
-      node_id: "",
-      node_name: p.shop_name,
-      floor,
-      distance_meters: 0,
-      floor_change: false,
-      cumulative_meters: 0,
-    });
-  }
-
-  return steps;
-}
 
 // ── Route apology detection + override ───────────────────────────────────────
 // Gemini sometimes generates "I can't build a route — session not active" before
@@ -626,8 +574,7 @@ export async function runAssistant(
   });
 
   const allProducts: ScoredProduct[] = [];
-  let routeSteps: RouteStep[] = [];
-  let routeId: string | null = null;
+  let navigation: NavigationRequest | null = null;
   let routeShopIds: string[] = [];
   let routeSummary = "";
 
@@ -661,50 +608,20 @@ export async function runAssistant(
       ? extractDirectRouteDestination(lastMessage.content)
       : null;
 
-  if (directRouteDestination && ctx.mall_id) {
-    const routeShops = await findRouteShopsByName(ctx.mall_id, directRouteDestination);
-
-    // One confident match only: prefer an exact normalized name match; accept a
-    // single fuzzy match; never guess between multiple ambiguous matches (those
-    // fall through to Gemini). Never hallucinate a shop.
-    const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
-    const exact = routeShops.filter((s) => norm(s.name) === norm(directRouteDestination));
-    const chosen =
-      exact.length === 1 ? exact[0] : routeShops.length === 1 ? routeShops[0] : null;
-
-    if (chosen) {
-      routeShopIds = [String(chosen.id)];
-
-      try {
-        if (ctx.session_id) {
-          const r = await buildRoute(ctx.session_id, routeShopIds, ctx.user_id ?? null);
-          routeSteps = r.steps;
-          routeId = r.route_id;
-          routeSummary = `${r.stop_count} stop${r.stop_count !== 1 ? "s" : ""} · ~${r.estimated_minutes} min walk`;
-        } else {
-          const r = await buildRouteNoSession(ctx.mall_id, routeShopIds);
-          routeSteps = r.steps;
-          routeId = null;
-          routeSummary = `${r.stop_count} stop${r.stop_count !== 1 ? "s" : ""} · ~${r.estimated_minutes} min walk`;
-        }
-
-        if (routeSteps.length > 0) {
-          // Skips Gemini entirely — direct route is quota-independent.
-          return {
-            message: buildStoreRouteMessage(directRouteDestination, [chosen], routeSummary),
-            products: [],
-            route_steps: routeSteps,
-            route_id: routeId,
-            build_route: true,
-            route_shop_ids: routeShopIds,
-            route_summary: routeSummary,
-            shopping_answer: null,
-          };
-        }
-      } catch (err) {
-        console.error("[assistant] deterministic store-name route failed:", err);
-      }
-    }
+  if (directRouteDestination) {
+    // Skips Gemini entirely — a navigation request is quota-independent and carries no geometry.
+    const request = navigationRequest(directRouteDestination, "visitor_phrase");
+    return {
+      message: buildNavigationMessage(directRouteDestination),
+      products: [],
+      route_steps: [],
+      route_id: null,
+      build_route: true,
+      route_shop_ids: [],
+      route_summary: "",
+      shopping_answer: null,
+      navigation_request: request,
+    };
   }
 
   // ── Deterministic shopping bypass (no Gemini) ───────────────────────────────
@@ -794,51 +711,11 @@ export async function runAssistant(
       // but never called build_route (e.g. asked for confirmation instead),
       // we forcibly build the route here.  This is deterministic — never
       // relies on LLM compliance with the prompt instruction.
-      if (routeIntentDetected && allProducts.length > 0 && routeShopIds.length === 0) {
-        // Deduplicate: top-scored product's shop first, then others
-        const seenShops = new Set<string>();
-        for (const p of allProducts) {
-          if (!seenShops.has(p.shop_id)) seenShops.add(p.shop_id);
-        }
-        routeShopIds = [...seenShops];
-
-        try {
-          if (ctx.session_id) {
-            // Persist the route and get full Dijkstra steps
-            const r = await buildRoute(ctx.session_id, routeShopIds, ctx.user_id ?? null);
-            routeSteps = r.steps.length > 0
-              ? r.steps
-              : buildFallbackRouteSteps(allProducts, routeShopIds);
-            routeId = r.route_id;
-            // Only a real route carries a walking time; an unroutable result is a store list.
-            routeSummary = routeSummary || (r.fallback
-              ? `${routeShopIds.length} stop${routeShopIds.length !== 1 ? "s" : ""} · directions unavailable`
-              : `${r.stop_count} stop${r.stop_count !== 1 ? "s" : ""} · ~${r.estimated_minutes} min walk`);
-          } else if (ctx.mall_id) {
-            // No session — build from mall graph directly (not persisted)
-            const r = await buildRouteNoSession(ctx.mall_id, routeShopIds);
-            if (!r.fallback && r.steps.length > 0) {
-              // Graph data exists — use Dijkstra steps
-              routeSteps = r.steps;
-              routeSummary = routeSummary ||
-                `${r.stop_count} stop${r.stop_count !== 1 ? "s" : ""} · ~${r.estimated_minutes} min walk`;
-            } else {
-              // No graph data for this mall — synthesise steps from product info
-              routeSteps = buildFallbackRouteSteps(allProducts, routeShopIds);
-              routeSummary = routeSummary ||
-                `${routeShopIds.length} stop${routeShopIds.length !== 1 ? "s" : ""}`;
-            }
-            routeId = null;
-          }
-        } catch (err) {
-          // Route build failure is non-fatal — synthesise from product info
-          console.error("[assistant] forced route build failed:", err);
-          if (routeSteps.length === 0) {
-            routeSteps = buildFallbackRouteSteps(allProducts, routeShopIds);
-            routeSummary = routeSummary ||
-              `${routeShopIds.length} stop${routeShopIds.length !== 1 ? "s" : ""}`;
-          }
-        }
+      if (routeIntentDetected && allProducts.length > 0 && !navigation) {
+        const top = allProducts[0];
+        routeShopIds = [top.shop_id];
+        navigation = navigationRequest(top.shop_name, "product", { id: top.shop_id, name: top.shop_name });
+        routeSummary = routeSummary || `Route to ${top.shop_name} on the Navigate tab`;
       }
 
       // ── Message override ──────────────────────────────────────────────────
@@ -846,12 +723,7 @@ export async function runAssistant(
       // our post-processing adds the route data.  Replace apology messages with
       // a correct confirmation when we successfully have route steps to show.
       let message = finalText || buildProductFallbackMessage(allProducts, ctx.budget);
-      if (
-        routeIntentDetected &&
-        routeShopIds.length > 0 &&
-        routeSteps.length > 0 &&
-        isRouteApologyMessage(message)
-      ) {
+      if (routeIntentDetected && navigation && isRouteApologyMessage(message)) {
         message = buildRouteConfirmationMessage(allProducts, routeSummary);
       }
 
@@ -859,19 +731,20 @@ export async function runAssistant(
       // align the free-text message to it so the bubble never contradicts the
       // card. (A built route keeps its own route confirmation message.)
       const shoppingAnswer = buildShoppingAnswerForResult(
-        allProducts, lastMessage.content, ctx.budget, routeSteps.length > 0
+        allProducts, lastMessage.content, ctx.budget, navigation != null
       );
-      message = alignAssistantMessage(message, shoppingAnswer, routeShopIds.length > 0);
+      message = alignAssistantMessage(message, shoppingAnswer, navigation != null);
 
       return {
         message,
         products: allProducts,
-        route_steps: routeSteps,
-        route_id: routeId,
-        build_route: routeShopIds.length > 0,
+        route_steps: [],
+        route_id: null,
+        build_route: navigation != null,
         route_shop_ids: routeShopIds,
         route_summary: routeSummary,
         shopping_answer: shoppingAnswer,
+        navigation_request: navigation,
       };
     }
 
@@ -916,61 +789,17 @@ export async function runAssistant(
             ? await saveShoppingIntent(ctx.session_id, args.intent)
             : { saved: false };
           toolResult = JSON.stringify(saved);
-        } else if (fn.name === "build_route") {
-          const args = fn.args as { shop_ids: string[]; summary?: string };
-          routeShopIds = args.shop_ids.map(String);
-          routeSummary = args.summary ?? "";
-
-          // Inner try so a DB failure falls back to product-derived steps
-          // rather than leaving routeSteps empty and confusing the user.
-          try {
-            if (ctx.session_id && routeShopIds.length) {
-              // ── Session path: full Dijkstra + persist ──────────────────────
-              const r = await buildRoute(ctx.session_id, routeShopIds, ctx.user_id ?? null);
-              routeSteps = r.steps.length > 0
-                ? r.steps
-                : buildFallbackRouteSteps(allProducts, routeShopIds);
-              routeId = r.route_id;
-              // Only a real route carries a walking time; an unroutable result is a store list.
-              routeSummary = routeSummary || (r.fallback
-                ? `${routeShopIds.length} stop${routeShopIds.length !== 1 ? "s" : ""} · directions unavailable`
-                : `${r.stop_count} stop${r.stop_count !== 1 ? "s" : ""} · ~${r.estimated_minutes} min walk`);
-              toolResult = JSON.stringify({ built: !r.fallback, fallback: r.fallback, fallback_reason: r.fallback_reason, steps: routeSteps.length, estimated_minutes: r.estimated_minutes });
-            } else if (ctx.mall_id && routeShopIds.length) {
-              // ── No-session path: mall graph, not persisted ─────────────────
-              const r = await buildRouteNoSession(ctx.mall_id, routeShopIds);
-              if (!r.fallback && r.steps.length > 0) {
-                routeSteps = r.steps;
-                routeSummary = routeSummary ||
-                  `${r.stop_count} stop${r.stop_count !== 1 ? "s" : ""} · ~${r.estimated_minutes} min walk`;
-              } else {
-                // No usable graph / no path — a store list, never a synthesised route
-                routeSteps = buildFallbackRouteSteps(allProducts, routeShopIds);
-                routeSummary = routeSummary ||
-                  `${routeShopIds.length} stop${routeShopIds.length !== 1 ? "s" : ""} · directions unavailable`;
-              }
-              routeId = null;
-              toolResult = JSON.stringify({ built: !r.fallback, fallback: r.fallback, fallback_reason: r.fallback_reason, steps: routeSteps.length });
-            } else {
-              // ── No session and no mall — synthesise if products available ──
-              if (allProducts.length > 0) {
-                routeSteps = buildFallbackRouteSteps(allProducts, routeShopIds);
-                routeSummary = routeSummary ||
-                  `${routeShopIds.length} stop${routeShopIds.length !== 1 ? "s" : ""}`;
-                toolResult = JSON.stringify({ built: true, fallback: true, steps: routeSteps.length });
-              } else {
-                toolResult = JSON.stringify({ built: false, message: "No mall context available — cannot build route." });
-              }
-            }
-          } catch (routeErr) {
-            // DB failure — synthesise from products so the user still gets steps
-            console.error("[assistant] build_route tool failed:", routeErr);
-            if (routeSteps.length === 0 && allProducts.length > 0) {
-              routeSteps = buildFallbackRouteSteps(allProducts, routeShopIds);
-              routeSummary = routeSummary ||
-                `${routeShopIds.length} stop${routeShopIds.length !== 1 ? "s" : ""}`;
-            }
-            toolResult = JSON.stringify({ built: routeSteps.length > 0, fallback: true, steps: routeSteps.length });
+        } else if (fn.name === "navigate_to") {
+          const args = fn.args as { destination?: string; shop_id?: string };
+          const destination = String(args.destination ?? "").trim();
+          if (destination) {
+            const shop = args.shop_id ? allProducts.find((p) => p.shop_id === String(args.shop_id)) : undefined;
+            navigation = navigationRequest(destination, "assistant_tool", shop ? { id: shop.shop_id, name: shop.shop_name } : { id: args.shop_id ?? null, name: null });
+            routeShopIds = shop ? [shop.shop_id] : [];
+            routeSummary = `Route to ${destination} on the Navigate tab`;
+            toolResult = JSON.stringify({ recorded: true, destination, note: "MallMind resolves the destination on the visitor's device and draws the route from its own venue map. Do not describe corridors, distances or walking times." });
+          } else {
+            toolResult = JSON.stringify({ recorded: false, message: "A destination name is required." });
           }
         } else {
           toolResult = JSON.stringify({ error: `Unknown tool: ${fn.name}` });
@@ -1002,17 +831,18 @@ export async function runAssistant(
     : "I ran into an issue processing your request. Please try again.";
 
   const exhaustedAnswer = buildShoppingAnswerForResult(
-    allProducts, lastMessage.content, ctx.budget, routeSteps.length > 0
+    allProducts, lastMessage.content, ctx.budget, navigation != null
   );
 
   return {
-    message: alignAssistantMessage(exhaustedMessage, exhaustedAnswer, routeShopIds.length > 0),
+    message: alignAssistantMessage(exhaustedMessage, exhaustedAnswer, navigation != null),
     products: allProducts,
-    route_steps: routeSteps,
-    route_id: routeId,
-    build_route: routeShopIds.length > 0,
+    route_steps: [],
+    route_id: null,
+    build_route: navigation != null,
     route_shop_ids: routeShopIds,
     route_summary: routeSummary,
     shopping_answer: exhaustedAnswer,
+    navigation_request: navigation,
   };
 }

@@ -300,7 +300,7 @@ describe("Unroutable, restore, backend independence, events", () => {
     const real = engine.buildRoute;
     const spy = vi.spyOn(engine, "buildRoute").mockImplementation((graph, start, dest) =>
       start === "entrance-2"
-        ? { found: true, fallback: true, steps: [], metric: false, total_distance_meters: null, estimated_minutes: null, message: "Clicks isn’t connected to this map yet." }
+        ? { found: true, fallback: true, steps: [], metric: false, total_distance_meters: null, estimated_minutes: null, connector_count: 0, unmeasured_connectors: 0, message: "Clicks isn’t connected to this map yet." }
         : real(graph, start, dest));
     try {
       const events: string[] = [];

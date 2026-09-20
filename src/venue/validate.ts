@@ -9,7 +9,7 @@
 import {
   VENUE_PACK_SCHEMA_VERSION, VENUE_ID_PATTERN, GEOMETRY_EVIDENCE, IDENTITY_EVIDENCE, ARRIVAL_EVIDENCE, MEASUREMENT_EVIDENCE,
   ACCESSIBILITY_EVIDENCE, FIELD_VERIFICATION_STATES, DEPLOYMENT_STATES, DISTANCE_UNITS, NODE_KINDS, VERTICAL_KINDS,
-  DESTINATION_KINDS, ANCHOR_KINDS, AMENITY_KINDS,
+  DESTINATION_KINDS, ANCHOR_KINDS, AMENITY_KINDS, CONNECTOR_DIRECTIONS, CONNECTOR_AVAILABILITY, STEP_FREE_EVIDENCE, ROUTE_PREFERENCES,
   type VenuePack,
 } from "./contract";
 
@@ -230,7 +230,14 @@ export function validateVenuePack(input: unknown): VenueValidation {
       const hasPx = e.length_px != null;
       if (hasM) c.num(`${path}.distance_m`, e.distance_m, { min: Number.EPSILON });
       if (hasPx) c.num(`${path}.length_px`, e.length_px, { min: Number.EPSILON });
-      if (unit === "m") {
+      if (e.connector_id != null) c.id(`${path}.connector_id`, e.connector_id);
+      if (e.floor_change === true) {
+        // A vertical transition has NO horizontal length: nothing is required and nothing may be faked.
+        if (e.vertical_kind == null) c.fail(`${path}.vertical_kind`, "a floor-change edge must say what carries the visitor (lift | escalator | stairs | ramp)");
+        if (hasM) c.fail(`${path}.distance_m`, "a vertical transition carries no walking distance; metres here would be fabricated");
+        if (hasPx) c.fail(`${path}.length_px`, "a vertical transition carries no horizontal length; its routing cost comes from policy");
+        if (measOk && measured) c.fail(`${path}.evidence.measurement`, 'a vertical transition cannot be "measured" as a distance (traversal time lives on the connector)');
+      } else if (unit === "m") {
         if (!hasM) c.fail(`${path}.distance_m`, 'required (> 0) on every edge of a "m" pack');
         if (measOk && !measured) c.fail(`${path}.evidence.measurement`, '"m" packs claim measured metres, so every edge must be "measured"');
       } else if (unit === "px") {
@@ -253,6 +260,63 @@ export function validateVenuePack(input: unknown): VenueValidation {
       c.text(`${path}.notes`, e.notes, false, 1200);
     });
     c.unique("$.graph.edges", ids, "edge");
+    const edgeConnectorRefs = graph.edges.filter(isRec).map((e) => e.connector_id).filter((x): x is string => typeof x === "string");
+    if (edgeConnectorRefs.length) {
+      const declared = new Set(Array.isArray(p.connectors) ? p.connectors.filter(isRec).map((k) => k.id) : []);
+      edgeConnectorRefs.forEach((ref) => { if (!declared.has(ref)) c.fail("$.graph.edges", `connector_id "${ref}" does not match any declared connector`); });
+    }
+  }
+
+  // ── connectors (optional; schema 1 additive) ─────────────────────────────
+  if (p.connectors != null && c.array("$.connectors", p.connectors)) {
+    const floorOrder = new Map<string, number>();
+    if (Array.isArray(p.floors)) for (const f of p.floors) if (isRec(f) && typeof f.id === "string" && typeof f.order === "number") floorOrder.set(f.id, f.order);
+    const ids: string[] = [];
+    p.connectors.forEach((k, i) => {
+      const path = `$.connectors[${i}]`;
+      if (!isRec(k)) { c.fail(path, "must be an object"); return; }
+      if (c.id(`${path}.id`, k.id)) ids.push(k.id);
+      c.oneOf(`${path}.kind`, k.kind, VERTICAL_KINDS);
+      c.text(`${path}.name`, k.name, false, 120);
+      const dirOk = c.oneOf(`${path}.direction`, k.direction, CONNECTOR_DIRECTIONS);
+      c.oneOf(`${path}.availability`, k.availability, CONNECTOR_AVAILABILITY);
+      const evd = isRec(k.evidence) ? k.evidence : (c.fail(`${path}.evidence`, "required { geometry } is missing"), {} as Rec);
+      c.oneOf(`${path}.evidence.geometry`, evd.geometry, GEOMETRY_EVIDENCE);
+      const measOk = c.oneOf(`${path}.evidence.measurement`, evd.measurement, MEASUREMENT_EVIDENCE, false);
+      const measured = measOk && evd.measurement === "measured";
+      if (k.traversal_seconds != null) {
+        c.num(`${path}.traversal_seconds`, k.traversal_seconds, { min: 1, max: 3600 });
+        if (!measured) c.fail(`${path}.traversal_seconds`, 'a traversal time needs evidence.measurement "measured" (no invented ride or wait times)');
+      } else if (measured) c.fail(`${path}.traversal_seconds`, 'evidence says "measured" but no traversal_seconds is given');
+      if (k.accessibility != null) {
+        if (!isRec(k.accessibility)) c.fail(`${path}.accessibility`, "must be an object { step_free }");
+        else {
+          c.oneOf(`${path}.accessibility.step_free`, k.accessibility.step_free, STEP_FREE_EVIDENCE);
+          const extra = Object.keys(k.accessibility).filter((x) => x !== "step_free");
+          if (extra.length) c.fail(`${path}.accessibility`, `unknown keys ${extra.join(", ")}; only step_free is modelled`);
+        }
+      }
+      if (c.array(`${path}.landings`, k.landings)) {
+        if (k.landings.length < 2) c.fail(`${path}.landings`, "a connector needs at least two landings (one per floor it serves)");
+        const floorsSeen = new Set<string>();
+        const orders: number[] = [];
+        k.landings.forEach((l, j) => {
+          const lp = `${path}.landings[${j}]`;
+          if (!isRec(l)) { c.fail(lp, "must be { floor, node }"); return; }
+          if (typeof l.floor !== "string" || !floorIds.has(l.floor)) { c.fail(`${lp}.floor`, `references undeclared floor ${JSON.stringify(l.floor)}`); return; }
+          if (typeof l.node !== "string" || !nodeIds.has(l.node)) { c.fail(`${lp}.node`, `references unknown node ${JSON.stringify(l.node)}`); return; }
+          if (nodeFloor.get(l.node) !== l.floor) c.fail(`${lp}.node`, `node "${l.node}" is on floor "${nodeFloor.get(l.node)}", not "${l.floor}"`);
+          if (nodeKind.get(l.node) !== "vertical") c.fail(`${lp}.node`, `landing node "${l.node}" must be of kind "vertical" (got ${nodeKind.get(l.node)})`);
+          if (floorsSeen.has(l.floor)) c.fail(`${lp}.floor`, `floor "${l.floor}" appears twice on this connector`);
+          floorsSeen.add(l.floor);
+          const o = floorOrder.get(l.floor); if (o != null) orders.push(o);
+        });
+        if (dirOk && k.direction !== "both" && orders.length >= 2 && new Set(orders).size !== orders.length) c.fail(`${path}.direction`, "an up/down connector needs landings on floors with distinct order");
+      }
+      c.text(`${path}.source`, k.source, false, 600);
+      c.text(`${path}.notes`, k.notes, false, 1200);
+    });
+    c.unique("$.connectors", ids, "connector");
   }
 
   // ── destinations ─────────────────────────────────────────────────────────
@@ -342,7 +406,22 @@ export function validateVenuePack(input: unknown): VenueValidation {
   const instr = isRec(pol.instructions) ? pol.instructions : (c.fail("$.policies.instructions", "required object is missing"), {} as Rec);
   c.bool("$.policies.instructions.generic_fallback", instr.generic_fallback);
   c.bool("$.policies.instructions.start_prefix", instr.start_prefix);
-  const extraPol = Object.keys(pol).filter((k) => !["start", "destinations", "floors", "metrics", "instructions"].includes(k));
+  if (pol.routing != null) {
+    if (!isRec(pol.routing)) c.fail("$.policies.routing", "must be an object { connector_cost?, preference? }");
+    else {
+      if (pol.routing.connector_cost != null) {
+        if (!isRec(pol.routing.connector_cost)) c.fail("$.policies.routing.connector_cost", "must be an object keyed by connector kind");
+        else for (const [k, v] of Object.entries(pol.routing.connector_cost)) {
+          if (!(VERTICAL_KINDS as readonly string[]).includes(k)) c.fail(`$.policies.routing.connector_cost.${k}`, `unknown connector kind; expected ${VERTICAL_KINDS.join(" | ")}`);
+          else c.num(`$.policies.routing.connector_cost.${k}`, v, { min: 0 });
+        }
+      }
+      c.oneOf("$.policies.routing.preference", pol.routing.preference, ROUTE_PREFERENCES, false);
+      const extra = Object.keys(pol.routing).filter((k) => k !== "connector_cost" && k !== "preference");
+      if (extra.length) c.fail("$.policies.routing", `unknown keys ${extra.join(", ")}`);
+    }
+  }
+  const extraPol = Object.keys(pol).filter((k) => !["start", "destinations", "floors", "metrics", "instructions", "routing"].includes(k));
   if (extraPol.length) c.fail("$.policies", `unknown policy keys ${extraPol.join(", ")} (policies are declarative; no custom keys)`);
 
   if (c.errors.length) return { status: "failed", errors: c.errors };
