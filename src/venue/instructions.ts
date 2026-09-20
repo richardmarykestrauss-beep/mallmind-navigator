@@ -20,6 +20,8 @@ export interface LegContext {
   floorChange: boolean;
   /** Display label of the floor being reached (pack floors), if known. */
   toFloorLabel?: string;
+  /** For a floor change: whether the visitor goes up or down (from floor order), if known. */
+  direction?: "up" | "down" | null;
   policy: { generic_fallback: boolean; start_prefix: boolean };
 }
 
@@ -44,7 +46,8 @@ export function genericInstruction(ctx: LegContext): string {
   const { from, to, floorChange } = ctx;
   if (floorChange) {
     const via = ctx.edge.vertical_kind ? `Take ${VERTICAL_WORD[ctx.edge.vertical_kind]}` : "Change floor";
-    return ctx.toFloorLabel ? `${via} to ${ctx.toFloorLabel}.` : `${via}.`;
+    const dir = ctx.edge.vertical_kind === "escalator" || ctx.edge.vertical_kind === "stairs" ? (ctx.direction === "down" ? " down" : ctx.direction === "up" ? " up" : "") : "";
+    return ctx.toFloorLabel ? `${via}${dir} to ${ctx.toFloorLabel}.` : `${via}${dir}.`;
   }
   if (ctx.first) {
     if (isInternal(from)) return "Head off from your starting point.";

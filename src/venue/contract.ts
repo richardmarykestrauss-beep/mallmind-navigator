@@ -126,6 +126,43 @@ export interface VenueNode {
 export type VerticalKind = "lift" | "escalator" | "stairs" | "ramp";
 export const VERTICAL_KINDS: readonly VerticalKind[] = ["lift", "escalator", "stairs", "ramp"];
 
+// ── Vertical connectors (Sprint 7; additive to schema 1) ─────────────────────
+export type ConnectorDirection = "both" | "up" | "down";
+export const CONNECTOR_DIRECTIONS: readonly ConnectorDirection[] = ["both", "up", "down"];
+export type ConnectorAvailability = "open" | "closed";
+export const CONNECTOR_AVAILABILITY: readonly ConnectorAvailability[] = ["open", "closed"];
+/** Accessibility is EVIDENCE, never inferred from a connector's kind. */
+export type StepFreeEvidence = "unknown" | "field_verified_yes" | "field_verified_no";
+export const STEP_FREE_EVIDENCE: readonly StepFreeEvidence[] = ["unknown", "field_verified_yes", "field_verified_no"];
+
+export interface VenueConnectorLanding { floor: string; node: string }
+
+/**
+ * A physical vertical connector (one lift shaft, one flight of stairs, one escalator). Declared
+ * ONCE with its landings; the loader expands it into routable one-way/two-way edges between every
+ * pair of landings (direction-aware), so authors never hand-duplicate pairwise edges and Dijkstra
+ * stays unchanged. Connector edges carry NO horizontal length: their routing cost comes from
+ * policy, never from a fabricated distance.
+ */
+export interface VenueConnector {
+  id: string;
+  kind: VerticalKind;
+  name?: string;
+  /** Real graph nodes (kind "vertical"), one per floor served, at least two, distinct floors. */
+  landings: VenueConnectorLanding[];
+  /** "up"/"down" follow the floors' `order`; "both" for lifts, stairs, ramps. */
+  direction: ConnectorDirection;
+  /** A closed connector produces no routable edge. Data, not telemetry. */
+  availability: ConnectorAvailability;
+  /** `measurement: "measured"` is required to carry traversal_seconds. */
+  evidence: { geometry: GeometryEvidence; measurement?: MeasurementEvidence };
+  /** Only with measured evidence; contributes to route time, never to distance. */
+  traversal_seconds?: number | null;
+  accessibility?: { step_free: StepFreeEvidence };
+  source?: string;
+  notes?: string;
+}
+
 export interface VenueEdge {
   id: string;
   from: string;
@@ -141,6 +178,8 @@ export interface VenueEdge {
   evidence: { geometry: GeometryEvidence; measurement: MeasurementEvidence };
   /** Directional wording. `forward` = from→to, `reverse` = to→from. Neither is derived from the other. */
   instructions?: { forward?: string | null; reverse?: string | null };
+  /** A hand-written vertical edge may name the connector it belongs to (must exist). */
+  connector_id?: string;
   source?: string;
   notes?: string;
 }
@@ -235,7 +274,19 @@ export interface VenuePolicies {
     /** Prefix the first leg with "Start at <anchor label>." unless the leg text already names it. */
     start_prefix: boolean;
   };
+  /**
+   * Routing COST (not distance). Connector costs are in the pack's distance unit equivalents and
+   * shape which path Dijkstra prefers; they are never displayed. Absent → code defaults.
+   */
+  routing?: {
+    connector_cost?: Partial<Record<VerticalKind, number>>;
+    preference?: RoutePreference;
+  };
 }
+
+/** How a route is chosen. "step_free" EXCLUDES stairs, escalators and connectors with step_free field_verified_no. */
+export type RoutePreference = "shortest" | "fewest_changes" | "step_free";
+export const ROUTE_PREFERENCES: readonly RoutePreference[] = ["shortest", "fewest_changes", "step_free"];
 
 // ── The pack ─────────────────────────────────────────────────────────────────
 export interface VenuePack {
@@ -246,6 +297,8 @@ export interface VenuePack {
   destinations: VenueDestination[];
   anchors: VenueAnchor[];
   amenities: VenueAmenity[];
+  /** Optional (schema 1 additive): vertical connectors, expanded to edges by the loader. */
+  connectors?: VenueConnector[];
   policies: VenuePolicies;
 }
 

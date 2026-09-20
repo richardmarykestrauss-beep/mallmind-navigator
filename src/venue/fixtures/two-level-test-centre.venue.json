@@ -1,0 +1,640 @@
+{
+  "schema_version": 1,
+  "venue": {
+    "id": "two-level-test-centre",
+    "name": "Two Level Test Centre",
+    "pack_version": 1,
+    "revision_note": "Synthetic two-floor fixture for the multi-floor foundation (Sprint 7).",
+    "short_name": "Two Level",
+    "deployment": {
+      "state": "internal-pilot",
+      "official": false,
+      "label": "Synthetic fixture \u2014 never a real venue"
+    },
+    "evidence": {
+      "geometry": "source-backed",
+      "measurement": "measured",
+      "field_verification": "partial",
+      "accessibility": "unverified",
+      "note": "Synthetic. Horizontal edges carry invented-for-testing measured metres; connectors carry no distance. The stairs carry field_verified_no step-free evidence; the lift's step-free status is unknown on purpose."
+    },
+    "sources": [
+      {
+        "kind": "fixture",
+        "reference": "src/venue/fixtures/two-level-test-centre.venue.json",
+        "note": "synthetic"
+      }
+    ],
+    "notes": "Lower Mall: entrance, junctions, four connector landings and a cafe. Upper Mall: matching landings, a junction and a bookshop. A closed service lift near the entrance would be the shortest path if it were open."
+  },
+  "floors": [
+    {
+      "id": "LM",
+      "label": "Lower Mall",
+      "order": 0,
+      "plan_image": null
+    },
+    {
+      "id": "UM",
+      "label": "Upper Mall",
+      "order": 1,
+      "plan_image": null
+    }
+  ],
+  "graph": {
+    "distance_unit": "m",
+    "plane": {
+      "width": 1000,
+      "height": 620
+    },
+    "nodes": [
+      {
+        "id": "tl-entrance",
+        "name": "Main Entrance",
+        "kind": "entrance",
+        "floor": "LM",
+        "x_percent": 8,
+        "y_percent": 50,
+        "evidence": {
+          "geometry": "source-backed"
+        }
+      },
+      {
+        "id": "tl-l-j1",
+        "name": "Lower junction",
+        "kind": "junction",
+        "floor": "LM",
+        "x_percent": 30,
+        "y_percent": 50,
+        "evidence": {
+          "geometry": "source-backed"
+        }
+      },
+      {
+        "id": "tl-l-svc",
+        "name": "Service lift (lower)",
+        "kind": "vertical",
+        "floor": "LM",
+        "x_percent": 18,
+        "y_percent": 80,
+        "evidence": {
+          "geometry": "source-backed"
+        }
+      },
+      {
+        "id": "tl-l-lift",
+        "name": "Main lift (lower)",
+        "kind": "vertical",
+        "floor": "LM",
+        "x_percent": 45,
+        "y_percent": 32,
+        "evidence": {
+          "geometry": "source-backed"
+        }
+      },
+      {
+        "id": "tl-l-stairs",
+        "name": "Stairs (lower)",
+        "kind": "vertical",
+        "floor": "LM",
+        "x_percent": 45,
+        "y_percent": 68,
+        "evidence": {
+          "geometry": "source-backed"
+        }
+      },
+      {
+        "id": "tl-l-esc-up",
+        "name": "Up escalator (lower)",
+        "kind": "vertical",
+        "floor": "LM",
+        "x_percent": 62,
+        "y_percent": 32,
+        "evidence": {
+          "geometry": "source-backed"
+        }
+      },
+      {
+        "id": "tl-l-esc-down",
+        "name": "Down escalator (lower)",
+        "kind": "vertical",
+        "floor": "LM",
+        "x_percent": 62,
+        "y_percent": 68,
+        "evidence": {
+          "geometry": "source-backed"
+        }
+      },
+      {
+        "id": "tl-l-j2",
+        "name": "Lower junction east",
+        "kind": "junction",
+        "floor": "LM",
+        "x_percent": 76,
+        "y_percent": 50,
+        "evidence": {
+          "geometry": "source-backed"
+        }
+      },
+      {
+        "id": "tl-l-cafe-arrival",
+        "name": "Corner Cafe",
+        "kind": "arrival",
+        "floor": "LM",
+        "x_percent": 92,
+        "y_percent": 50,
+        "evidence": {
+          "geometry": "source-backed"
+        }
+      },
+      {
+        "id": "tl-u-svc",
+        "name": "Service lift (upper)",
+        "kind": "vertical",
+        "floor": "UM",
+        "x_percent": 18,
+        "y_percent": 80,
+        "evidence": {
+          "geometry": "source-backed"
+        }
+      },
+      {
+        "id": "tl-u-lift",
+        "name": "Main lift (upper)",
+        "kind": "vertical",
+        "floor": "UM",
+        "x_percent": 45,
+        "y_percent": 32,
+        "evidence": {
+          "geometry": "source-backed"
+        }
+      },
+      {
+        "id": "tl-u-stairs",
+        "name": "Stairs (upper)",
+        "kind": "vertical",
+        "floor": "UM",
+        "x_percent": 45,
+        "y_percent": 68,
+        "evidence": {
+          "geometry": "source-backed"
+        }
+      },
+      {
+        "id": "tl-u-esc-up",
+        "name": "Up escalator (upper)",
+        "kind": "vertical",
+        "floor": "UM",
+        "x_percent": 62,
+        "y_percent": 32,
+        "evidence": {
+          "geometry": "source-backed"
+        }
+      },
+      {
+        "id": "tl-u-esc-down",
+        "name": "Down escalator (upper)",
+        "kind": "vertical",
+        "floor": "UM",
+        "x_percent": 62,
+        "y_percent": 68,
+        "evidence": {
+          "geometry": "source-backed"
+        }
+      },
+      {
+        "id": "tl-u-j1",
+        "name": "Upper junction",
+        "kind": "junction",
+        "floor": "UM",
+        "x_percent": 76,
+        "y_percent": 50,
+        "evidence": {
+          "geometry": "source-backed"
+        }
+      },
+      {
+        "id": "tl-u-bookshop-arrival",
+        "name": "Upper Bookshop",
+        "kind": "arrival",
+        "floor": "UM",
+        "x_percent": 92,
+        "y_percent": 50,
+        "evidence": {
+          "geometry": "source-backed"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "tl-e-entrance-j1",
+        "from": "tl-entrance",
+        "to": "tl-l-j1",
+        "bidirectional": true,
+        "floor_change": false,
+        "distance_m": 20,
+        "evidence": {
+          "geometry": "source-backed",
+          "measurement": "measured"
+        },
+        "instructions": {
+          "forward": "Walk straight in from the Main Entrance to the first junction.",
+          "reverse": "Head back to the Main Entrance."
+        }
+      },
+      {
+        "id": "tl-e-entrance-svc",
+        "from": "tl-entrance",
+        "to": "tl-l-svc",
+        "bidirectional": true,
+        "floor_change": false,
+        "distance_m": 12,
+        "evidence": {
+          "geometry": "source-backed",
+          "measurement": "measured"
+        }
+      },
+      {
+        "id": "tl-e-j1-lift",
+        "from": "tl-l-j1",
+        "to": "tl-l-lift",
+        "bidirectional": true,
+        "floor_change": false,
+        "distance_m": 15,
+        "evidence": {
+          "geometry": "source-backed",
+          "measurement": "measured"
+        },
+        "instructions": {
+          "forward": "Turn left at the junction; the main lift is ahead."
+        }
+      },
+      {
+        "id": "tl-e-j1-stairs",
+        "from": "tl-l-j1",
+        "to": "tl-l-stairs",
+        "bidirectional": true,
+        "floor_change": false,
+        "distance_m": 15,
+        "evidence": {
+          "geometry": "source-backed",
+          "measurement": "measured"
+        },
+        "instructions": {
+          "forward": "Turn right at the junction; the stairs are ahead."
+        }
+      },
+      {
+        "id": "tl-e-lift-escup",
+        "from": "tl-l-lift",
+        "to": "tl-l-esc-up",
+        "bidirectional": true,
+        "floor_change": false,
+        "distance_m": 15,
+        "evidence": {
+          "geometry": "source-backed",
+          "measurement": "measured"
+        },
+        "instructions": {
+          "forward": "Continue past the lift to the up escalator."
+        }
+      },
+      {
+        "id": "tl-e-stairs-escdown",
+        "from": "tl-l-stairs",
+        "to": "tl-l-esc-down",
+        "bidirectional": true,
+        "floor_change": false,
+        "distance_m": 15,
+        "evidence": {
+          "geometry": "source-backed",
+          "measurement": "measured"
+        }
+      },
+      {
+        "id": "tl-e-escup-j2",
+        "from": "tl-l-esc-up",
+        "to": "tl-l-j2",
+        "bidirectional": true,
+        "floor_change": false,
+        "distance_m": 15,
+        "evidence": {
+          "geometry": "source-backed",
+          "measurement": "measured"
+        }
+      },
+      {
+        "id": "tl-e-escdown-j2",
+        "from": "tl-l-esc-down",
+        "to": "tl-l-j2",
+        "bidirectional": true,
+        "floor_change": false,
+        "distance_m": 15,
+        "evidence": {
+          "geometry": "source-backed",
+          "measurement": "measured"
+        }
+      },
+      {
+        "id": "tl-e-j2-cafe",
+        "from": "tl-l-j2",
+        "to": "tl-l-cafe-arrival",
+        "bidirectional": true,
+        "floor_change": false,
+        "distance_m": 15,
+        "evidence": {
+          "geometry": "source-backed",
+          "measurement": "measured"
+        },
+        "instructions": {
+          "forward": "The Corner Cafe is straight ahead."
+        }
+      },
+      {
+        "id": "tl-e-u-svc-j1",
+        "from": "tl-u-svc",
+        "to": "tl-u-j1",
+        "bidirectional": true,
+        "floor_change": false,
+        "distance_m": 10,
+        "evidence": {
+          "geometry": "source-backed",
+          "measurement": "measured"
+        }
+      },
+      {
+        "id": "tl-e-u-lift-j1",
+        "from": "tl-u-lift",
+        "to": "tl-u-j1",
+        "bidirectional": true,
+        "floor_change": false,
+        "distance_m": 45,
+        "evidence": {
+          "geometry": "source-backed",
+          "measurement": "measured"
+        },
+        "instructions": {
+          "forward": "Step out of the lift and follow the upper walkway east to the junction."
+        }
+      },
+      {
+        "id": "tl-e-u-stairs-j1",
+        "from": "tl-u-stairs",
+        "to": "tl-u-j1",
+        "bidirectional": true,
+        "floor_change": false,
+        "distance_m": 30,
+        "evidence": {
+          "geometry": "source-backed",
+          "measurement": "measured"
+        },
+        "instructions": {
+          "forward": "At the top of the stairs, follow the upper walkway east to the junction."
+        }
+      },
+      {
+        "id": "tl-e-u-escup-j1",
+        "from": "tl-u-esc-up",
+        "to": "tl-u-j1",
+        "bidirectional": true,
+        "floor_change": false,
+        "distance_m": 15,
+        "evidence": {
+          "geometry": "source-backed",
+          "measurement": "measured"
+        },
+        "instructions": {
+          "forward": "At the top of the escalator, continue to the junction."
+        }
+      },
+      {
+        "id": "tl-e-u-escdown-j1",
+        "from": "tl-u-esc-down",
+        "to": "tl-u-j1",
+        "bidirectional": true,
+        "floor_change": false,
+        "distance_m": 15,
+        "evidence": {
+          "geometry": "source-backed",
+          "measurement": "measured"
+        },
+        "instructions": {
+          "reverse": "From the junction, the down escalator is on your right."
+        }
+      },
+      {
+        "id": "tl-e-u-j1-bookshop",
+        "from": "tl-u-j1",
+        "to": "tl-u-bookshop-arrival",
+        "bidirectional": true,
+        "floor_change": false,
+        "distance_m": 15,
+        "evidence": {
+          "geometry": "source-backed",
+          "measurement": "measured"
+        },
+        "instructions": {
+          "forward": "The Upper Bookshop is straight ahead."
+        }
+      }
+    ]
+  },
+  "destinations": [
+    {
+      "id": "tl-cafe",
+      "name": "Corner Cafe",
+      "kind": "food",
+      "arrival_node": "tl-l-cafe-arrival",
+      "unit": "L4",
+      "aliases": [
+        "Coffee"
+      ],
+      "evidence": {
+        "identity": "source-backed",
+        "arrival": "corridor_arrival"
+      }
+    },
+    {
+      "id": "tl-bookshop",
+      "name": "Upper Bookshop",
+      "kind": "store",
+      "category": "books",
+      "arrival_node": "tl-u-bookshop-arrival",
+      "unit": "U9",
+      "aliases": [
+        "Books"
+      ],
+      "evidence": {
+        "identity": "source-backed",
+        "arrival": "corridor_arrival"
+      }
+    }
+  ],
+  "anchors": [
+    {
+      "id": "tl-main",
+      "node": "tl-entrance",
+      "label": "Main Entrance",
+      "kind": "entrance",
+      "start_permitted": true,
+      "qr_eligible": true,
+      "evidence": {
+        "geometry": "source-backed"
+      }
+    },
+    {
+      "id": "tl-upper-junction",
+      "node": "tl-u-j1",
+      "label": "Upper Mall junction",
+      "kind": "landmark",
+      "start_permitted": true,
+      "qr_eligible": true,
+      "evidence": {
+        "geometry": "source-backed"
+      }
+    }
+  ],
+  "amenities": [],
+  "connectors": [
+    {
+      "id": "tl-lift",
+      "kind": "lift",
+      "name": "Main lift",
+      "landings": [
+        {
+          "floor": "LM",
+          "node": "tl-l-lift"
+        },
+        {
+          "floor": "UM",
+          "node": "tl-u-lift"
+        }
+      ],
+      "direction": "both",
+      "availability": "open",
+      "evidence": {
+        "geometry": "source-backed",
+        "measurement": "measured"
+      },
+      "traversal_seconds": 40,
+      "accessibility": {
+        "step_free": "unknown"
+      },
+      "notes": "Ride time measured for the fixture; step-free status deliberately unknown."
+    },
+    {
+      "id": "tl-stairs",
+      "kind": "stairs",
+      "name": "Central stairs",
+      "landings": [
+        {
+          "floor": "LM",
+          "node": "tl-l-stairs"
+        },
+        {
+          "floor": "UM",
+          "node": "tl-u-stairs"
+        }
+      ],
+      "direction": "both",
+      "availability": "open",
+      "evidence": {
+        "geometry": "source-backed"
+      },
+      "accessibility": {
+        "step_free": "field_verified_no"
+      }
+    },
+    {
+      "id": "tl-esc-up",
+      "kind": "escalator",
+      "name": "Up escalator",
+      "landings": [
+        {
+          "floor": "LM",
+          "node": "tl-l-esc-up"
+        },
+        {
+          "floor": "UM",
+          "node": "tl-u-esc-up"
+        }
+      ],
+      "direction": "up",
+      "availability": "open",
+      "evidence": {
+        "geometry": "source-backed"
+      }
+    },
+    {
+      "id": "tl-esc-down",
+      "kind": "escalator",
+      "name": "Down escalator",
+      "landings": [
+        {
+          "floor": "UM",
+          "node": "tl-u-esc-down"
+        },
+        {
+          "floor": "LM",
+          "node": "tl-l-esc-down"
+        }
+      ],
+      "direction": "down",
+      "availability": "open",
+      "evidence": {
+        "geometry": "source-backed"
+      }
+    },
+    {
+      "id": "tl-service-lift",
+      "kind": "lift",
+      "name": "Service lift",
+      "landings": [
+        {
+          "floor": "LM",
+          "node": "tl-l-svc"
+        },
+        {
+          "floor": "UM",
+          "node": "tl-u-svc"
+        }
+      ],
+      "direction": "both",
+      "availability": "closed",
+      "evidence": {
+        "geometry": "source-backed"
+      },
+      "notes": "Closed to visitors; would be the shortest path if open."
+    }
+  ],
+  "policies": {
+    "start": {
+      "default_anchor": "tl-main",
+      "allowed_anchor_kinds": [
+        "entrance",
+        "landmark"
+      ]
+    },
+    "destinations": {
+      "include_routable_amenities": true
+    },
+    "floors": {
+      "display": "label"
+    },
+    "metrics": {
+      "show": "when-measured"
+    },
+    "instructions": {
+      "generic_fallback": true,
+      "start_prefix": true
+    },
+    "routing": {
+      "connector_cost": {
+        "lift": 30,
+        "escalator": 20,
+        "stairs": 25,
+        "ramp": 15
+      }
+    }
+  }
+}
