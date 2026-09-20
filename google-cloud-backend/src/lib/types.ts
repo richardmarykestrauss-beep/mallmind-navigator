@@ -124,6 +124,21 @@ export interface MallEdge {
   instruction: string | null;
 }
 
+/**
+ * What the assistant may say about navigation: WHERE the visitor wants to go, never HOW to get
+ * there. The device resolves it against the venue's Venue Pack and runs the deterministic router.
+ */
+export interface NavigationRequest {
+  type: "navigate";
+  /** The destination as the visitor (or the product they chose) named it — plain text, not an id. */
+  destination_query: string;
+  /** Retail-directory shop the query came from, when it did (identity hint only; never a route). */
+  shop_id?: string | null;
+  shop_name?: string | null;
+  resolution_source: "visitor_phrase" | "assistant_tool" | "product";
+}
+
+/** @deprecated Route steps are no longer produced by the assistant (Sprint 7). Kept for the map-factory admin tooling. */
 export interface RouteStep {
   step: number;
   instruction: string;

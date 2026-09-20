@@ -1,4 +1,10 @@
 /**
+ * LEGACY (Sprint 7): the customer-facing navigation path no longer routes here. Venue Packs on
+ * the device are the only spatial truth for bundled navigation. This service is kept for the
+ * routing truthfulness harness and admin map-factory tooling only; the /build-route endpoint is
+ * gone. Do not add customer consumers.
+ */
+/**
  * routingService.ts — I/O wrapper around the pure planner in routingCore.ts.
  *
  * Loads mall_nodes / mall_edges (and the shopping session) from Supabase,

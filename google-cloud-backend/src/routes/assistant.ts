@@ -36,11 +36,15 @@ const schema = z.object({
  *
  * Runs Gemini 2.0 Flash (gemini-2.0-flash-001) with function calling.
  * Tools available: recommend_products, check_store_hours,
- *                  save_shopping_intent, build_route
+ *                  save_shopping_intent, navigate_to
  *
  * Response:
- *   { message, products, route_steps, route_id, build_route,
- *     route_shop_ids, route_summary }
+ *   { message, products, shopping_answer, navigation_request,
+ *     route_summary, (deprecated, always empty/null/false:) route_steps, route_id, build_route, route_shop_ids }
+ *
+ * NAVIGATION BOUNDARY (Sprint 7): the assistant records WHERE the visitor wants to go
+ * (navigation_request). The device resolves it against the venue's Venue Pack and runs the
+ * deterministic router. No route geometry, distance or time is produced by this endpoint.
  *
  * Requires GEMINI_API_KEY to be set in environment.
  *
