@@ -51,7 +51,7 @@ export interface IndoorMapCanvasProps {
    * A vertical connector the current step uses, drawn at its landing on THIS floor with a plain
    * label ("Lift to Upper Mall"). The host computes it from the step; the canvas never infers floors.
    */
-  connectorMarker?: { x: number; y: number; label: string; kind: "lift" | "escalator" | "stairs" | "ramp" } | null;
+  connectorMarker?: { x: number; y: number; label: string; kind: "lift" | "escalator" | "stairs" | "ramp"; nodeId?: string } | null;
 }
 
 const OVERVIEW_PAD = 150;
@@ -337,9 +337,9 @@ export default function IndoorMapCanvas({
       })}
 
       {/* Entrances / vertical transitions */}
-      {floor.nodes.filter((n) => n.type === "entrance" || n.type === "lift" || n.type === "escalator" || n.type === "stairs" || n.type === "vertical").map((n) => {
+      {floor.nodes.filter((n) => (n.type === "entrance" || n.type === "lift" || n.type === "escalator" || n.type === "stairs" || n.type === "ramp" || n.type === "vertical") && n.id !== connectorMarker?.nodeId).map((n) => {
         const isEntry = n.type === "entrance";
-        const txt = isEntry ? "ENTRY" : n.type === "lift" ? "LIFT" : n.type === "escalator" ? "ESC" : n.type === "stairs" ? "STAIRS" : "LEVEL";
+        const txt = isEntry ? "ENTRY" : n.type === "lift" ? "LIFT" : n.type === "escalator" ? "ESC" : n.type === "stairs" ? "STAIRS" : n.type === "ramp" ? "RAMP" : "LEVEL";
         return (
           <g key={n.id} transform={`translate(${n.position.x},${n.position.y})`}>
             <rect x={-52} y={-24} width={104} height={48} rx={14}

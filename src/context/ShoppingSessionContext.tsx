@@ -110,7 +110,7 @@ export function ShoppingSessionProvider({ children }: { children: ReactNode }) {
     try {
       const { data: existing } = await supabase
         .from("shopping_sessions")
-        .select("id, shopping_intent, active_route_id")
+        .select("id, shopping_intent")
         .eq("user_id", userId)
         .eq("mall_id", String(mallId))
         .eq("status", "active")

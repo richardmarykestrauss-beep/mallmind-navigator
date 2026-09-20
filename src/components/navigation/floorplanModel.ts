@@ -33,7 +33,7 @@ export interface FloorplanCoordinate {
 }
 
 export type FloorplanNodeType =
-  | "entrance" | "corridor" | "shop" | "lift" | "escalator" | "stairs" | "landmark" | "amenity" | "vertical";
+  | "entrance" | "corridor" | "shop" | "lift" | "escalator" | "stairs" | "ramp" | "landmark" | "amenity" | "vertical";
 
 export interface FloorplanNode {
   id: string;
@@ -140,6 +140,7 @@ const NODE_TYPE_BY_KIND: Readonly<Record<string, FloorplanNodeType>> = {
   lift: "lift",
   escalator: "escalator",
   stairs: "stairs",
+  ramp: "ramp",
   vertical: "vertical",
 };
 export function nodeTypeFor(kind: string | null | undefined, type?: string | null): FloorplanNodeType | undefined {
@@ -215,10 +216,13 @@ export interface DeclaredFloor { id: string; label: string; order?: number }
 export function toFloorplanModel(
   model: BackendIndoorModelLike,
   meta: { mallId: string; mallName: string },
-  opts: { floors?: DeclaredFloor[] } = {},
+  opts: { floors?: DeclaredFloor[]; connectors?: ReadonlyArray<{ kind: "lift" | "escalator" | "stairs" | "ramp"; landings: ReadonlyArray<{ node: string }> }> } = {},
 ): FloorplanModel {
   const nodes = model.nodes ?? [];
   const edges = model.edges ?? [];
+  // A declared connector says what its landing nodes ARE (lift / escalator / stairs / ramp); a bare "vertical" node only says a floor changes here.
+  const landingKind = new Map<string, FloorplanNodeType>();
+  for (const k of opts.connectors ?? []) for (const l of k.landings) landingKind.set(l.node, k.kind);
 
   const declared = new Map<string, DeclaredFloor>();
   for (const f of opts.floors ?? []) declared.set(floorKey(f.id), f);
@@ -241,7 +245,7 @@ export function toFloorplanModel(
       id: n.id,
       name: n.name,
       floor: key,
-      type: nodeTypeFor(n.kind, n.type),
+      type: landingKind.get(n.id) ?? nodeTypeFor(n.kind, n.type),
       position: { x: percentToUnits(n.x_coordinate, FLOOR_WIDTH), y: percentToUnits(n.y_coordinate, FLOOR_HEIGHT) },
     }));
 

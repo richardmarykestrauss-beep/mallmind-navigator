@@ -181,7 +181,9 @@ export function loadVenuePack(input: unknown): LoadedVenue {
     floors,
     floorById: new Map(floors.map((f) => [f.id, f])),
     distanceUnit: unit,
-    metric: pack.policies.metrics.show !== "never" && edges.length > 0 && edges.every((e) => typeof e.distance_meters === "number" && e.distance_meters > 0),
+    // Metric = every HORIZONTAL edge carries measured metres. Floor changes (connector edges) have no
+    // length by design and never make a venue "unmeasured".
+    metric: pack.policies.metrics.show !== "never" && edges.some((e) => !e.floor_change) && edges.filter((e) => !e.floor_change).every((e) => typeof e.distance_meters === "number" && e.distance_meters > 0),
     nodes,
     edges,
     nodeById: new Map(nodes.map((n) => [n.id, n])),

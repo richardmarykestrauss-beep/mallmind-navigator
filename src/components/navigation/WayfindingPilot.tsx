@@ -185,7 +185,7 @@ function WayfindingPilotView({ graph, initialAnchor, anchorNotice, embedded, onO
   const starts = useMemo(() => startOptions(graph), [graph]);
   const floorplan = useMemo(
     () => attachFloorImages(
-      toFloorplanModel({ nodes: graph.nodes, edges: graph.edges }, { mallId: graph.id, mallName: graph.name }, { floors: graph.floors }),
+      toFloorplanModel({ nodes: graph.nodes, edges: graph.edges }, { mallId: graph.id, mallName: graph.name }, { floors: graph.floors, connectors: graph.connectors }),
       graph.floorImages,
     ),
     [graph],
@@ -305,7 +305,7 @@ function WayfindingPilotView({ graph, initialAnchor, anchorNotice, embedded, onO
     if (!step?.via) return null;
     const landing = graph.nodes.find((n) => n.id === (steps[session.stepIndex - 1]?.node_id ?? anchor.nodeId));
     if (!landing) return null;
-    return { x: (landing.x_coordinate ?? 0) * 10, y: (landing.y_coordinate ?? 0) * 6.2, label: `${connectorWord(step.via.kind).replace(/^./, (c) => c.toUpperCase())} to ${floorLabel(step.via.to_floor)}`, kind: step.via.kind };
+    return { x: (landing.x_coordinate ?? 0) * 10, y: (landing.y_coordinate ?? 0) * 6.2, label: `${connectorWord(step.via.kind).replace(/^./, (c) => c.toUpperCase())} to ${floorLabel(step.via.to_floor)}`, kind: step.via.kind, nodeId: landing.id };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [walking, steps, session.stepIndex, graph, anchor.nodeId]);
   const exampleNames = useMemo(() => searchPois(graph, "").slice(0, 4).map((p) => p.name).join(", "), [graph]);
