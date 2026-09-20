@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import {
-  Mic, MicOff, Send, Bot, User, Route as RouteIcon,
+  Mic, MicOff, Send, Bot, User,
   Store, Sparkles, MapPin, Loader2, ShoppingBag, X, Globe,
   Volume2, VolumeX, Wallet, ChevronRight, AlertTriangle, Navigation,
   ThumbsUp, ThumbsDown,
@@ -20,7 +20,6 @@ import type { Shop } from "@/lib/supabaseClient";
 import {
   isGoogleBackendConfigured,
   sendAssistantMessage as googleSendAssistantMessage,
-  buildRoute,
   reportPriceCorrection,
   type WebResult,
   type AssistantResponse,
@@ -32,7 +31,7 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY } from "@/lib/env";
 // ProductResult imported from RecommendationCard component
 // WebResult and AssistantResponse imported from googleBackendClient
 
-import type { RouteStep } from "@/context/ShoppingSessionContext";
+import { resolveNavigationIntent, intentForDestination, findVenueForMall, navigationIntentLink, type IntentResolution } from "@/navigation/navigationIntent";
 
 interface ChatMessage {
   id: string;
@@ -40,10 +39,11 @@ interface ChatMessage {
   content: string;
   products?: ProductResult[];
   webResults?: WebResult[];
+  /** Retail shop ids a navigation request came from (analytics only). */
   routeShopIds?: string[];
   routeSummary?: string;
-  routeSteps?: RouteStep[];
-  routeId?: string | null;
+  /** The assistant's navigation intent, resolved on the device against the Venue Pack (never route geometry). */
+  navigation?: IntentResolution | null;
   /** Structured shopper-safe answer from the backend assistant engine */
   shoppingAnswer?: AssistantShoppingAnswer | null;
   loading?: boolean;
@@ -60,8 +60,6 @@ function getLoadingText(userMessage: string): string {
   if (PRICE_INTENT_RE.test(userMessage)) return "Checking verified prices…";
   return "MallMind is thinking…";
 }
-
-const FLOOR_ORDER: Record<string, number> = { B1: 0, G: 1, L1: 2, L2: 3, L3: 4, L4: 5 };
 
 const STARTERS = [
   "I need a TV under R4000",
@@ -575,7 +573,9 @@ function pickVoice(): SpeechSynthesisVoice | null {
 const AssistantPage = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { selectedMall, setRouteStops, dbSessionId, shoppingIntent, updateSessionRoute, setActiveRoute } = useShoppingSession();
+  const { selectedMall, setRouteStops, dbSessionId, shoppingIntent, updateSessionRoute } = useShoppingSession();
+  // The venue MallMind can walk visitors around for the selected mall (null → navigation not offered here).
+  const navigationVenue = findVenueForMall(selectedMall?.name);
   const { user } = useAuth();
   const { position } = useGeoLocation();
 
@@ -618,7 +618,7 @@ const AssistantPage = () => {
     eventType: "recommendation_feedback" | "price_accuracy_feedback" | "route_feedback" | "purchase_signal",
     value: string,
     product?: ProductResult,
-    routeData?: { routeShopIds: string[]; routeSummary?: string; routeSteps?: RouteStep[]; routeId?: string | null }
+    routeData?: { routeShopIds: string[]; routeSummary?: string }
   ) => {
     const doneMsg =
       eventType === "price_accuracy_feedback" && value === "incorrect"
@@ -663,12 +663,11 @@ const AssistantPage = () => {
       trackBackendEvent({
         event_type: "route_feedback",
         shop_id:   routeData?.routeShopIds?.[0] ?? null,
-        route_id:  routeData?.routeId ?? null,
+        route_id:  null,
         mall_id: mallId, session_id: sessionId,
         metadata: {
           value,
           route_summary:    routeData?.routeSummary ?? null,
-          route_step_count: routeData?.routeSteps?.length ?? 0,
           route_shop_ids:   routeData?.routeShopIds ?? [],
         },
       });
@@ -861,10 +860,12 @@ const AssistantPage = () => {
               (r: WebResult) => r.answer && !r.answer.toLowerCase().includes("unavailable") && !r.answer.toLowerCase().includes("error")
             )
           : undefined,
-        routeShopIds: data.build_route ? data.route_shop_ids : undefined,
+        routeShopIds: data.navigation_request?.shop_id ? [String(data.navigation_request.shop_id)] : undefined,
         routeSummary: data.route_summary,
-        routeSteps: data.route_steps?.length ? data.route_steps : undefined,
-        routeId: data.route_id ?? null,
+        // Intent → resolved on the device against the Venue Pack. The assistant never sends geometry.
+        navigation: data.navigation_request
+          ? (navigationVenue ? resolveNavigationIntent(navigationVenue, data.navigation_request.destination_query, "assistant") : { status: "no_venue", query: data.navigation_request.destination_query })
+          : null,
         shoppingAnswer: data.shopping_answer ?? null,
       };
 
@@ -878,8 +879,7 @@ const AssistantPage = () => {
         session_id: dbSessionId ?? null,
         metadata: {
           product_count: data.products?.length ?? 0,
-          build_route: data.build_route ?? false,
-          route_step_count: data.route_steps?.length ?? 0,
+          navigation_request: Boolean(data.navigation_request),
           top_product_id: data.products?.[0]?.product_id ?? null,
           top_shop_id: data.products?.[0]?.shop_id ?? null,
           top_data_quality_status: data.products?.[0]?.data_quality_status ?? null,
@@ -906,16 +906,16 @@ const AssistantPage = () => {
       }
 
       // ── Event 5: route_response_received ──────────────────────────────────
-      if (data.build_route) {
+      if (data.navigation_request) {
         trackBackendEvent({
           event_type: "route_response_received",
           mall_id: selectedMall?.id ? String(selectedMall.id) : null,
           session_id: dbSessionId ?? null,
-          route_id: data.route_id ?? null,
+          route_id: null,
           metadata: {
             route_summary: data.route_summary ?? null,
-            route_step_count: data.route_steps?.length ?? 0,
-            route_shop_ids: data.route_shop_ids ?? [],
+            destination_query: data.navigation_request.destination_query,
+            route_shop_ids: data.navigation_request.shop_id ? [String(data.navigation_request.shop_id)] : [],
           },
         });
       }
@@ -927,12 +927,12 @@ const AssistantPage = () => {
         mallName: selectedMall?.name,
         metadata: { has_products: (data.products?.length ?? 0) > 0, budget_set: budget !== null },
       });
-      if (data.build_route) {
+      if (data.navigation_request) {
         trackEvent("ai_route_triggered", {
           userId: user?.id,
           mallId: selectedMall?.id,
           mallName: selectedMall?.name,
-          metadata: { stops: data.route_shop_ids?.length ?? 0 },
+          metadata: { status: assistantMsg.navigation?.status ?? null, query: data.navigation_request.destination_query },
         });
       }
       if (budget !== null) {
@@ -1049,36 +1049,16 @@ const AssistantPage = () => {
     setIsListening(false);
   }
 
-  // Handle "Start Navigation" from route card — uses real steps if available
-  async function handleBuildRoute(shopIds: string[], steps?: RouteStep[], routeId?: string | null) {
-    // If AI already built the real route, use it directly
-    if (steps?.length && routeId) {
-      setActiveRoute(routeId, steps);
-      navigate("/navigate");
-      return;
-    }
-
-    // Fallback: load shops and sort by floor for stop-list mode.
-    // NOTE: shops has opening_time/closing_time — selecting the non-existent
-    // opening_hours column made this query 400 and silently broke the
-    // Start Navigation button for anonymous (no route_id) sessions.
-    const { data } = await supabase
-      .from("shops")
-      .select("id, mall_id, name, floor, unit_number, category, opening_time, closing_time")
-      .in("id", shopIds);
-
-    if (!data?.length) return;
-
-    const sorted = [...data].sort((a, b) => {
-      const aOrd = FLOOR_ORDER[a.floor ?? ""] ?? 99;
-      const bOrd = FLOOR_ORDER[b.floor ?? ""] ?? 99;
-      if (aOrd !== bOrd) return aOrd - bOrd;
-      return (a.unit_number ?? "").localeCompare(b.unit_number ?? "");
-    });
-
-    setRouteStops(sorted as Shop[]);
-    updateSessionRoute(sorted.map((s) => s.id));
-    navigate("/navigate");
+  /** Hand a resolved navigation intent to the ONE navigation runtime (Venue Pack → router → session → experience). */
+  function goToIntent(resolution: IntentResolution) {
+    if (resolution.status !== "resolved") return;
+    trackEvent("navigate_there_clicked", { userId: user?.id, mallId: selectedMall?.id, mallName: selectedMall?.name, metadata: { destination: resolution.intent.destination_id, source: resolution.intent.resolution_source } });
+    navigate(navigationIntentLink(resolution.intent));
+  }
+  function goToCandidate(venueId: string, destinationId: string) {
+    const venue = navigationVenue && navigationVenue.id === venueId ? navigationVenue : null;
+    const intent = venue ? intentForDestination(venue, destinationId, "assistant") : null;
+    if (intent) goToIntent({ status: "resolved", intent });
   }
 
   // ── Event 4: route_requested — fired when user taps "Take me to [shop]" ────
@@ -1094,43 +1074,15 @@ const AssistantPage = () => {
     sendMessage(queryText);
   }
 
-  // Navigate to a single shop from a recommendation card
-  async function handleNavigateToShop(product: ProductResult) {
-    const { data } = await supabase
-      .from("shops")
-      .select("id, mall_id, name, floor, unit_number, category, opening_time, closing_time")
-      .eq("id", product.shop_id)
-      .single();
-
-    if (!data) return;
-
-    trackEvent("navigate_there_clicked", {
-      userId: user?.id,
-      mallId: selectedMall?.id,
-      mallName: selectedMall?.name,
-    });
-
-    if (dbSessionId && isGoogleBackendConfigured()) {
-      try {
-        const route = await buildRoute({
-          session_id: dbSessionId,
-          destination_shop_ids: [String(data.id)],
-        });
-
-        if (route.route_id && route.steps?.length) {
-          setActiveRoute(route.route_id, route.steps);
-          navigate("/navigate");
-          return;
-        }
-      } catch (err) {
-        console.error("Live buildRoute failed; falling back to stop-list navigation", err);
-      }
-    }
-
-    // Fallback: keep the old stop-list navigation flow if live routing is unavailable.
-    setRouteStops([data as Shop]);
-    updateSessionRoute([data.id]);
-    navigate("/navigate");
+  // Navigate to a single shop from a recommendation card: resolve the shop NAME against the Venue
+  // Pack on the device (no backend routing, no invented ids); unknown → the visitor searches.
+  function handleNavigateToShop(product: ProductResult) {
+    trackEvent("navigate_there_clicked", { userId: user?.id, mallId: selectedMall?.id, mallName: selectedMall?.name });
+    const resolution: IntentResolution = navigationVenue
+      ? resolveNavigationIntent(navigationVenue, product.shop_name ?? "", "assistant")
+      : { status: "no_venue", query: product.shop_name ?? "" };
+    if (resolution.status === "resolved") { goToIntent(resolution); return; }
+    navigate(navigationVenue ? `/navigate?mall=${encodeURIComponent(navigationVenue.id)}` : "/navigate");
   }
 
   // Add a product to the shopping list
@@ -1491,13 +1443,7 @@ const AssistantPage = () => {
                         </button>
                       )}
 
-                      {/* Route built indicator */}
-                      {msg.routeShopIds && msg.routeShopIds.length > 0 && (
-                        <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-primary/8 border border-primary/25 text-[11px] text-primary font-medium">
-                          <RouteIcon className="h-3.5 w-3.5 shrink-0" />
-                          Route ready · AI-assisted prototype route
-                        </div>
-                      )}
+                      
 
                       {/* Part 1: Recommendation feedback */}
                       <FeedbackStrip
@@ -1535,109 +1481,44 @@ const AssistantPage = () => {
                     </div>
                   )}
 
-                  {msg.routeShopIds && msg.routeShopIds.length > 0 && (
-                    <div className={cn(
-                      "rounded-2xl border p-3 space-y-2.5 w-full max-w-[310px]",
-                      msg.routeSteps?.length
-                        ? "border-primary/50 bg-primary/10"
-                        : "border-primary/30 bg-primary/8"
-                    )}>
-                      {/* Route header — clear handoff: title + summary side by side */}
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <RouteIcon className="h-4 w-4 text-primary shrink-0" />
-                            <p className="text-xs font-semibold text-primary">Route ready</p>
-                          </div>
-                          <p className="text-[10px] font-medium text-primary/80 shrink-0">
-                            {msg.routeSummary || (msg.routeSteps?.length
-                              ? `${msg.routeSteps.length} steps`
-                              : `${msg.routeShopIds.length} stop${msg.routeShopIds.length !== 1 ? "s" : ""}`)}
+{msg.navigation && (
+                    <div className="w-full max-w-[310px] space-y-2 rounded-2xl border border-primary/30 bg-primary/8 p-3" data-testid="assistant-navigation">
+                      {msg.navigation.status === "resolved" && (
+                        <>
+                          <p className="text-[11px] text-muted-foreground leading-relaxed">
+                            MallMind will walk you to <span className="font-semibold text-foreground">{msg.navigation.intent.resolved_label}</span> from your current start point. The route is drawn from MallMind’s own map of this mall, not by the assistant.
                           </p>
-                        </div>
-
-                        <div className="inline-flex items-center gap-1.5 rounded-full border border-primary/25 bg-primary/8 px-2.5 py-1 text-[9px] font-semibold uppercase tracking-[0.16em] text-primary">
-                          AI-assisted prototype route
-                        </div>
-                      </div>
-
-                      {/* Step-by-step directions */}
-                      {msg.routeSteps && msg.routeSteps.length > 0 && (
-                        <div className="space-y-2 pl-1">
-                          {msg.routeSteps.map((step) => (
-                            <div key={step.step} className="flex items-start gap-2.5">
-                              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/20 border border-primary/30 text-[10px] font-bold text-primary mt-0.5">
-                                {step.step}
-                              </span>
-                              <div className="min-w-0">
-                                <p className="text-[11px] text-foreground leading-snug">{step.instruction}</p>
-                                {step.floor && (
-                                  <p className="text-[9px] text-muted-foreground mt-0.5">Floor {step.floor}</p>
-                                )}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
+                          <Button variant="neon" size="sm" className="w-full" onClick={() => goToIntent(msg.navigation!)} data-testid="assistant-take-me-there">
+                            <Navigation className="h-4 w-4" />
+                            Take me to {msg.navigation.intent.resolved_label}
+                          </Button>
+                        </>
                       )}
-
-                      {/* Start navigation CTA — explain the handoff honestly:
-                          this opens the indoor route view; no live-GPS claim. */}
-                      <p className="text-[10px] text-muted-foreground leading-relaxed">
-                        Preview route ready. Start Navigation opens the indoor route view
-                        with these steps on the mall map.
-                      </p>
-                      <Button
-                        variant="neon"
-                        size="sm"
-                        className="w-full"
-                        onClick={() => handleBuildRoute(msg.routeShopIds!, msg.routeSteps, msg.routeId)}
-                      >
-                        <RouteIcon className="h-4 w-4" />
-                        Start Navigation
-                      </Button>
-
-                      {/* Part 3: Route success feedback */}
-                      <FeedbackStrip
-                        question="Did you find the store?"
-                        options={[
-                          { label: "Yes", value: "found_store"        },
-                          { label: "No",  value: "did_not_find_store" },
-                        ]}
-                        done={`${msg.id}:route` in feedbackGiven}
-                        doneMessage={feedbackGiven[`${msg.id}:route`]}
-                        onSelect={(value) => handleFeedback(
-                          `${msg.id}:route`,
-                          "route_feedback",
-                          value,
-                          undefined,
-                          {
-                            routeShopIds: msg.routeShopIds!,
-                            routeSummary: msg.routeSummary,
-                            routeSteps:   msg.routeSteps,
-                            routeId:      msg.routeId,
-                          }
-                        )}
-                      />
-
-                      {/* Part 4: Purchase signal (route context) */}
-                      <FeedbackStrip
-                        question="Did you buy it?"
-                        options={[
-                          { label: "Bought it", value: "bought"    },
-                          { label: "Not today", value: "not_today" },
-                        ]}
-                        done={`${msg.id}:purchase` in feedbackGiven}
-                        doneMessage={feedbackGiven[`${msg.id}:purchase`]}
-                        onSelect={(value) => handleFeedback(
-                          `${msg.id}:purchase`,
-                          "purchase_signal",
-                          value,
-                          msg.products?.[0],
-                          { routeShopIds: msg.routeShopIds! }
-                        )}
-                      />
+                      {msg.navigation.status === "ambiguous" && (
+                        <>
+                          <p className="text-[11px] text-muted-foreground leading-relaxed">Which one do you mean?</p>
+                          <div className="flex flex-wrap gap-1.5" data-testid="assistant-navigation-candidates">
+                            {msg.navigation.candidates.map((c) => (
+                              <button key={c.id} type="button" onClick={() => goToCandidate((msg.navigation as { venue_id: string }).venue_id, c.id)} className="min-h-9 rounded-full border border-primary/40 bg-primary/10 px-3 text-xs font-semibold text-primary">
+                                {c.name}
+                              </button>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                      {msg.navigation.status === "unknown" && (
+                        <>
+                          <p className="text-[11px] text-muted-foreground leading-relaxed">MallMind doesn’t have “{msg.navigation.query}” on its map of this mall yet.</p>
+                          <Button variant="outline" size="sm" className="w-full" onClick={() => navigate(`/navigate?mall=${encodeURIComponent((msg.navigation as { venue_id: string }).venue_id)}`)} data-testid="assistant-search-places">
+                            Search places MallMind can walk you to
+                          </Button>
+                        </>
+                      )}
+                      {msg.navigation.status === "no_venue" && (
+                        <p className="text-[11px] text-muted-foreground leading-relaxed" data-testid="assistant-no-venue">MallMind can’t walk you around {selectedMall?.name ?? "this mall"} yet. Navigation is available in the malls MallMind has mapped.</p>
+                      )}
                     </div>
-                  )}
+                  )}                  
                 </>
               )}
             </div>

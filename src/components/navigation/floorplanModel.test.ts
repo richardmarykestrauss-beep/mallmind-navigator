@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   FLOOR_WIDTH, FLOOR_HEIGHT,
   buildRoutePolyline, pointsForFloor, routeFloors, polylineToWalkNodes,
-  toFloorplanModel, schematicModelFromRoute, floorKey, floorChip, nodeTypeFor, attachFloorImages, percentToUnits, pointsBounds,
+  toFloorplanModel, floorKey, floorChip, nodeTypeFor, attachFloorImages, percentToUnits, pointsBounds,
   UNRECORDED_FLOOR, UNRECORDED_FLOOR_LABEL,
   type BackendIndoorModelLike,
 } from "./floorplanModel";
@@ -138,7 +138,6 @@ describe("toFloorplanModel — pack graph → floor-unit model", () => {
     const model = toFloorplanModel({ nodes: [{ id: "x", name: "X", type: "corridor", floor: null, x_coordinate: 1, y_coordinate: 1 }], edges: [] }, { mallId: "m", mallName: "M" });
     expect(model.floors[0]).toMatchObject({ id: UNRECORDED_FLOOR, label: UNRECORDED_FLOOR_LABEL });
     expect(model.floors[0].label).not.toMatch(/ground/i);
-    expect(schematicModelFromRoute([], { mallId: "m", mallName: "M" }).floors[0].label).toBe(UNRECORDED_FLOOR_LABEL);
   });
 
   it("attaches a floorplan svg only to the floor whose id it names exactly", () => {
@@ -152,19 +151,6 @@ describe("toFloorplanModel — pack graph → floor-unit model", () => {
     const model = toFloorplanModel(graph, { mallId: "m", mallName: "M" }, { floors: [{ id: "G", label: "Ground Floor" }] });
     expect(attachFloorImages(model, { G: "/plans/g.png" }).floors[0].imageUrl).toBe("/plans/g.png");
     expect(attachFloorImages(model, { "Ground Floor": "/plans/g.png" }).floors[0].imageUrl).toBeUndefined();
-  });
-});
-
-describe("schematicModelFromRoute — fallback when no pack graph", () => {
-  it("generates floors/nodes/edges from the route itself, with no floorplan image", () => {
-    const model = schematicModelFromRoute(STEPS, { mallId: "m", mallName: "Mall" });
-    expect(routeFloors(buildRoutePolyline(STEPS))).toEqual(model.floors.map((f) => f.id));
-    expect(model.floors.map((f) => f.label)).toEqual(["G", "L1"]);
-    const g = model.floors.find((f) => f.id === "G")!;
-    expect(g.imageUrl).toBeUndefined();          // → renders honest schematic
-    expect(g.nodes.map((n) => n.id)).toEqual(["n1", "n2"]);
-    expect(g.edges).toHaveLength(1);             // n1→n2 corridor
-    expect(g.stores).toEqual([]);
   });
 });
 

@@ -25,7 +25,6 @@
  */
 
 import type { Mall } from "@/lib/supabaseClient";
-import type { RouteStep } from "@/context/ShoppingSessionContext";
 import type { ProductResult } from "@/components/RecommendationCard";
 
 // ── Runtime config ────────────────────────────────────────────────────────────
@@ -83,17 +82,17 @@ export interface RecommendProductsResponse {
   total_found: number;
 }
 
-export interface BuildRouteResponse {
-  route_id: string | null;
-  steps: RouteStep[];
-  total_distance_meters: number;
-  estimated_minutes: number;
-  stop_count: number;
-  /**
-   * true when no navigation graph exists for this mall.
-   * The NavigateScreen falls back to a basic stop-list when this is true.
-   */
-  fallback: boolean;
+/**
+ * NAVIGATION BOUNDARY (Sprint 7): the assistant records WHERE the visitor wants to go. The device
+ * resolves it against the venue's Venue Pack (src/navigation/navigationIntent.ts) and the
+ * deterministic router draws the route. The backend never sends route steps, distances or times.
+ */
+export interface NavigationRequest {
+  type: "navigate";
+  destination_query: string;
+  shop_id?: string | null;
+  shop_name?: string | null;
+  resolution_source: "visitor_phrase" | "assistant_tool" | "product";
 }
 
 export interface AssistantRequest {
@@ -136,12 +135,10 @@ export interface AssistantResponse {
   message: string;
   products?: ProductResult[];
   web_results?: WebResult[];
-  route_steps?: RouteStep[];
-  route_id?: string | null;
-  build_route?: boolean;
-  route_shop_ids?: string[];
   route_summary?: string;
   shopping_answer?: AssistantShoppingAnswer | null;
+  /** Intent only — see NavigationRequest. */
+  navigation_request?: NavigationRequest | null;
 }
 
 // ── Health check ─────────────────────────────────────────────────────────────
@@ -647,14 +644,6 @@ export async function recommendProducts(params: {
  * /assistant endpoint. This function is exposed for future direct use.
  * Check `response.fallback === true` and show a store-list if so.
  */
-export async function buildRoute(params: {
-  session_id: string;
-  destination_shop_ids: string[];
-  user_id?: string | null;
-}): Promise<BuildRouteResponse> {
-  return post<BuildRouteResponse>("/build-route", params);
-}
-
 /**
  * POST /assistant
  *
