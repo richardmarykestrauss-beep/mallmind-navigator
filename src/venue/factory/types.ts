@@ -222,6 +222,20 @@ export interface CandidateAnchor extends CandidateBase {
 export interface CandidateAmenity extends CandidateBase {
   kind: string; name: string; node: string; routable: boolean; aliases?: string[];
 }
+/**
+ * A vertical connector (Sprint 7): a lift, escalator, stairs or ramp joining "vertical" nodes on
+ * two or more floors. The compiler turns it into `pack.connectors[]`; the app's loader expands it
+ * into directed edges. It carries NO length — a floor change has no metres and no pixels.
+ */
+export interface CandidateConnector extends CandidateBase {
+  kind: "lift" | "escalator" | "stairs" | "ramp";
+  name?: string;
+  landings: Array<{ floor: string; node: string }>;
+  /** Default "both". "up" / "down" is the travel direction from the lower to the higher landing. */
+  direction?: "both" | "up" | "down";
+  /** Default "open". A closed connector compiles but is unroutable. */
+  availability?: "open" | "closed";
+}
 /** A free-standing fact (e.g. "Clicks is Store 37") the extraction asserts without a candidate object. */
 export interface CandidateFact extends CandidateBase { subject: string; predicate: string; value: FactValue }
 
@@ -240,6 +254,8 @@ export interface CandidateExtraction {
   destinations: CandidateDestination[];
   anchors: CandidateAnchor[];
   amenities: CandidateAmenity[];
+  /** Optional (older extractions omit it). */
+  connectors?: CandidateConnector[];
   facts: CandidateFact[];
 }
 
@@ -272,7 +288,10 @@ export interface FieldImport {
   measurements: Array<{ id: string; edge: string; distance_m: number; method: string; notes?: string }>;
   node_confirmations: Array<{ id: string; node: string; at?: CandidatePoint; notes?: string }>;
   door_confirmations: Array<{ id: string; destination: string; notes?: string }>;
+  /** `subject` may be "venue", an amenity ("amenity:<id>") or a connector ("connector:<id>"). */
   accessibility: Array<{ id: string; subject: string; step_free: boolean; notes?: string }>;
+  /** Timed rides on a connector (the only way a connector gets traversal_seconds). Optional. */
+  connector_timings?: Array<{ id: string; connector: string; traversal_seconds: number; method: string; notes?: string }>;
 }
 
 // ── Diff ─────────────────────────────────────────────────────────────────────

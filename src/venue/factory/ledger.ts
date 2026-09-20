@@ -79,6 +79,11 @@ export function factsFromExtraction(extraction: CandidateExtraction, proposedBy:
   extraction.destinations.forEach((d) => facts.push({ ...base("destination", d), subject: `destination:${d.id}`, predicate: "destination", value: { name: d.name, kind: d.kind, category: d.category ?? null, arrival_node: d.arrival_node, unit: d.unit ?? null, aliases: (d.aliases ?? []).join("|") } }));
   extraction.anchors.forEach((a) => facts.push({ ...base("anchor", a), subject: `anchor:${a.id}`, predicate: "anchor", value: { node: a.node, label: a.label, kind: a.kind, start_permitted: a.start_permitted, qr_eligible: a.qr_eligible ?? a.start_permitted } }));
   extraction.amenities.forEach((a) => facts.push({ ...base("amenity", a), subject: `amenity:${a.id}`, predicate: "amenity", value: { kind: a.kind, name: a.name, node: a.node, routable: a.routable, aliases: (a.aliases ?? []).join("|") } }));
+  // A connector fact: first record = attributes, following records = landings (flat records only, like unit polygons).
+  (extraction.connectors ?? []).forEach((k) => facts.push({ ...base("connector", k), subject: `connector:${k.id}`, predicate: "connector", value: [
+    { kind: k.kind, name: k.name ?? null, direction: k.direction ?? "both", availability: k.availability ?? "open" },
+    ...k.landings.map((l) => ({ floor: l.floor, node: l.node })),
+  ] }));
   extraction.facts.forEach((f) => facts.push({ ...base("", f), subject: f.subject, predicate: f.predicate, value: f.value }));
   return errors.length ? { status: "failed", errors } : { status: "ok", facts };
 }
@@ -99,6 +104,7 @@ export function factsFromFieldImport(fi: FieldImport, proposedBy: string, source
   });
   fi.door_confirmations.forEach((d) => facts.push({ ...base("door", d.id, d.notes), subject: `destination:${d.destination}`, predicate: "arrival", value: "verified_public_door" }));
   fi.accessibility.forEach((a) => facts.push({ ...base("accessibility", a.id, a.notes), subject: a.subject, predicate: "accessibility", value: { step_free: a.step_free, observer: fi.observer, observed_at: fi.observed_at } }));
+  (fi.connector_timings ?? []).forEach((t) => facts.push({ ...base("timing", t.id, t.notes), subject: `connector:${t.connector}`, predicate: "traversal", value: { traversal_seconds: t.traversal_seconds, method: t.method, observer: fi.observer, observed_at: fi.observed_at } }));
   return errors.length ? { status: "failed", errors } : { status: "ok", facts };
 }
 
