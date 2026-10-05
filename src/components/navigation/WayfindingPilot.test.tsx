@@ -383,7 +383,7 @@ describe("Unroutable, restore, backend independence, events", () => {
       fireEvent.click(screen.getByTestId("pilot-restart"));
       expect(events).toEqual([
         "destination_selected", "route_overview_opened", "navigation_session_started", "navigation_step_advanced", "navigation_step_back",
-        "location_update_opened", "navigation_reanchored", ...Array<string>(8).fill("navigation_step_advanced"), "navigation_arrived", "navigation_restarted",
+        "location_update_opened", "navigation_reanchored", ...Array<string>(8).fill("navigation_step_advanced"), "navigation_arrived_confirmed", "navigation_restarted",
       ]);
     } finally { fetchSpy.mockRestore(); }
   });

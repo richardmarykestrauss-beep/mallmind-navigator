@@ -14,10 +14,12 @@ export type NavigationEventName =
   | "navigation_step_back"
   | "location_update_opened"
   | "navigation_reanchored"
-  | "navigation_arrived"
+  | "navigation_arrived_confirmed"
   | "navigation_restarted"
   | "navigation_unroutable"
-  | "navigation_failed";
+  | "navigation_failed"
+  | "destination_search"
+  | "destination_search_no_result";
 
 export interface NavigationEvent {
   name: NavigationEventName;

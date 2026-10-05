@@ -35,6 +35,7 @@ import {
 import { routeClaim, routeEvidenceTier } from "@/components/navigation/routeEvidence";
 import { safeSink, type NavigationEventSink } from "@/components/navigation/navigationEvents";
 import { subscribeOverlays, overlayVersion } from "@/venue/overlayStore";
+import { classifySearch } from "@/venue/search";
 import { persistNavigationSession, loadPersistedNavigationSession, type PersistedNavigationSession } from "@/components/navigation/navigationSessionStore";
 
 // ── Product language ─────────────────────────────────────────────────────────
@@ -242,7 +243,11 @@ function WayfindingPilotView({ graph, initialAnchor, anchorNotice, embedded, onO
   function send(action: NavigationAction) {
     const next = navigationReducer(graph, session, action);
     setSession(next);
-    const base = { destination: next.destination?.id ?? null, anchor: next.anchor.nodeId, anchorSource: next.anchor.source, evidence: tier };
+    const base = {
+      destination: next.destination?.id ?? null, destination_category: next.destination?.categoryLabel ?? null,
+      anchor: next.anchor.nodeId, anchor_id: next.anchor.anchorId ?? null, anchorSource: next.anchor.source, evidence: tier,
+      floor_changes: next.route?.connector_count ?? 0,
+    };
     switch (action.type) {
       case "select_destination":
         emit({ name: "destination_selected", mallId: graph.id, detail: { ...base, kind: action.destination.kind } });
@@ -254,7 +259,7 @@ function WayfindingPilotView({ graph, initialAnchor, anchorNotice, embedded, onO
         break;
       case "next_step":
         if (next.stepIndex !== session.stepIndex) emit({ name: "navigation_step_advanced", mallId: graph.id, detail: { ...base, step: next.stepIndex + 1 } });
-        if (next.status === "arrived" && session.status !== "arrived") emit({ name: "navigation_arrived", mallId: graph.id, detail: base });
+        if (next.status === "arrived" && session.status !== "arrived") emit({ name: "navigation_arrived_confirmed", mallId: graph.id, detail: base });
         break;
       case "previous_step":
         if (next.stepIndex !== session.stepIndex) emit({ name: "navigation_step_back", mallId: graph.id, detail: { ...base, step: next.stepIndex + 1 } });
@@ -319,6 +324,20 @@ function WayfindingPilotView({ graph, initialAnchor, anchorNotice, embedded, onO
   useWalkingHistory(walking || arrived, () => setSession((s) => (s.status === "navigating" || s.status === "arrived" ? navigationReducer(graph, s, { type: "restart" }) : s)));
 
   const results = useMemo(() => searchPois(graph, query), [graph, query]);
+  // Search demand / friction: one classified event per settled query (no raw text), debounced.
+  const lastSearchKey = useRef<string>("");
+  useEffect(() => {
+    const q = query.trim();
+    if (dest || q.length < 2) return;
+    const t = setTimeout(() => {
+      const c = classifySearch(graph, q);
+      if (c.query_normalized === lastSearchKey.current) return;
+      lastSearchKey.current = c.query_normalized;
+      const detail = { query_length: q.length, query_class: c.matched_via, result_count: c.result_count, categories: c.categories.join("|") || null, miss_reason: c.miss_reason, nearest_known: c.nearest_known };
+      emit({ name: c.result_count === 0 ? "destination_search_no_result" : "destination_search", mallId: graph.id, detail });
+    }, 400);
+    return () => clearTimeout(t);
+  }, [query, dest, graph, emit]);
   // Steps record their "to" node, so prepend the chosen start node: the START pin and the first
   // route segment then begin at the entrance the visitor actually chose, not at the first junction.
   const polyline = useMemo(() => {

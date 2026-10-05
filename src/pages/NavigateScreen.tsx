@@ -8,7 +8,6 @@ import WayfindingPilot, { type NavigationUiMode } from "@/components/navigation/
 import { parseWayfindingAnchor } from "@/components/navigation/wayfindingAnchor";
 import { getWayfindingMall, DEFAULT_WAYFINDING_MALL_ID } from "@/components/navigation/mallDatasets";
 import { routeClaim } from "@/components/navigation/routeEvidence";
-import type { NavigationEvent } from "@/components/navigation/navigationEvents";
 import { useShoppingSession } from "@/context/ShoppingSessionContext";
 import { useAuth } from "@/context/AuthContext";
 import { trackEvent } from "@/lib/analytics";
@@ -16,6 +15,7 @@ import { cn } from "@/lib/utils";
 import { describeShopFloor } from "@/lib/shopLocation";
 import { findVenueForMall, navigationIntentLink, parseNavigationIntentLink, resolveNavigationIntent } from "@/navigation/navigationIntent";
 import { demoOverlayFromSearch } from "@/navigation/demoOverlays";
+import { emitPilotEvent, pilotSinkForNavigation } from "@/navigation/pilotEvents";
 import { setVenueOverlay, clearVenueOverlay } from "@/venue/overlayStore";
 
 /**
@@ -59,6 +59,17 @@ const NavigateScreen = () => {
     if (demo === "none") clearVenueOverlay(wayfindingMallId);
     else if (demo && demo.overlay.venue_id === wayfindingMallId) setVenueOverlay(demo.overlay);
   }, [search, wayfindingMallId]);
+  // Pilot funnel: venue opened, and how a link / QR landing resolved. Session-scoped, no user id.
+  const viaQr = useMemo(() => new URLSearchParams(search).get("via") === "qr", [search]);
+  useEffect(() => {
+    if (!wayfindingMall) return;
+    emitPilotEvent("venue_opened", wayfindingMall.id, { via: viaQr ? "qr" : linkAnchor.status !== "none" || linkIntent ? "link" : "direct" });
+    if (viaQr) emitPilotEvent("qr_landing", wayfindingMall.id, { anchor_status: linkAnchor.status });
+    if (linkAnchor.status === "ok" && linkAnchor.anchor) emitPilotEvent("qr_anchor_valid", wayfindingMall.id, { anchor_id: linkAnchor.anchor.anchorId ?? null, via: viaQr ? "qr" : "link" });
+    if (linkAnchor.status === "invalid") emitPilotEvent("qr_anchor_invalid", wayfindingMall.id, { reason: linkAnchor.reason ?? "invalid", via: viaQr ? "qr" : "link" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wayfindingMall?.id, search]);
+  const pilotSink = useMemo(() => pilotSinkForNavigation(), []);
   // Walking / arrival are focus modes: the app's bottom nav and page header step aside.
   const [uiMode, setUiMode] = useState<NavigationUiMode>("search");
   const focusMode = uiMode === "walking" || uiMode === "arrived";
@@ -74,7 +85,7 @@ const NavigateScreen = () => {
   useEffect(() => {
     if (!allStopsDone) return;
     trackEvent("route_completed", {
-      userId: user?.id ?? null,
+      userId: null, // stop-list completion is session-scoped like every pilot event
       mallId: selectedMall?.id,
       mallName: selectedMall?.name,
       metadata: { stops: routeStops.length, kind: "stop_list", has_real_route: false },
@@ -97,7 +108,7 @@ const NavigateScreen = () => {
   function guideToStop(name: string) {
     if (!stopListVenue) return;
     const res = resolveNavigationIntent(stopListVenue, name, "search");
-    trackEvent("navigation_intent", { userId: user?.id ?? null, mallId: stopListVenue.id, mallName: stopListVenue.name, metadata: { source: "stop_list", status: res.status } });
+    emitPilotEvent("navigation_intent", stopListVenue.id, { source: "stop_list", status: res.status });
     if (res.status === "resolved") navigate(navigationIntentLink(res.intent));
     else navigate(`/navigate?mall=${encodeURIComponent(stopListVenue.id)}`); // let the visitor pick from search
   }
@@ -136,7 +147,7 @@ const NavigateScreen = () => {
           anchorNotice={linkAnchor.status === "invalid" && wayfindingMall ? linkAnchor.reason : null}
           onModeChange={setUiMode}
           onOpenAssistant={() => navigate("/assistant")}
-          onEvent={(e: NavigationEvent) => trackEvent(e.name, { userId: user?.id ?? null, mallId: e.mallId, mallName: wayfindingMall?.name ?? null, metadata: e.detail })}
+          onEvent={pilotSink}
         />
       </MobileShell>
     );
