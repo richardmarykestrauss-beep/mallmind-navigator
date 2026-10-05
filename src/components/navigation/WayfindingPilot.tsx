@@ -14,7 +14,7 @@
  * into product language (Preview / Mapped / Verified route) by src/venue/evidence.ts.
  */
 
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from "react";
 import { ArrowLeft, ChevronLeft, ChevronRight, Search, MapPin, Navigation, QrCode, LocateFixed, CheckCircle2, RotateCcw, X, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,6 +34,7 @@ import {
 } from "@/components/navigation/navigationSession";
 import { routeClaim, routeEvidenceTier } from "@/components/navigation/routeEvidence";
 import { safeSink, type NavigationEventSink } from "@/components/navigation/navigationEvents";
+import { subscribeOverlays, overlayVersion } from "@/venue/overlayStore";
 import { persistNavigationSession, loadPersistedNavigationSession, type PersistedNavigationSession } from "@/components/navigation/navigationSessionStore";
 
 // ── Product language ─────────────────────────────────────────────────────────
@@ -58,7 +59,7 @@ const poiIcon = (p: PilotPoi): string =>
     : ({ toilet: "🚻", accessible_toilet: "♿", baby_room: "🍼", information: "ℹ️", atm: "🏧", lift: "🛗", escalator: "🪜", stairs: "🪜", parking: "🅿️", charging: "🔌", security: "🛡️", first_aid: "⛑️", food_court: "🍽️", seating: "🪑" }[p.type] ?? "📍");
 
 /** The visitor-facing states this screen can be in (reported to the host so it can adapt its chrome). */
-export type NavigationUiMode = "no-venue" | "search" | "overview" | "unroutable" | "walking" | "arrived";
+export type NavigationUiMode = "no-venue" | "no-start" | "search" | "overview" | "unroutable" | "walking" | "arrived";
 
 export interface WayfindingPilotProps {
   /** Which registered venue to route over; defaults to the registry's first bundled venue. */
@@ -86,10 +87,13 @@ export interface WayfindingPilotProps {
 }
 
 export default function WayfindingPilot({ mallId, onModeChange, ...rest }: WayfindingPilotProps) {
-  const graph = useMemo(() => getWayfindingMall(mallId ?? DEFAULT_WAYFINDING_MALL_ID), [mallId]);
+  // The venue is re-read whenever its operational overlay changes (closures applied / lifted).
+  const overlayV = useSyncExternalStore(subscribeOverlays, overlayVersion, overlayVersion);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const graph = useMemo(() => getWayfindingMall(mallId ?? DEFAULT_WAYFINDING_MALL_ID), [mallId, overlayV]);
   const known = useMemo(() => listWayfindingMalls(), []);
 
-  useEffect(() => { if (!graph) onModeChange?.("no-venue"); }, [graph, onModeChange]);
+  useEffect(() => { if (!graph) onModeChange?.("no-venue"); else if (graph.startAnchors.length === 0) onModeChange?.("no-start"); }, [graph, onModeChange]);
 
   if (!graph) {
     // Never invent a map: say so, and offer the venues MallMind can guide in (data, not code).
@@ -111,7 +115,39 @@ export default function WayfindingPilot({ mallId, onModeChange, ...rest }: Wayfi
       </div>
     );
   }
+  if (graph.startAnchors.length === 0) {
+    // Every start is unavailable (operational overlay): say so; never invent a starting point.
+    return (
+      <div data-testid="wayfinding-pilot" data-mall-id={graph.id} data-ui-mode="no-start" data-session-status="none">
+        {overlayBanner(graph)}
+        <section className="px-4 py-6" data-testid="pilot-no-start" role="status" aria-labelledby="pilot-no-start-title">
+          <h2 id="pilot-no-start-title" className="text-base font-semibold">No MallMind starting point is available at {graph.name} right now.</h2>
+          <p className="mt-1 text-sm text-muted-foreground">Please ask at the information desk. Directions will return when a starting point reopens.</p>
+        </section>
+      </div>
+    );
+  }
   return <WayfindingPilotView key={`${graph.id}:${rest.initialDestination?.destinationId ?? ""}`} graph={graph} onModeChange={onModeChange} {...rest} />;
+}
+
+/** Operational state banner. A simulated state is labelled so it can never pass as a real venue condition. */
+function overlayBanner(graph: LoadedPilotDataset): ReactNode {
+  const o = graph.overlay;
+  if (!o || o.entries.length === 0) return null;
+  return (
+    <div
+      className={`mx-4 mt-3 rounded-xl border px-3 py-2 text-sm ${o.simulated ? "border-fuchsia-500/60 bg-fuchsia-500/10" : "border-amber-500/50 bg-amber-500/10"}`}
+      role="status"
+      data-testid="pilot-overlay-banner"
+      data-simulated={o.simulated ? "true" : "false"}
+    >
+      <p className="font-semibold">{o.simulated ? "DEMO / SIMULATED operational state" : "Operational notice"}</p>
+      {o.simulated && <p className="text-xs text-muted-foreground">Not a real {graph.name} condition. Shown to demonstrate how temporary closures change directions.</p>}
+      <ul className="mt-1 list-disc pl-4 text-xs text-muted-foreground" data-testid="pilot-overlay-entries">
+        {o.entries.map((e) => <li key={e.id}>{e.reason}</li>)}
+      </ul>
+    </div>
+  );
 }
 
 /** Rebuild a session from a remembered record (validated against the venue; anything stale → null). */
@@ -140,7 +176,7 @@ function restoreSession(graph: LoadedPilotDataset, saved: PersistedNavigationSes
  * across venues or after expiry, and anything that no longer resolves starts fresh.
  */
 function initialSession(graph: LoadedPilotDataset, initialAnchor: PilotAnchor | null | undefined, remember: boolean, initialDestination?: { destinationId: string } | null): NavigationSession {
-  const anchor = initialAnchor ?? defaultAnchor(graph);
+  const anchor = initialAnchor ?? defaultAnchor(graph)!; // the view is only mounted when a start exists
   const fresh = createNavigationSession(graph.id, anchor);
   // An explicit destination (link / assistant intent) is validated against the venue and, when
   // known, becomes a fresh route from the trusted start — the same reducer path as a manual pick.
@@ -249,6 +285,22 @@ function WayfindingPilotView({ graph, initialAnchor, anchorNotice, embedded, onO
 
   // Remember the session for refresh / re-entry (best-effort).
   useEffect(() => { if (rememberSession) persistNavigationSession(session); }, [session, rememberSession]);
+
+  // The venue's operational state changed under a live session: a start that is no longer available
+  // moves to the first available one; any route is recomputed against the current graph.
+  const graphRef = useRef(graph);
+  useEffect(() => {
+    if (graphRef.current === graph) return;
+    graphRef.current = graph;
+    setSession((s) => {
+      const startOk = graph.startAnchors.some((a) => a.node === s.anchor.nodeId);
+      const base = startOk ? s : navigationReducer(graph, s, { type: "reanchor", anchor: defaultAnchor(graph)! });
+      if (!s.destination) return base;
+      // Re-read the destination from the CURRENT venue state (availability flags live there).
+      const fresh = pointsOfInterest(graph).find((p) => p.id === s.destination!.id) ?? s.destination;
+      return navigationReducer(graph, { ...base, destination: fresh }, { type: "recalculate" });
+    });
+  }, [graph]);
 
   const { anchor, destination: dest, route, status } = session;
   const hasRoute = isRoutable(session);
@@ -407,6 +459,8 @@ function WayfindingPilotView({ graph, initialAnchor, anchorNotice, embedded, onO
   );
 
   const claimBadge = <Badge variant="outline" className="shrink-0 text-[11px]" data-testid="pilot-route-claim" title={routeClaimExplanation(tier)}>{claim}</Badge>;
+
+  const banner = overlayBanner(graph);
 
   const header = embedded ? null : (
     <header className="sticky top-0 z-10 flex items-center gap-2 border-b bg-background/95 px-4 py-3 backdrop-blur">
@@ -806,6 +860,7 @@ function WayfindingPilotView({ graph, initialAnchor, anchorNotice, embedded, onO
       data-ui-mode={mode}
     >
       {header}
+      {banner && <div className={embedded ? "-mx-0 mb-1" : ""}>{banner}</div>}
       <main className={embedded ? "flex-1 px-4 pb-2" : "flex-1 px-4 py-4"}>
         {anchorNotice && (
           <div className="mb-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm leading-snug" role="status" data-testid="pilot-anchor-notice">

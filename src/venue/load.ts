@@ -63,6 +63,8 @@ export interface LoadedVenue {
   floorImages: FloorImageMap;
   /** Strongest and weakest node geometry evidence present (for summaries). */
   geometryRange: { weakest: GeometryEvidence; strongest: GeometryEvidence };
+  /** Present only on a venue returned by `applyOverlay` (src/venue/overlay.ts); the pack itself never carries it. */
+  overlay?: import("./overlay").AppliedOverlay;
 }
 
 const RANK: Record<GeometryEvidence, number> = { schematic: 0, "source-backed": 1, "field-verified": 2 };

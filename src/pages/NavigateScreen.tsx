@@ -15,6 +15,8 @@ import { trackEvent } from "@/lib/analytics";
 import { cn } from "@/lib/utils";
 import { describeShopFloor } from "@/lib/shopLocation";
 import { findVenueForMall, navigationIntentLink, parseNavigationIntentLink, resolveNavigationIntent } from "@/navigation/navigationIntent";
+import { demoOverlayFromSearch } from "@/navigation/demoOverlays";
+import { setVenueOverlay, clearVenueOverlay } from "@/venue/overlayStore";
 
 /**
  * NavigateScreen — the shopper "Navigate" tab.
@@ -51,6 +53,12 @@ const NavigateScreen = () => {
       : null),
     [linkIntent, wayfindingMallId],
   );
+  // DEMO / SIMULATED operational state, only ever from an explicit `demo_overlay=` query (never a real condition).
+  useEffect(() => {
+    const demo = demoOverlayFromSearch(search);
+    if (demo === "none") clearVenueOverlay(wayfindingMallId);
+    else if (demo && demo.overlay.venue_id === wayfindingMallId) setVenueOverlay(demo.overlay);
+  }, [search, wayfindingMallId]);
   // Walking / arrival are focus modes: the app's bottom nav and page header step aside.
   const [uiMode, setUiMode] = useState<NavigationUiMode>("search");
   const focusMode = uiMode === "walking" || uiMode === "arrived";

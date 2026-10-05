@@ -56,7 +56,9 @@ export type NavigationAction =
   | { type: "next_step" }
   | { type: "previous_step" }
   | { type: "reanchor"; anchor: PilotAnchor }
-  | { type: "restart" };
+  | { type: "restart" }
+  /** The venue's current state changed (operational overlay): recompute the route from the same start. */
+  | { type: "recalculate" };
 
 function routable(route: PilotRouteResult | null): route is PilotRouteResult {
   return Boolean(route && route.found && !route.fallback && route.steps.length > 0);
@@ -127,6 +129,11 @@ export function navigationReducer(graph: NavigationGraph, s: NavigationSession, 
       };
     }
 
+    case "recalculate": {
+      if (!s.destination) return s;
+      // Walking progress cannot survive a changed graph truthfully: back to the overview with a fresh route.
+      return withRoute(graph, { ...s, lastReanchor: null }, false);
+    }
     case "restart":
       if (!routable(s.route)) return s;
       return { ...s, stepIndex: 0, completedSteps: [], status: "route_ready", lastReanchor: null };

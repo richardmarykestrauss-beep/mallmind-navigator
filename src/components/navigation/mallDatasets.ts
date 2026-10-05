@@ -11,6 +11,8 @@ import { getVenuePack, listVenuePacks, defaultVenueId, type VenueSummary } from 
 import type { LoadedVenue } from "@/venue/load";
 import { searchDestinationsDetailed, searchableDestinations, type SearchableDestination, type SearchHit, type SearchMatchVia } from "@/venue/search";
 import { routeEvidenceTier } from "@/venue/evidence";
+import { applyOverlay } from "@/venue/overlay";
+import { getVenueOverlay } from "@/venue/overlayStore";
 
 /** The runtime venue object Core consumes (alias kept for older imports). */
 export type LoadedPilotDataset = LoadedVenue;
@@ -30,9 +32,14 @@ export function listWayfindingMalls(): Array<{ id: string; name: string; dataset
 /** Manual-entry default venue: registry order (data), never a mall id in code. */
 export const DEFAULT_WAYFINDING_MALL_ID = defaultVenueId();
 
-/** Load (validated, cached) the venue for an id, or null when unknown — never throws for unknown ids. */
-export function getWayfindingMall(mallId: string): LoadedVenue | null {
-  return getVenuePack(mallId);
+/**
+ * Load (validated, cached) the venue for an id, or null when unknown — never throws for unknown ids.
+ * The venue's CURRENT operational overlay is applied here, before search, routing and start
+ * selection ever see it; with no active overlay the pack's own loaded object is returned untouched.
+ */
+export function getWayfindingMall(mallId: string, now: number | Date = Date.now()): LoadedVenue | null {
+  const base = getVenuePack(mallId);
+  return base ? applyOverlay(base, getVenueOverlay(mallId), now) : null;
 }
 
 // ── Points of interest (destination-first finder) ────────────────────────────
@@ -83,11 +90,11 @@ export type PilotAnchorSource =
   | "native" | "wifi_rtt" | "uwb" | "apple_indoor"; // future positioning providers (not built)
 export interface PilotAnchor { nodeId: string; label: string; source: PilotAnchorSource; anchorId?: string }
 
-/** The venue's default start: its policy's default anchor, else the first start-permitted anchor. */
-export function defaultAnchor(venue: LoadedVenue): PilotAnchor {
+/** The venue's default start: its policy's default anchor, else the first AVAILABLE start-permitted anchor; null when none is available. */
+export function defaultAnchor(venue: LoadedVenue): PilotAnchor | null {
   const preferred = venue.policies.start.default_anchor ? venue.anchorById.get(venue.policies.start.default_anchor) : undefined;
   const a = preferred && venue.startAnchors.includes(preferred) ? preferred : venue.startAnchors[0];
-  return { nodeId: a.node, label: a.label, source: "manual", anchorId: a.id };
+  return a ? { nodeId: a.node, label: a.label, source: "manual", anchorId: a.id } : null;
 }
 
 /**

@@ -71,12 +71,14 @@ export function searchableDestinations(venue: LoadedVenue): SearchableDestinatio
   for (const d of venue.destinations) {
     if (kinds && !kinds.includes(d.kind)) continue;
     const routable = d.arrival_node !== null && connected.has(d.arrival_node); // honestly limited to routable nodes
-    list.push({ id: d.id, name: d.name, kind: "store", type: d.kind, arrivalNode: routable ? d.arrival_node : null, routable, unit: d.unit ?? null, aliases: d.aliases ?? [], category: d.category ?? null, categoryLabel: categoryLabel(d.category) });
+    const unavailable = venue.overlay?.unavailableDestinationIds.includes(d.id) ?? false;
+    list.push({ id: d.id, name: d.name, kind: "store", type: d.kind, arrivalNode: routable ? d.arrival_node : null, routable, unit: d.unit ?? null, aliases: d.aliases ?? [], category: d.category ?? null, categoryLabel: categoryLabel(d.category), ...(unavailable ? { unavailable: true } : {}) });
   }
   if (venue.policies.destinations.include_routable_amenities) {
     for (const a of venue.amenities) {
       if (!a.routable || !connected.has(a.node)) continue;
-      list.push({ id: a.id, name: a.name, kind: "amenity", type: a.kind, arrivalNode: a.node, routable: true, aliases: [...(a.aliases ?? []), ...(AMENITY_WORDS[a.kind] ?? [])], category: null, categoryLabel: null });
+      const unavailable = venue.overlay?.unavailableAmenityIds.includes(a.id) ?? false;
+      list.push({ id: a.id, name: a.name, kind: "amenity", type: a.kind, arrivalNode: a.node, routable: true, aliases: [...(a.aliases ?? []), ...(AMENITY_WORDS[a.kind] ?? [])], category: null, categoryLabel: null, ...(unavailable ? { unavailable: true } : {}) });
     }
   }
   Object.defineProperty(venue, cacheKey, { value: list, enumerable: false });
