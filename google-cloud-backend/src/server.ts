@@ -75,7 +75,7 @@ const publicWrites    = createRateLimiter({ windowMs: 60_000,        max: 60,  l
 app.use("/health",              healthRouter);
 app.use("/detect-active-mall",  publicWrites.middleware, detectActiveMallRouter);
 app.use("/recommend-products",  publicWrites.middleware, recommendProductsRouter);
-app.use("/indoor-map-model",   indoorMapModelRouter);
+app.use("/indoor-map-model",   publicWrites.middleware, indoorMapModelRouter); // LEGACY: admin-only + rate limited (Sprint 8)
 app.use("/assistant",           assistantBurst.middleware, assistantHourly.middleware, assistantRouter);
 app.use("/admin-stats",         adminStatsRouter);
 app.use("/admin/mall-data",       mallDataCompilerRouter);

@@ -1,5 +1,14 @@
 import { Router, Request, Response } from "express";
 import { createClient } from "@supabase/supabase-js";
+import { requireAdmin } from "../lib/adminAuth.js";
+
+/**
+ * LEGACY (Sprint 8 containment). The hosted indoor graph (mall_nodes / mall_edges / published
+ * floorplans) is no longer consumed by any visitor surface: Venue Packs are the only spatial truth
+ * (see src/navigation/dataAuthority.test.ts). This endpoint stays for admin tooling and harnesses
+ * only and now requires an admin bearer token; it was public, unauthenticated and unlimited before.
+ * Scheduled for deletion with the backend Map Factory (docs/architecture/legacy-spatial-retirement.md).
+ */
 
 const router = Router();
 
@@ -92,6 +101,7 @@ function uniqueFloors(nodes: IndoorMapNode[]): string[] {
  * Keeps frontend from querying raw mall_nodes/mall_edges directly.
  */
 router.get("/", async (req: Request, res: Response): Promise<void> => {
+  const auth = await requireAdmin(req, res); if (!auth) return;
   try {
     const supabase = getIndoorMapSupabase();
     const mallId = typeof req.query.mall_id === "string" ? req.query.mall_id.trim() : "";

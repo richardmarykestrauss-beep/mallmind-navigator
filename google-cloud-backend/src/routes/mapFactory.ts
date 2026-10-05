@@ -193,8 +193,8 @@ router.get("/jobs/:jobId", async (req: Request, res: Response) => {
 // ── GET /jobs/:jobId/floorplans/:floorPlanId/preview-model ───────────────────
 //
 // Admin/dev-only preview model for draft floorplans.
-// Normal shopper navigation must continue using /indoor-map-model, which only
-// returns published/approved floorplans.
+// LEGACY: shopper navigation no longer reads /indoor-map-model at all (Venue Packs are the only
+// spatial truth); that endpoint is admin-only since Sprint 8.
 router.get("/jobs/:jobId/floorplans/:floorPlanId/preview-model", async (req: Request, res: Response) => {
   const auth = await requireAdmin(req, res); if (!auth) return;
   const supabase = getSupabaseClient();
