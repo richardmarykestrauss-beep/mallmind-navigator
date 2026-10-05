@@ -36,6 +36,7 @@ import { routeClaim, routeEvidenceTier } from "@/components/navigation/routeEvid
 import { safeSink, type NavigationEventSink } from "@/components/navigation/navigationEvents";
 import { subscribeOverlays, overlayVersion } from "@/venue/overlayStore";
 import { classifySearch } from "@/venue/search";
+import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { persistNavigationSession, loadPersistedNavigationSession, type PersistedNavigationSession } from "@/components/navigation/navigationSessionStore";
 
 // ── Product language ─────────────────────────────────────────────────────────
@@ -152,7 +153,7 @@ function overlayBanner(graph: LoadedPilotDataset): ReactNode {
 }
 
 /** Rebuild a session from a remembered record (validated against the venue; anything stale → null). */
-function restoreSession(graph: LoadedPilotDataset, saved: PersistedNavigationSession): NavigationSession | null {
+function restoreSession(graph: LoadedPilotDataset, saved: PersistedNavigationSession & { packChanged?: boolean }): NavigationSession | null {
   const destination = pointsOfInterest(graph).find((p) => p.id === saved.destinationId);
   if (!destination) return null;
   const start = startOptions(graph).find((s) => s.id === saved.anchorId || s.nodeId === saved.anchorNodeId);
@@ -160,6 +161,9 @@ function restoreSession(graph: LoadedPilotDataset, saved: PersistedNavigationSes
   let s = createNavigationSession(graph.id, anchorFor(graph, start.id, saved.anchorSource));
   s = navigationReducer(graph, s, { type: "select_destination", destination });
   if (s.status !== "route_ready") return s.status === "unroutable" ? s : null;
+  // The pack changed since the session was walked: keep the destination and the fresh route, but
+  // never restore a step position computed on different geometry — back to the overview.
+  if (saved.packChanged) return s;
   if (saved.status === "navigating" || saved.status === "arrived") {
     s = navigationReducer(graph, s, { type: "start_navigation" });
     // Clamp: a walking session never restores onto the arrival step; an arrived one restores as arrived.
@@ -184,7 +188,7 @@ function initialSession(graph: LoadedPilotDataset, initialAnchor: PilotAnchor | 
   const wanted = initialDestination ? pointsOfInterest(graph).find((p) => p.id === initialDestination.destinationId) ?? null : null;
   const base = (() => {
     if (!remember) return fresh;
-    const saved = loadPersistedNavigationSession(graph.id);
+    const saved = loadPersistedNavigationSession(graph.id, Date.now(), graph.pack.venue.pack_version);
     if (!saved) return fresh;
     const restored = restoreSession(graph, saved);
     if (!restored) return fresh;
@@ -289,7 +293,7 @@ function WayfindingPilotView({ graph, initialAnchor, anchorNotice, embedded, onO
   }, [initialAnchor]);
 
   // Remember the session for refresh / re-entry (best-effort).
-  useEffect(() => { if (rememberSession) persistNavigationSession(session); }, [session, rememberSession]);
+  useEffect(() => { if (rememberSession) persistNavigationSession(session, Date.now(), graph.pack.venue.pack_version); }, [session, rememberSession, graph]);
 
   // The venue's operational state changed under a live session: a start that is no longer available
   // moves to the first available one; any route is recomputed against the current graph.
@@ -480,6 +484,13 @@ function WayfindingPilotView({ graph, initialAnchor, anchorNotice, embedded, onO
   const claimBadge = <Badge variant="outline" className="shrink-0 text-[11px]" data-testid="pilot-route-claim" title={routeClaimExplanation(tier)}>{claim}</Badge>;
 
   const banner = overlayBanner(graph);
+  const online = useOnlineStatus();
+  // Subtle offline status: everything on this screen (search, route, steps) is local to the phone.
+  const offlinePill = !online ? (
+    <p className="mx-4 mt-2 inline-flex items-center gap-1.5 rounded-full border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-xs" role="status" data-testid="pilot-offline">
+      <span className="h-1.5 w-1.5 rounded-full bg-amber-500" aria-hidden />Offline — directions saved on this phone
+    </p>
+  ) : null;
 
   const header = embedded ? null : (
     <header className="sticky top-0 z-10 flex items-center gap-2 border-b bg-background/95 px-4 py-3 backdrop-blur">
@@ -879,6 +890,7 @@ function WayfindingPilotView({ graph, initialAnchor, anchorNotice, embedded, onO
       data-ui-mode={mode}
     >
       {header}
+      {offlinePill}
       {banner && <div className={embedded ? "-mx-0 mb-1" : ""}>{banner}</div>}
       <main className={embedded ? "flex-1 px-4 pb-2" : "flex-1 px-4 py-4"}>
         {anchorNotice && (

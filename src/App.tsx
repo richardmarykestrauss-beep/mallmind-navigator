@@ -11,6 +11,8 @@ import { AuthProvider } from "@/context/AuthContext";
 // Eagerly load the shell + first screen (no flash)
 import Index from "./pages/Index.tsx";
 import PageLoader from "@/components/PageLoader";
+import RouteErrorBoundary from "@/components/RouteErrorBoundary";
+import UpdateReadyBanner from "@/components/UpdateReadyBanner";
 
 // Lazy-load all other pages (code-split per route)
 const Malls         = lazy(() => import("./pages/Malls.tsx"));
@@ -40,6 +42,8 @@ const App = () => (
           <Toaster />
           <Sonner />
           <BrowserRouter>
+            <UpdateReadyBanner />
+            <RouteErrorBoundary>
             <Suspense fallback={<PageLoader />}>
               <Routes>
                 <Route path="/" element={<Index />} />
@@ -61,6 +65,7 @@ const App = () => (
                 <Route path="*" element={<NotFound />} />
               </Routes>
             </Suspense>
+            </RouteErrorBoundary>
           </BrowserRouter>
         </LocationProvider>
       </ShoppingSessionProvider>
