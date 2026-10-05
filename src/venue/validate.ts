@@ -329,7 +329,10 @@ export function validateVenuePack(input: unknown): VenueValidation {
       c.text(`${path}.name`, d.name, true, 120);
       c.oneOf(`${path}.kind`, d.kind, DESTINATION_KINDS);
       c.text(`${path}.category`, d.category, false, 80);
-      if (typeof d.arrival_node !== "string" || !nodeIds.has(d.arrival_node)) c.fail(`${path}.arrival_node`, `references unknown node ${JSON.stringify(d.arrival_node)}`);
+      if (d.arrival_node === null) {
+        // Identity known, geometry unknown: honest listing, never routable. Nothing may claim an arrival.
+        if (isRec(d.evidence) && d.evidence.arrival !== "unknown") c.fail(`${path}.evidence.arrival`, `must be "unknown" when arrival_node is null (no geometry → no arrival claim)`);
+      } else if (typeof d.arrival_node !== "string" || !nodeIds.has(d.arrival_node)) c.fail(`${path}.arrival_node`, `references unknown node ${JSON.stringify(d.arrival_node)}`);
       if (d.unit != null) c.text(`${path}.unit`, d.unit, false, 40);
       c.aliases(`${path}.aliases`, d.aliases);
       const evd = isRec(d.evidence) ? d.evidence : (c.fail(`${path}.evidence`, "required { identity, arrival } is missing"), {} as Rec);

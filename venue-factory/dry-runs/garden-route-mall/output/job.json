@@ -40,8 +40,8 @@
     "notes": "The map is a single sheet with no level labels; the pilot is modelled as one level ('L1', as drawn). Entrances visible on the sheet: 3, 4, 5, 6, 7 (all on the east side, facing parking). Entrances 1 and 2 are not visible, so the 'Centre Management near Entrance 2' landmark cannot be used. Only Entrance 4 is a start; instructions are written for the Entrance 4 → south direction only.",
     "field_verification_intent": "pending"
   },
-  "pack_version": 1,
-  "revision_note": "Initial pack compiled by the Venue Pack Factory (job garden-route-mall-dryrun).",
+  "pack_version": 2,
+  "revision_note": "Sprint 8: listed-but-unmapped tenants (Dis-Chem 122/123, Game 129, Food Lovers Market 131), official categories and visitor aliases. No geometry change.",
   "sources": "sources.json",
   "extraction_outputs": [
     "extractions/01-extraction-research.json"
@@ -63,36 +63,36 @@
     "reviewer": "dry-run transcriber (Sprint 5)",
     "at": "2026-09-13T15:30:00Z",
     "reason": "Dry run only: draft reproduces the research geometry; not for publication into the app bundle.",
-    "draft_sha256": "9c83fac680a4dbadbf4157b1fcbba8ad81801ad8c0a3f2965efbe3837f7b2fff"
+    "draft_sha256": "b625db15314db39dfe73fca44f088b8db42885317fe86f47b45c527bb04c556b"
   },
-  "published_pack_version": 1,
-  "published_pack": "published/garden-route-mall.v1.venue.json",
-  "base_pack": null,
+  "published_pack_version": 2,
+  "published_pack": "published/garden-route-mall.v2.venue.json",
+  "base_pack": "base/garden-route-mall.v1.venue.json",
   "history": [
     {
       "at": "2026-09-13T15:00:00Z",
       "status": "created",
-      "note": "new venue job"
+      "note": "revision job from garden-route-mall.venue.json (v1)"
     },
     {
       "at": "2026-09-13T15:00:00Z",
       "status": "sources_registered",
-      "note": "4 source(s) registered"
+      "note": "5 source(s) registered"
     },
     {
       "at": "2026-09-13T15:00:00Z",
       "status": "extracting",
-      "note": "extractions/01-extraction-research.json: 39 proposed fact(s) from file worker \"transcription of research/garden-route-mall-field-pilot (README forensics table + evidence-ledger G13–G20); no new facts\""
+      "note": "extractions/01-extraction-research.json: 51 proposed fact(s) from file worker \"transcription of research/garden-route-mall-field-pilot; Sprint 8 adds identity-only tenants + categories\""
     },
     {
       "at": "2026-09-13T15:00:00Z",
       "status": "extracting",
-      "note": "reviews/01-review-1-facts.json: 39 fact decision(s), 0 override(s) by dry-run transcriber (Sprint 5)"
+      "note": "reviews/01-review-1-facts.json: 51 fact decision(s), 0 override(s) by Sprint 8 transcriber (dry-run revision v2)"
     },
     {
       "at": "2026-09-13T15:00:00Z",
       "status": "draft_ready",
-      "note": "draft compiled from 37 accepted fact(s) (2 not used) in 4.1 ms; sha256 9c83fac680a4dbadbf4157b1fcbba8ad81801ad8c0a3f2965efbe3837f7b2fff"
+      "note": "draft compiled from 49 accepted fact(s) (2 not used) in 2.7 ms; sha256 b625db15314db39dfe73fca44f088b8db42885317fe86f47b45c527bb04c556b"
     },
     {
       "at": "2026-09-13T15:00:00Z",
@@ -107,7 +107,7 @@
     {
       "at": "2026-09-13T15:00:00Z",
       "status": "published",
-      "note": "published published/garden-route-mall.v1.venue.json (sha256 9c83fac680a4dbadbf4157b1fcbba8ad81801ad8c0a3f2965efbe3837f7b2fff)"
+      "note": "published published/garden-route-mall.v2.venue.json (sha256 b625db15314db39dfe73fca44f088b8db42885317fe86f47b45c527bb04c556b)"
     }
   ]
 }

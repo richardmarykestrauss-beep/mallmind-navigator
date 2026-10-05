@@ -32,7 +32,7 @@ export interface GateContext {
 export type GateResult = { status: "ok"; warnings: string[] } | { status: "failed"; errors: Issue[]; warnings: string[] };
 
 /** Ledger predicates whose unresolved (proposed) facts block publishing: anything the compiler would have used. */
-const BLOCKING_PREDICATES = new Set(["floor", "geometry", "edge", "measurement", "instruction_forward", "instruction_reverse", "destination", "arrival", "anchor", "amenity", "field_confirmation", "accessibility"]);
+const BLOCKING_PREDICATES = new Set(["floor", "geometry", "edge", "measurement", "instruction_forward", "instruction_reverse", "destination", "arrival", "anchor", "amenity", "field_confirmation", "accessibility", "category", "aliases"]);
 
 export function publishGate(ctx: GateContext): GateResult {
   const errors: Issue[] = [];
@@ -79,8 +79,8 @@ export function publishGate(ctx: GateContext): GateResult {
   // 6. routability from every start anchor (same router the app uses)
   try {
     const loaded = loadVenuePack(pack);
-    const dests = searchableDestinations(loaded);
-    if (dests.length === 0) fail("draft $.destinations", "nothing to navigate to (no searchable destination)");
+    const dests = searchableDestinations(loaded).filter((d) => d.routable);
+    if (dests.length === 0) fail("draft $.destinations", "nothing to navigate to (no routable destination)");
     for (const a of loaded.startAnchors) for (const d of dests) {
       if (d.arrivalNode === a.node) continue;
       const r = buildRoute(loaded, a.node, d.id);

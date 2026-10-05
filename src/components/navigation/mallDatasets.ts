@@ -9,7 +9,7 @@
 
 import { getVenuePack, listVenuePacks, defaultVenueId, type VenueSummary } from "@/venue/registry";
 import type { LoadedVenue } from "@/venue/load";
-import { searchDestinations, searchableDestinations, type SearchableDestination } from "@/venue/search";
+import { searchDestinationsDetailed, searchableDestinations, type SearchableDestination, type SearchHit, type SearchMatchVia } from "@/venue/search";
 import { routeEvidenceTier } from "@/venue/evidence";
 
 /** The runtime venue object Core consumes (alias kept for older imports). */
@@ -37,19 +37,33 @@ export function getWayfindingMall(mallId: string): LoadedVenue | null {
 
 // ── Points of interest (destination-first finder) ────────────────────────────
 export type PilotPoiKind = "store" | "amenity";
-export interface PilotPoi { id: string; name: string; kind: PilotPoiKind; type: string }
+export interface PilotPoi {
+  id: string; name: string; kind: PilotPoiKind; type: string;
+  /** False when the tenant is LISTED at the venue but MallMind has no source-backed route to it yet. */
+  routable: boolean;
+  /** True when an operational overlay marks it temporarily unavailable (listed, not routed today). */
+  unavailable?: boolean;
+  unit: string | null;
+  categoryLabel: string | null;
+  /** Why this result matched the query (search results only). */
+  matchedVia?: SearchMatchVia;
+}
 
 /** `type` keeps the pack's own vocabulary (store kind or amenity kind) so the UI can label results honestly. */
-const toPoi = (d: SearchableDestination): PilotPoi => ({ id: d.id, name: d.name, kind: d.kind, type: d.type });
+const toPoi = (d: SearchableDestination | SearchHit): PilotPoi => ({
+  id: d.id, name: d.name, kind: d.kind, type: d.type, routable: d.routable, unit: d.unit ?? null, categoryLabel: d.categoryLabel,
+  ...(d.unavailable ? { unavailable: true } : {}),
+  ...("matched_via" in d ? { matchedVia: d.matched_via } : {}),
+});
 
-/** Everything the venue's policy offers as a destination (destinations + routable amenities), routable only. */
+/** Everything the venue's policy offers as a destination (routable + listed-only destinations, routable amenities). */
 export function pointsOfInterest(venue: LoadedVenue): PilotPoi[] {
   return searchableDestinations(venue).map(toPoi);
 }
 
-/** Search-as-you-type over names, aliases, units and amenity words. */
+/** Search-as-you-type over names, aliases, units, categories, product hints and amenity words. */
 export function searchPois(venue: LoadedVenue, query: string): PilotPoi[] {
-  return searchDestinations(venue, query).map(toPoi);
+  return searchDestinationsDetailed(venue, query).map(toPoi);
 }
 
 /** Start points a visitor may choose: the venue's start-permitted anchors. Never auto-detected. */

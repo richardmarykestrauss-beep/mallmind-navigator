@@ -464,9 +464,14 @@ function WayfindingPilotView({ graph, initialAnchor, anchorNotice, embedded, onO
               data-testid="pilot-search"
             />
           </div>
-          <p id="pilot-search-help" className="mt-1.5 text-xs text-muted-foreground">Type a name, or pick from the list. Results show where MallMind can walk you to.</p>
+          <p id="pilot-search-help" className="mt-1.5 text-xs text-muted-foreground">Type a shop, a category like “pharmacy”, or a facility. Places MallMind can walk you to are marked with an arrow.</p>
         </div>
 
+        {results.some((p) => p.matchedVia === "product_hint") && (
+          <p className="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm" data-testid="pilot-category-hint" role="status">
+            You may find <span className="font-medium">{query.trim()}</span> at these places. MallMind doesn’t know stock or prices.
+          </p>
+        )}
         {results.length === 0 ? (
           <div className="rounded-xl border border-dashed px-4 py-6 text-center text-sm text-muted-foreground" data-testid="pilot-no-result" role="status">
             <p className="font-medium text-foreground">No match for “{query.trim()}”.</p>
@@ -485,9 +490,12 @@ function WayfindingPilotView({ graph, initialAnchor, anchorNotice, embedded, onO
                   <span className="text-xl" aria-hidden>{poiIcon(p)}</span>
                   <span className="min-w-0 flex-1">
                     <span className="block text-base font-medium leading-snug">{p.name}</span>
-                    <span className="block text-xs text-muted-foreground">{kindLabel(p)}</span>
+                    <span className="block text-xs text-muted-foreground">
+                      {p.categoryLabel ?? kindLabel(p)}{p.unit ? ` · Shop ${p.unit}` : ""}
+                      {p.unavailable ? <span className="text-amber-600 dark:text-amber-400" data-testid="pilot-result-unavailable"> · Temporarily unavailable</span> : !p.routable ? <span data-testid="pilot-result-unmapped"> · Listed, route not yet mapped</span> : null}
+                    </span>
                   </span>
-                  <Navigation className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+                  {p.routable && !p.unavailable ? <Navigation className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden /> : <Info className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />}
                 </button>
               </li>
             ))}
@@ -516,13 +524,29 @@ function WayfindingPilotView({ graph, initialAnchor, anchorNotice, embedded, onO
         </div>
         {startChip}
         {locationOpen && locationPanel}
-        <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3" role="alert" data-testid="pilot-failure">
-          <h2 id="pilot-unroutable-title" className="text-base font-semibold">We don’t have a mapped route between these points yet.</h2>
-          <p className="mt-1 text-sm text-muted-foreground">Try starting from another MallMind location, or choose a different place.</p>
-        </div>
+        {session.unroutableReason === "not_mapped" ? (
+          <div className="rounded-xl border bg-card px-4 py-3" role="status" data-testid="pilot-not-mapped">
+            <h2 id="pilot-unroutable-title" className="text-base font-semibold">{dest.name} is listed at {graph.name}, but MallMind does not yet have a verified route to this {dest.kind === "amenity" ? "place" : "store"}.</h2>
+            <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
+              {dest.unit && <><dt className="text-muted-foreground">Shop</dt><dd data-testid="pilot-dest-unit">{dest.unit}</dd></>}
+              {dest.categoryLabel && <><dt className="text-muted-foreground">Category</dt><dd>{dest.categoryLabel}</dd></>}
+            </dl>
+            <p className="mt-2 text-sm text-muted-foreground">Ask at the information desk, or choose a place MallMind can walk you to.</p>
+          </div>
+        ) : session.unroutableReason === "unavailable" ? (
+          <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3" role="alert" data-testid="pilot-unavailable">
+            <h2 id="pilot-unroutable-title" className="text-base font-semibold">{dest.name} is temporarily unavailable.</h2>
+            <p className="mt-1 text-sm text-muted-foreground">MallMind won’t walk you there right now. Choose a different place.</p>
+          </div>
+        ) : (
+          <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3" role="alert" data-testid="pilot-failure">
+            <h2 id="pilot-unroutable-title" className="text-base font-semibold">We don’t have a mapped route between these points yet.</h2>
+            <p className="mt-1 text-sm text-muted-foreground">Try starting from another MallMind location, or choose a different place.</p>
+          </div>
+        )}
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          <Button type="button" variant="outline" className="h-auto min-h-12 whitespace-normal" onClick={openLocation} data-testid="pilot-reanchor"><LocateFixed className="mr-1.5 h-4 w-4 shrink-0" aria-hidden />Update my location</Button>
-          <Button type="button" className="h-auto min-h-12 whitespace-normal" onClick={changeDestination} data-testid="pilot-change-destination">Choose another destination</Button>
+          {session.unroutableReason === "no_path" && <Button type="button" variant="outline" className="h-auto min-h-12 whitespace-normal" onClick={openLocation} data-testid="pilot-reanchor"><LocateFixed className="mr-1.5 h-4 w-4 shrink-0" aria-hidden />Update my location</Button>}
+          <Button type="button" className={`h-auto min-h-12 whitespace-normal ${session.unroutableReason === "no_path" ? "" : "sm:col-span-2"}`} onClick={changeDestination} data-testid="pilot-change-destination">Choose another destination</Button>
         </div>
         {routeDetails}
       </section>

@@ -40,7 +40,14 @@ export interface NavigationSession {
   routeRevision: number;
   /** Set when the last recalculation came from a re-anchor, so the UI can say so truthfully. */
   lastReanchor: { from: PilotAnchor; to: PilotAnchor; revision: number } | null;
+  /**
+   * Why the session is unroutable: the destination is only LISTED (no source-backed geometry), it is
+   * temporarily unavailable (operational overlay), or the graph has no path. null otherwise.
+   */
+  unroutableReason?: UnroutableReason | null;
 }
+
+export type UnroutableReason = "not_mapped" | "unavailable" | "no_path";
 
 export type NavigationAction =
   | { type: "select_destination"; destination: PilotPoi }
@@ -58,12 +65,17 @@ function routable(route: PilotRouteResult | null): route is PilotRouteResult {
 export function createNavigationSession(mallId: string, anchor: PilotAnchor): NavigationSession {
   return {
     mallId, anchor, destination: null, route: null, stepIndex: 0, completedSteps: [],
-    status: "destination_selection", routeRevision: 0, lastReanchor: null,
+    status: "destination_selection", routeRevision: 0, lastReanchor: null, unroutableReason: null,
   };
 }
 
 function withRoute(graph: NavigationGraph, s: NavigationSession, resume: boolean): NavigationSession {
-  if (!s.destination) return { ...s, route: null, stepIndex: 0, completedSteps: [], status: "destination_selection" };
+  if (!s.destination) return { ...s, route: null, stepIndex: 0, completedSteps: [], status: "destination_selection", unroutableReason: null };
+  // A listed-only destination (identity known, geometry unknown) or an unavailable one is never routed:
+  // the router is not even asked, so nothing can be fabricated.
+  if (s.destination.routable === false || s.destination.unavailable) {
+    return { ...s, route: null, stepIndex: 0, completedSteps: [], status: "unroutable", routeRevision: s.routeRevision + 1, unroutableReason: s.destination.unavailable ? "unavailable" : "not_mapped" };
+  }
   const route = buildRoute(graph, s.anchor.nodeId, s.destination.id);
   const ok = routable(route);
   return {
@@ -73,6 +85,7 @@ function withRoute(graph: NavigationGraph, s: NavigationSession, resume: boolean
     completedSteps: [],
     status: ok ? (resume ? "navigating" : "route_ready") : "unroutable",
     routeRevision: s.routeRevision + 1,
+    unroutableReason: ok ? null : "no_path",
   };
 }
 

@@ -213,7 +213,8 @@ export interface CandidateEdge extends CandidateBase {
 export interface CandidateInstruction extends CandidateBase { edge: string; direction: "forward" | "reverse"; text: string }
 export interface CandidateDestination extends CandidateBase {
   name: string; kind: "store" | "service" | "food" | "entertainment" | "landmark"; category?: string;
-  arrival_node: string; unit?: string | null; aliases?: string[];
+  /** null = tenant identity known, no source-backed arrival geometry (listed, never routed). */
+  arrival_node: string | null; unit?: string | null; aliases?: string[];
 }
 export interface CandidateAnchor extends CandidateBase {
   node: string; label: string; kind: "entrance" | "landmark" | "kiosk" | "parking_interface" | "amenity";

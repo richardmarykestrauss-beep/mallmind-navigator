@@ -58,7 +58,7 @@ describe("Menlyn Park — source-backed, unscaled controlled pilot (migrated Ven
   });
 
   it("finder exposes Clicks as the only destination and Entrance 13 as the only start", () => {
-    expect(pointsOfInterest(g)).toEqual([{ id: "menlyn-clicks-lf72", name: "Clicks", kind: "store", type: "store" }]);
+    expect(pointsOfInterest(g)).toEqual([{ id: "menlyn-clicks-lf72", name: "Clicks", kind: "store", type: "store", routable: true, unit: "LF 72", categoryLabel: null }]);
     expect(searchPois(g, "cli").map((p) => p.name)).toEqual(["Clicks"]);
     expect(searchPois(g, "toilet")).toEqual([]);
     expect(startOptions(g)).toEqual([{ id: "menlyn-lf-entrance-13", label: "Entrance 13", nodeId: "menlyn-lf-entrance-13" }]);
@@ -98,6 +98,7 @@ describe("Garden Route Mall — source-backed, unscaled, awaiting Sunday field v
     expect(g.distanceUnit).toBe("px");
     expect(g.metric).toBe(false);
     expect(g.evidence.note).toMatch(/awaiting-field-verification/);
+    expect(g.pack.venue.pack_version).toBe(2);
     expect(g.floorImages).toEqual({});
     expect(g.floors).toHaveLength(1);
     expect(g.floors[0]).toMatchObject({ id: "L1", label: "Mall level (single sheet)" });
@@ -107,9 +108,16 @@ describe("Garden Route Mall — source-backed, unscaled, awaiting Sunday field v
   it("every node and edge cites the official map; store arrivals keep their door-verification provenance", () => {
     expect(g.pack.graph.nodes.every((n) => n.evidence.geometry === "source-backed" && /gardenroutemall\.co\.za/.test(n.source ?? ""))).toBe(true);
     expect(g.pack.graph.edges.every((e) => e.evidence.geometry === "source-backed" && /gardenroutemall\.co\.za/.test(e.source ?? ""))).toBe(true);
-    expect(g.destinations).toHaveLength(3);
-    expect(g.destinations.every((d) => d.evidence.arrival === "corridor_arrival")).toBe(true);
-    const arrivalNodes = g.destinations.map((d) => g.pack.graph.nodes.find((n) => n.id === d.arrival_node)!);
+    expect(g.destinations).toHaveLength(6);
+    const routable = g.destinations.filter((d) => d.arrival_node !== null);
+    const listed = g.destinations.filter((d) => d.arrival_node === null);
+    expect(routable.map((d) => d.name)).toEqual(["Woolworths", "Clicks", "Pick n Pay"]);
+    expect(routable.every((d) => d.evidence.arrival === "corridor_arrival")).toBe(true);
+    // Identity-only tenants (Sprint 8): directory-backed, NO arrival claim, never routed.
+    expect(listed.map((d) => [d.name, d.unit, d.evidence.arrival, d.evidence.identity])).toEqual([
+      ["Dis-Chem", "122/123", "unknown", "source-backed"], ["Food Lover's Market", "131", "unknown", "source-backed"], ["Game", "129", "unknown", "source-backed"],
+    ]);
+    const arrivalNodes = routable.map((d) => g.pack.graph.nodes.find((n) => n.id === d.arrival_node)!);
     expect(arrivalNodes.every((n) => n.provenance?.field_verification_required === true && typeof n.provenance?.source_px_x === "number")).toBe(true);
   });
 
@@ -118,9 +126,9 @@ describe("Garden Route Mall — source-backed, unscaled, awaiting Sunday field v
     expect(g.edges.map((e) => e.weight)).toEqual([62, 16, 124, 140, 55, 49, 51, 40, 23]);
   });
 
-  it("finder: Entrance 4 is the only start; Woolworths, Clicks, Pick n Pay are the destinations", () => {
+  it("finder: Entrance 4 is the only start; Woolworths, Clicks, Pick n Pay are routable; Dis-Chem, Game, Food Lover's are listed only", () => {
     expect(startOptions(g)).toEqual([{ id: E4, label: "Entrance 4", nodeId: E4 }]);
-    expect(pointsOfInterest(g).map((p) => p.name)).toEqual(["Woolworths", "Clicks", "Pick n Pay"]);
+    expect(pointsOfInterest(g).map((p) => [p.name, p.routable])).toEqual([["Woolworths", true], ["Clicks", true], ["Pick n Pay", true], ["Dis-Chem", false], ["Food Lover's Market", false], ["Game", false]]);
     expect(searchPois(g, "pick").map((p) => p.id)).toEqual(["grm-picknpay-41"]);
     expect(searchPois(g, "41").map((p) => p.id)).toEqual(["grm-picknpay-41"]); // unit number search
   });

@@ -200,9 +200,14 @@ export interface VenueDestination {
   id: string;
   name: string;
   kind: DestinationKind;
+  /** Category id from the shared vocabulary (src/venue/vocabulary.ts), e.g. "health_beauty". */
   category?: string;
-  /** Graph node the route ends at (a corridor arrival point or a verified door). */
-  arrival_node: string;
+  /**
+   * Graph node the route ends at (a corridor arrival point or a verified door), or `null` when the
+   * tenant's IDENTITY is known but no source-backed arrival geometry exists yet. A null destination
+   * is searchable (the visitor can find it) but never routable; its evidence.arrival must be "unknown".
+   */
+  arrival_node: string | null;
   /** Store / unit identifier where the venue publishes one. */
   unit?: string | null;
   aliases?: string[];

@@ -5,7 +5,7 @@
   },
   "to": {
     "id": "garden-route-mall",
-    "pack_version": 1
+    "pack_version": 2
   },
   "floors": {
     "added": [],
@@ -29,7 +29,11 @@
     "topology_changed": []
   },
   "destinations": {
-    "added": [],
+    "added": [
+      "grm-dischem-122",
+      "grm-foodlovers-131",
+      "grm-game-129"
+    ],
     "removed": [],
     "arrival_changed": [],
     "identity_changed": [],
@@ -51,7 +55,7 @@
     "policies_changed": false
   },
   "summary": [
-    "garden-route-mall: v1 → v1",
-    "no changes"
+    "garden-route-mall: v1 → v2",
+    "destinations added: 3"
   ]
 }

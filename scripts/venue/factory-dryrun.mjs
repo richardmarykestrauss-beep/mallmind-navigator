@@ -22,7 +22,7 @@ const log = [];
 const env = { root, repoRoot: process.cwd(), log: (l) => { log.push(l); console.log(l); }, now: () => "2026-09-13T15:00:00Z" };
 const run = (...argv) => { const code = mod.runFactory(argv, env); if (code !== 0) { console.error(`dry run step failed: ${argv.join(" ")}`); rmSync(root, { recursive: true, force: true }); process.exit(1); } };
 const J = spec.job_id;
-run("new", "--job", J, "--venue", join(D, spec.venue));
+run("new", "--job", J, "--venue", join(D, spec.venue), ...(spec.from_pack ? ["--from-pack", resolve(spec.from_pack), "--revision-note", spec.revision_note ?? `Revision compiled by dry run ${name}`] : []));
 run("sources", "--job", J, "--manifest", join(D, spec.sources), "--raw", join(D, "raw"));
 for (const e of spec.extractions) run("extract", "--job", J, "--input", join(D, e));
 for (const r of spec.reviews) run("review", "--job", J, "--review", join(D, r));

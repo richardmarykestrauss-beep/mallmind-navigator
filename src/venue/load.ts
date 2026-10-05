@@ -130,7 +130,7 @@ export function loadVenuePack(input: unknown): LoadedVenue {
   const pack = v.pack;
   const unit = pack.graph.distance_unit;
 
-  const destinationByNode = new Map(pack.destinations.map((d) => [d.arrival_node, d]));
+  const destinationByNode = new Map(pack.destinations.filter((d) => d.arrival_node !== null).map((d) => [d.arrival_node as string, d]));
   const amenityByNode = new Map(pack.amenities.map((a) => [a.node, a]));
 
   const nodes: BackendNodeLike[] = pack.graph.nodes.map((n) => {
