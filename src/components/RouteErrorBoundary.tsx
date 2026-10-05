@@ -1,6 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
 
-interface Props { children: ReactNode }
+interface Props { children: ReactNode; /** Test seam: how a chunk failure is retried (default: a page reload). */ reload?: () => void }
 interface State { error: Error | null; attempt: number }
 
 /**
@@ -12,7 +12,16 @@ export default class RouteErrorBoundary extends Component<Props, State> {
   state: State = { error: null, attempt: 0 };
   static getDerivedStateFromError(error: Error): Partial<State> { return { error }; }
   componentDidCatch(error: Error, info: ErrorInfo) { try { console.warn("[MallMind] route failed to load", error.message, info.componentStack); } catch { /* ignore */ } }
-  retry = () => this.setState((s) => ({ error: null, attempt: s.attempt + 1 }));
+  /**
+   * React.lazy remembers a failed import for the life of the page, so remounting alone cannot
+   * recover a chunk that did not download: for those, Retry reloads the page (the remembered
+   * session restores; the shell comes from the service worker when offline). Other errors remount.
+   */
+  retry = () => {
+    const { error } = this.state;
+    if (error && /import|chunk|fetch|load/i.test(error.message)) { (this.props.reload ?? (() => window.location.reload()))(); return; }
+    this.setState((s) => ({ error: null, attempt: s.attempt + 1 }));
+  };
   render() {
     const { error, attempt } = this.state;
     if (!error) return <div key={attempt}>{this.props.children}</div>;

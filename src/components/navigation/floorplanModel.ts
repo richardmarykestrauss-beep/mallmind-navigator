@@ -54,6 +54,8 @@ export interface FloorplanEdge {
 
 export interface FloorplanStoreAnchor {
   shopId: string;
+  /** The graph node this store anchors to (a Venue Pack arrival node); routes end on node ids, not shop ids. */
+  nodeId?: string;
   name: string;
   unitCode?: string;
   floor: string;
@@ -257,6 +259,7 @@ export function toFloorplanModel(
       .filter((n) => typeof n.linked_shop_id === "string" && n.linked_shop_id.length > 0)
       .map((n) => ({
         shopId: n.linked_shop_id as string,
+        nodeId: n.id,
         name: n.name,
         floor: key,
         position: { x: percentToUnits(n.x_coordinate, FLOOR_WIDTH), y: percentToUnits(n.y_coordinate, FLOOR_HEIGHT) },
