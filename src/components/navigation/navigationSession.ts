@@ -40,7 +40,14 @@ export interface NavigationSession {
   routeRevision: number;
   /** Set when the last recalculation came from a re-anchor, so the UI can say so truthfully. */
   lastReanchor: { from: PilotAnchor; to: PilotAnchor; revision: number } | null;
+  /**
+   * Why the session is unroutable: the destination is only LISTED (no source-backed geometry), it is
+   * temporarily unavailable (operational overlay), or the graph has no path. null otherwise.
+   */
+  unroutableReason?: UnroutableReason | null;
 }
+
+export type UnroutableReason = "not_mapped" | "unavailable" | "no_path";
 
 export type NavigationAction =
   | { type: "select_destination"; destination: PilotPoi }
@@ -49,7 +56,9 @@ export type NavigationAction =
   | { type: "next_step" }
   | { type: "previous_step" }
   | { type: "reanchor"; anchor: PilotAnchor }
-  | { type: "restart" };
+  | { type: "restart" }
+  /** The venue's current state changed (operational overlay): recompute the route from the same start. */
+  | { type: "recalculate" };
 
 function routable(route: PilotRouteResult | null): route is PilotRouteResult {
   return Boolean(route && route.found && !route.fallback && route.steps.length > 0);
@@ -58,12 +67,17 @@ function routable(route: PilotRouteResult | null): route is PilotRouteResult {
 export function createNavigationSession(mallId: string, anchor: PilotAnchor): NavigationSession {
   return {
     mallId, anchor, destination: null, route: null, stepIndex: 0, completedSteps: [],
-    status: "destination_selection", routeRevision: 0, lastReanchor: null,
+    status: "destination_selection", routeRevision: 0, lastReanchor: null, unroutableReason: null,
   };
 }
 
 function withRoute(graph: NavigationGraph, s: NavigationSession, resume: boolean): NavigationSession {
-  if (!s.destination) return { ...s, route: null, stepIndex: 0, completedSteps: [], status: "destination_selection" };
+  if (!s.destination) return { ...s, route: null, stepIndex: 0, completedSteps: [], status: "destination_selection", unroutableReason: null };
+  // A listed-only destination (identity known, geometry unknown) or an unavailable one is never routed:
+  // the router is not even asked, so nothing can be fabricated.
+  if (s.destination.routable === false || s.destination.unavailable) {
+    return { ...s, route: null, stepIndex: 0, completedSteps: [], status: "unroutable", routeRevision: s.routeRevision + 1, unroutableReason: s.destination.unavailable ? "unavailable" : "not_mapped" };
+  }
   const route = buildRoute(graph, s.anchor.nodeId, s.destination.id);
   const ok = routable(route);
   return {
@@ -73,6 +87,7 @@ function withRoute(graph: NavigationGraph, s: NavigationSession, resume: boolean
     completedSteps: [],
     status: ok ? (resume ? "navigating" : "route_ready") : "unroutable",
     routeRevision: s.routeRevision + 1,
+    unroutableReason: ok ? null : "no_path",
   };
 }
 
@@ -114,6 +129,11 @@ export function navigationReducer(graph: NavigationGraph, s: NavigationSession, 
       };
     }
 
+    case "recalculate": {
+      if (!s.destination) return s;
+      // Walking progress cannot survive a changed graph truthfully: back to the overview with a fresh route.
+      return withRoute(graph, { ...s, lastReanchor: null }, false);
+    }
     case "restart":
       if (!routable(s.route)) return s;
       return { ...s, stepIndex: 0, completedSteps: [], status: "route_ready", lastReanchor: null };

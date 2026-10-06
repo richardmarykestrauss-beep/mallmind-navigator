@@ -55,12 +55,19 @@ export type AppEventType =
   | "navigation_step_back"
   | "location_update_opened"
   | "navigation_reanchored"
-  | "navigation_arrived"
+  | "navigation_arrived_confirmed" // the visitor CONFIRMED the last step — not physical arrival, never footfall
   | "navigation_restarted"
   | "navigation_unroutable"
   | "navigation_failed"
   // Sprint 7: a destination intent from outside the Navigate screen (assistant / stop list) and how it resolved.
-  | "navigation_intent";
+  | "navigation_intent"
+  // Sprint 8 pilot funnel (src/navigation/pilotEvents.ts): session-scoped, no user id, no raw query text.
+  | "venue_opened"
+  | "qr_landing"
+  | "qr_anchor_valid"
+  | "qr_anchor_invalid"
+  | "destination_search"
+  | "destination_search_no_result";
 
 export function trackEvent(
   eventType: AppEventType,

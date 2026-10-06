@@ -28,6 +28,25 @@
 
   <body>
     <div id="root"></div>
+    <!-- Last-resort recovery, outside React: if the app's own script never arrives (offline before
+         the first visit finished saving, or a stale deploy), say so instead of a blank screen. -->
+    <script>
+      (function () {
+        var failed = false;
+        window.addEventListener("error", function (e) {
+          var t = e.target;
+          if (t && (t.tagName === "SCRIPT" || t.tagName === "LINK")) failed = true;
+        }, true);
+        setTimeout(function () {
+          var root = document.getElementById("root");
+          if (!failed || !root || root.childNodes.length) return;
+          root.innerHTML = '<div style="min-height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;text-align:center;font-family:system-ui,sans-serif;color:#e6e6e6;background:#0b0b10">' +
+            '<p style="font-size:18px;font-weight:600;margin:0">MallMind couldn\u2019t load this venue yet.</p>' +
+            '<p style="font-size:14px;opacity:.8;max-width:22rem;margin:8px 0 0">' + (navigator.onLine === false ? 'You\u2019re offline and MallMind isn\u2019t fully saved on this phone yet. Connect once, then it works offline.' : 'Part of MallMind didn\u2019t download. Check your connection and try again.') + '</p>' +
+            '<button type="button" onclick="location.reload()" style="margin-top:20px;min-height:44px;padding:0 18px;border-radius:10px;border:0;background:#00d4ff;color:#06131a;font-weight:600;font-size:14px">Retry</button></div>';
+        }, 4000);
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

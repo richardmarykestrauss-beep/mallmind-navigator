@@ -232,7 +232,7 @@ export default function IndoorMapCanvas({
   const startOnFloor = firstPt && floorKey(firstPt.floor) === target ? firstPt : null;
   const destOnFloor = lastPt && floorKey(lastPt.floor) === target ? lastPt : null;
   const destName = destOnFloor
-    ? (floor?.stores.find((s) => s.shopId === destOnFloor.nodeId)?.name
+    ? (floor?.stores.find((s) => s.shopId === destOnFloor.nodeId || s.nodeId === destOnFloor.nodeId)?.name
        ?? floor?.nodes.find((n) => n.id === destOnFloor.nodeId)?.name
        ?? null)
     : null;
@@ -313,18 +313,22 @@ export default function IndoorMapCanvas({
 
       {/* Store / unit blocks */}
       {floor.stores.map((s) => {
-        const bx = s.bounds?.x ?? s.position.x - 60;
-        const by = s.bounds?.y ?? s.position.y - 34;
-        const bw = s.bounds?.width ?? 120;
-        const bh = s.bounds?.height ?? 68;
-        const isDest = destOnFloor?.nodeId === s.shopId;
+        const isDest = destOnFloor != null && (destOnFloor.nodeId === s.shopId || destOnFloor.nodeId === s.nodeId);
+        // A Venue Pack arrival node is a walkway point near the store, not a measured footprint: without
+        // real bounds the destination is labelled by its pin alone (a schematic box would only collide
+        // with the entrance pill when the two sit a few units apart, as at Garden Route Entrance 4).
+        if (isDest && !s.bounds) return null;
+        const bx = s.bounds?.x ?? s.position.x - 50;
+        const by = s.bounds?.y ?? s.position.y - 26;
+        const bw = s.bounds?.width ?? 100;
+        const bh = s.bounds?.height ?? 52;
         return (
           <g key={s.shopId}>
             <rect x={bx} y={by} width={bw} height={bh} rx={12}
               fill={isDest ? "hsl(111 100% 46% / 0.12)" : "hsl(240 16% 12%)"}
               stroke={isDest ? "hsl(111 100% 54% / 0.6)" : "hsl(200 40% 42% / 0.4)"} strokeWidth="2" />
             <rect x={bx + 7} y={by + 5} width={bw - 14} height={3} rx={1.5} fill="hsl(200 55% 58% / 0.2)" />
-            <text x={bx + bw / 2} y={by + bh / 2 + 2} textAnchor="middle" fontSize="19"
+            <text x={bx + bw / 2} y={by + bh / 2 + 2} textAnchor="middle" fontSize={s.bounds ? "19" : "15"}
               fontFamily="Inter, system-ui, sans-serif" fontWeight="600" fill={isDest ? "hsl(111 100% 80%)" : "hsl(210 22% 70%)"}>
               {shortLabel(s.name, 12)}
             </text>

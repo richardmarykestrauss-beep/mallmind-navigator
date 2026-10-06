@@ -15,6 +15,7 @@ import NavigateScreen from "./NavigateScreen";
 import { ShoppingSessionProvider } from "@/context/ShoppingSessionContext";
 import { getVenuePack } from "@/venue/registry";
 import { searchableDestinations } from "@/venue/search";
+import { trackEvent } from "@/lib/analytics";
 
 vi.mock("@/context/AuthContext", () => ({ useAuth: () => ({ user: null, profile: null, refreshProfile: async () => {} }) }));
 vi.mock("@/components/BottomNav", () => ({ default: () => <nav data-testid="bottom-nav" /> }));
@@ -113,5 +114,43 @@ describe("the stop list is not a route", () => {
     fireEvent.click(guides[0]);
     expect(screen.getByTestId("wayfinding-pilot")).toBeInTheDocument();
     expect(screen.getByTestId("pilot-dest-name")).toHaveTextContent("Clicks");
+  });
+});
+
+describe("pilot funnel events (privacy-light)", () => {
+  const names = () => (trackEvent as unknown as { mock: { calls: unknown[][] } }).mock.calls.map((c) => c[0] as string);
+  const opts = () => (trackEvent as unknown as { mock: { calls: Array<[string, { userId: unknown; metadata: Record<string, unknown> }]> } }).mock.calls.map((c) => c[1]);
+
+  it("QR open → valid anchor → search → selection → overview → start, one session id, client timestamps in order, no user id", async () => {
+    (trackEvent as unknown as { mockClear: () => void }).mockClear();
+    mount("/navigate?mall=garden-route-mall&start=grm-entrance-4&via=qr");
+    fireEvent.change(screen.getByTestId("pilot-search"), { target: { value: "Wool" } });
+    await new Promise((r) => setTimeout(r, 500)); // search debounce
+    fireEvent.keyDown(screen.getByTestId("pilot-search"), { key: "Enter" });
+    fireEvent.click(screen.getByTestId("pilot-start-navigation"));
+    expect(names()).toEqual(["venue_opened", "qr_landing", "qr_anchor_valid", "destination_search", "destination_selected", "route_overview_opened", "navigation_session_started"]);
+    const all = opts();
+    expect(all.every((o) => o.userId === null)).toBe(true);
+    const sessions = new Set(all.map((o) => o.metadata.session_id));
+    expect(sessions.size).toBe(1);
+    const ts = all.map((o) => Date.parse(o.metadata.ts as string));
+    expect(ts.every((t, i) => i === 0 || t >= ts[i - 1])).toBe(true);
+    expect(all[2].metadata).toMatchObject({ anchor_id: "grm-entrance-4", via: "qr" });
+    expect(all[3].metadata).toMatchObject({ query_class: "name", result_count: 1, query_length: 4 });
+    expect(all[3].metadata.query).toBeUndefined(); // never raw text
+    expect(all[4].metadata).toMatchObject({ destination: "grm-woolworths-9", anchor_id: "grm-entrance-4", anchorSource: "qr", destination_category: "Department store" });
+  });
+
+  it("a no-result search is classified, and an invalid QR anchor is recorded while the venue's own default start is offered", async () => {
+    (trackEvent as unknown as { mockClear: () => void }).mockClear();
+    mount("/navigate?mall=garden-route-mall&start=not-a-real-anchor&via=qr");
+    expect(names().slice(0, 3)).toEqual(["venue_opened", "qr_landing", "qr_anchor_invalid"]);
+    expect(screen.getByTestId("pilot-anchor-notice")).toBeInTheDocument();
+    expect(screen.getByTestId("pilot-anchor-summary")).toHaveTextContent("Entrance 4"); // the pack's default start, not an invented one
+    fireEvent.change(screen.getByTestId("pilot-search"), { target: { value: "Clics" } });
+    await new Promise((r) => setTimeout(r, 500));
+    const last = opts()[opts().length - 1];
+    expect(names()[names().length - 1]).toBe("destination_search_no_result");
+    expect(last.metadata).toMatchObject({ miss_reason: "possible_typo_or_alias_gap", nearest_known: "clicks", result_count: 0 });
   });
 });

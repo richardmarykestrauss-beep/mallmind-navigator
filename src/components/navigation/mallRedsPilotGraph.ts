@@ -53,7 +53,7 @@ export function pilotDestinations(): Array<{ shopId: string; name: string }> {
 
 export function pilotStartOptions(): Array<{ id: string; label: string }> { return startOptions(PILOT); }
 
-export function defaultPilotAnchor(): PilotAnchor { return defaultAnchor(PILOT); }
+export function defaultPilotAnchor(): PilotAnchor { return defaultAnchor(PILOT)!; }
 
 /** Build an anchor from a chosen start node (manual selection today; any provider later). */
 export function anchorFromStart(nodeId: string, source: PilotAnchorSource = "manual"): PilotAnchor {

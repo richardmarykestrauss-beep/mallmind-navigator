@@ -137,3 +137,14 @@
   .mm-walk-spacer { display: block !important; }
   .mm-walk-controls > * { max-width: 420px; margin-inline: auto; }
 }
+
+/* Visitors who asked their phone for less motion get none: no pings, spins or slide-ins anywhere
+   in the shell (durations collapse to a frame so animation-end handlers still fire). */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -3,8 +3,8 @@
   "venue": {
     "id": "garden-route-mall",
     "name": "Garden Route Mall",
-    "pack_version": 1,
-    "revision_note": "Initial pack compiled by the Venue Pack Factory (job garden-route-mall-dryrun).",
+    "pack_version": 2,
+    "revision_note": "Sprint 8: listed-but-unmapped tenants (Dis-Chem 122/123, Game 129, Food Lovers Market 131), official categories and visitor aliases. No geometry change.",
     "short_name": "Garden Route Mall",
     "city": "George",
     "country": "South Africa",
@@ -18,9 +18,15 @@
       "measurement": "unmeasured",
       "field_verification": "pending",
       "accessibility": "unverified",
-      "note": "Compiled by the Venue Pack Factory from 37 accepted facts (job garden-route-mall-dryrun). Geometry tier is the weakest accepted node/edge evidence; metres exist only where a field measurement was accepted."
+      "note": "Compiled by the Venue Pack Factory from 49 accepted facts (job garden-route-mall-dryrun). Geometry tier is the weakest accepted node/edge evidence; metres exist only where a field measurement was accepted."
     },
     "sources": [
+      {
+        "kind": "official_directory",
+        "reference": "https://www.gardenroutemall.co.za/garden-route-mall---department-stores ; https://www.gardenroutemall.co.za/garden-route-mall---health-beauty",
+        "retrieved": "2026-09-03",
+        "note": "Official Garden Route Mall category pages (Department Stores; Health & Beauty) — search snippets · first_party · rights public_no_reuse: Publicly viewable directory text quoted by search snippets. Identity and category facts only; no artwork, no reproduction of page content."
+      },
       {
         "kind": "secondary_reference",
         "reference": "https://clicks.co.za/store/Garden-Route-Mall/261",
@@ -485,8 +491,12 @@
       "id": "grm-clicks-37",
       "name": "Clicks",
       "kind": "store",
+      "category": "health_beauty",
       "arrival_node": "grm-clicks-arrival",
       "unit": "37",
+      "aliases": [
+        "pharmacy"
+      ],
       "evidence": {
         "identity": "source-backed",
         "arrival": "corridor_arrival",
@@ -495,30 +505,95 @@
       "notes": "G01: Clicks is Store 37 (directory snippet) + clicks.co.za store 261 'Shop 37'; map label '37/38'."
     },
     {
+      "id": "grm-dischem-122",
+      "name": "Dis-Chem",
+      "kind": "store",
+      "category": "health_beauty",
+      "arrival_node": null,
+      "unit": "122/123",
+      "aliases": [
+        "Dischem",
+        "Dis Chem",
+        "pharmacy"
+      ],
+      "evidence": {
+        "identity": "source-backed",
+        "arrival": "unknown",
+        "identity_source": "Official Garden Route Mall category pages (Department Stores; Health & Beauty) — search snippets [grm-category-pages] (secondary_corroboration, confidence 0.7)"
+      },
+      "notes": "G04: Dis-Chem is Store 122/123 (official Health & Beauty page, search snippet). The red 122/123 block is visible on the west column of the map but NO arrival point was traced → identity only, arrival_node null."
+    },
+    {
+      "id": "grm-foodlovers-131",
+      "name": "Food Lover's Market",
+      "kind": "store",
+      "category": "department_store",
+      "arrival_node": null,
+      "unit": "131",
+      "aliases": [
+        "Food Lovers Market",
+        "Food Lovers",
+        "supermarket",
+        "groceries",
+        "fresh produce"
+      ],
+      "evidence": {
+        "identity": "source-backed",
+        "arrival": "unknown",
+        "identity_source": "Official Garden Route Mall category pages (Department Stores; Health & Beauty) — search snippets [grm-category-pages] (secondary_corroboration, confidence 0.7)"
+      },
+      "notes": "G06: Food Lovers Market is Store 131 (official Department Stores page, search snippet); unit 131 sits beside Game on the map, no arrival traced → identity only."
+    },
+    {
+      "id": "grm-game-129",
+      "name": "Game",
+      "kind": "store",
+      "category": "department_store",
+      "arrival_node": null,
+      "unit": "129",
+      "evidence": {
+        "identity": "source-backed",
+        "arrival": "unknown",
+        "identity_source": "Official Garden Route Mall category pages (Department Stores; Health & Beauty) — search snippets [grm-category-pages] (secondary_corroboration, confidence 0.7)"
+      },
+      "notes": "G05: Game is Store 129 (official Department Stores page, search snippet); map label 'Game (129)' at the north end of the west column, no arrival traced → identity only."
+    },
+    {
       "id": "grm-picknpay-41",
       "name": "Pick n Pay",
       "kind": "store",
+      "category": "department_store",
       "arrival_node": "grm-picknpay-arrival",
       "unit": "41",
+      "aliases": [
+        "supermarket",
+        "groceries",
+        "PnP"
+      ],
       "evidence": {
         "identity": "source-backed",
         "arrival": "corridor_arrival",
-        "identity_source": "Official Garden Route Mall shop directory pages (web-search snippets; pages themselves blocked) [grm-directory] (secondary_corroboration, confidence 0.7)"
+        "identity_source": "Official Garden Route Mall category pages (Department Stores; Health & Beauty) — search snippets [grm-category-pages] (secondary_corroboration, confidence 0.7)"
       },
-      "notes": "G02: Pick n Pay is Store 41 (directory snippet); map label 'Pick n Pay ㊶'."
+      "notes": "G02: Pick n Pay is Store 41 (directory snippet); map label 'Pick n Pay ㊶'. Listed under the official 'Department Stores' category page (grm-category-pages)."
     },
     {
       "id": "grm-woolworths-9",
       "name": "Woolworths",
       "kind": "store",
+      "category": "department_store",
       "arrival_node": "grm-woolworths-arrival",
       "unit": "9",
+      "aliases": [
+        "Woolies",
+        "groceries"
+      ],
       "evidence": {
         "identity": "source-backed",
         "arrival": "corridor_arrival",
-        "identity_source": "Official Garden Route Mall shop directory pages (web-search snippets; pages themselves blocked) [grm-directory] (secondary_corroboration, confidence 0.7)"
+        "identity_source": "Official Garden Route Mall category pages (Department Stores; Health & Beauty) — search snippets [grm-category-pages] (secondary_corroboration, confidence 0.7)"
       },
-      "notes": "G03: Woolworths is Store 9 (search snippet of the first-party directory); map label 'Woolworths ⑨'."
+      "notes": "G03: Woolworths is Store 9 (search snippet of the first-party directory); map label 'Woolworths ⑨'. Listed under the official 'Department Stores' category page (grm-category-pages)."
     }
   ],
   "anchors": [

@@ -3,8 +3,8 @@
   "venue": {
     "id": "garden-route-mall",
     "name": "Garden Route Mall",
-    "pack_version": 1,
-    "revision_note": "Initial pack, migrated faithfully from the pre-Sprint-4 dataset (7d638f9).",
+    "pack_version": 2,
+    "revision_note": "Sprint 8 (pack v2): listed-but-unmapped tenants Dis-Chem 122/123, Game 129 and Food Lover's Market 131 (identity from the official directory, arrival_node null), official categories and visitor search aliases. No node, edge or coordinate changed; replayed through the factory dry run venue-factory/dry-runs/garden-route-mall (v1 → v2, geometry diff empty).",
     "short_name": "Garden Route Mall",
     "city": "George",
     "country": "South Africa",
@@ -25,6 +25,12 @@
         "kind": "legacy dataset",
         "reference": "/tmp/claude-0/-home-user-mallmind-navigator/9c985973-96eb-547e-8994-8fb5c8d9f7e5/scratchpad/legacy-data/garden-route-mall.dataset.json (asset garden-route-mall-field-pilot-v1, dataset_version 1.0.0)",
         "note": "percent-based MallMind node coordinates (0..100) on the prepared 1000:620 plane derived from the official mall map; *_source fields are the canonical measurements on the unpadded original"
+      },
+      {
+        "kind": "official_directory",
+        "reference": "https://www.gardenroutemall.co.za/garden-route-mall---department-stores ; https://www.gardenroutemall.co.za/garden-route-mall---health-beauty",
+        "retrieved": "2026-09-03",
+        "note": "Official category pages (Department Stores; Health & Beauty) quoted by web-search snippets — identity and category facts only; public availability is not reuse permission."
       }
     ],
     "notes": "The map is a single sheet with no level labels; the pilot is modelled as one level ('L1', as drawn). Entrances visible on the sheet: 3, 4, 5, 6, 7 (all on the east side, facing parking). Entrances 1 and 2 are not visible, so the 'Centre Management near Entrance 2' landmark cannot be used. Only Entrance 4 is a start; instructions are written for the Entrance 4 → south direction only."
@@ -400,7 +406,12 @@
         "identity": "source-backed",
         "arrival": "corridor_arrival",
         "identity_source": "map label 'Woolworths 9' + official directory 'Woolworths, Store 9' (search snippet)"
-      }
+      },
+      "category": "department_store",
+      "aliases": [
+        "Woolies",
+        "groceries"
+      ]
     },
     {
       "id": "grm-clicks-37",
@@ -412,7 +423,11 @@
         "identity": "source-backed",
         "arrival": "corridor_arrival",
         "identity_source": "map label '37/38' + official directory 'Clicks, Store 37' (search snippet) + clicks.co.za store 261 'Shop 37'"
-      }
+      },
+      "category": "health_beauty",
+      "aliases": [
+        "pharmacy"
+      ]
     },
     {
       "id": "grm-picknpay-41",
@@ -424,7 +439,67 @@
         "identity": "source-backed",
         "arrival": "corridor_arrival",
         "identity_source": "map label 'Pick n Pay 41' + official directory 'Pick n Pay, Store 41' (search snippet)"
-      }
+      },
+      "category": "department_store",
+      "aliases": [
+        "supermarket",
+        "groceries",
+        "PnP"
+      ]
+    },
+    {
+      "id": "grm-dischem-122",
+      "name": "Dis-Chem",
+      "kind": "store",
+      "category": "health_beauty",
+      "arrival_node": null,
+      "unit": "122/123",
+      "aliases": [
+        "Dischem",
+        "Dis Chem",
+        "pharmacy"
+      ],
+      "evidence": {
+        "identity": "source-backed",
+        "arrival": "unknown",
+        "identity_source": "Official Garden Route Mall category pages (Department Stores; Health & Beauty) — search snippets [grm-category-pages] (secondary_corroboration, confidence 0.7)"
+      },
+      "notes": "G04: Dis-Chem is Store 122/123 (official Health & Beauty page, search snippet). The red 122/123 block is visible on the west column of the map but NO arrival point was traced → identity only, arrival_node null."
+    },
+    {
+      "id": "grm-foodlovers-131",
+      "name": "Food Lover's Market",
+      "kind": "store",
+      "category": "department_store",
+      "arrival_node": null,
+      "unit": "131",
+      "aliases": [
+        "Food Lovers Market",
+        "Food Lovers",
+        "supermarket",
+        "groceries",
+        "fresh produce"
+      ],
+      "evidence": {
+        "identity": "source-backed",
+        "arrival": "unknown",
+        "identity_source": "Official Garden Route Mall category pages (Department Stores; Health & Beauty) — search snippets [grm-category-pages] (secondary_corroboration, confidence 0.7)"
+      },
+      "notes": "G06: Food Lovers Market is Store 131 (official Department Stores page, search snippet); unit 131 sits beside Game on the map, no arrival traced → identity only."
+    },
+    {
+      "id": "grm-game-129",
+      "name": "Game",
+      "kind": "store",
+      "category": "department_store",
+      "arrival_node": null,
+      "unit": "129",
+      "evidence": {
+        "identity": "source-backed",
+        "arrival": "unknown",
+        "identity_source": "Official Garden Route Mall category pages (Department Stores; Health & Beauty) — search snippets [grm-category-pages] (secondary_corroboration, confidence 0.7)"
+      },
+      "notes": "G05: Game is Store 129 (official Department Stores page, search snippet); map label 'Game (129)' at the north end of the west column, no arrival traced → identity only."
     }
   ],
   "anchors": [

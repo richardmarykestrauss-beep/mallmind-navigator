@@ -20,7 +20,7 @@
         "y_axis": "down",
         "fit": "pad-to-plane"
       },
-      "notes": "Rendered 417×888 in the research session; native dimensions unverified; positional precision about ±5 px (≈ ±1.2 % x / ±0.6 % y). The AI-enhanced copy was used only to read labels, never for geometry."
+      "notes": "Rendered 417\u00d7888 in the research session; native dimensions unverified; positional precision about \u00b15 px (\u2248 \u00b11.2 % x / \u00b10.6 % y). The AI-enhanced copy was used only to read labels, never for geometry."
     },
     {
       "source_id": "grm-directory",
@@ -33,12 +33,12 @@
         "status": "public_no_reuse",
         "note": "Text facts (store numbers) only; public availability is not reuse permission."
       },
-      "notes": "Research ledger facts G01–G03 (SECONDARY_CORROBORATION: snippet quoting the first-party page)."
+      "notes": "Research ledger facts G01\u2013G03 (SECONDARY_CORROBORATION: snippet quoting the first-party page)."
     },
     {
       "source_id": "grm-clicks-page",
       "type": "secondary_reference",
-      "title": "Clicks store page (Garden Route Mall, store 261) — corroborates Shop 37",
+      "title": "Clicks store page (Garden Route Mall, store 261) \u2014 corroborates Shop 37",
       "origin": "https://clicks.co.za/store/Garden-Route-Mall/261",
       "acquired_at": "2026-09-03",
       "party": "secondary",
@@ -50,7 +50,7 @@
     {
       "source_id": "grm-legacy-wording",
       "type": "manual_note",
-      "title": "Route wording authored in the legacy dataset (git 7d638f9, garden-route-mall.dataset.json) — not present in any research artifact",
+      "title": "Route wording authored in the legacy dataset (git 7d638f9, garden-route-mall.dataset.json) \u2014 not present in any research artifact",
       "origin": "repository history 7d638f9: src/components/navigation/gardenRouteMall.dataset.json edge.instruction",
       "acquired_at": "2026-09-06",
       "party": "derived",
@@ -59,6 +59,19 @@
         "note": "Authored in-house."
       },
       "notes": "PROVENANCE GAP: the research README and evidence ledger carry no instruction text; the sentences exist only in the legacy dataset and are carried over as manual notes."
+    },
+    {
+      "source_id": "grm-category-pages",
+      "type": "official_directory",
+      "title": "Official Garden Route Mall category pages (Department Stores; Health & Beauty) \u2014 search snippets",
+      "origin": "https://www.gardenroutemall.co.za/garden-route-mall---department-stores ; https://www.gardenroutemall.co.za/garden-route-mall---health-beauty",
+      "acquired_at": "2026-09-03",
+      "party": "first_party",
+      "rights": {
+        "status": "public_no_reuse",
+        "note": "Publicly viewable directory text quoted by search snippets. Identity and category facts only; no artwork, no reproduction of page content."
+      },
+      "notes": "Research ledger G02\u2013G06. The category is the mall's own directory section, not a MallMind inference."
     }
   ]
 }

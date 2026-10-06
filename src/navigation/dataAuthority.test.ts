@@ -28,6 +28,16 @@ const CUSTOMER_NAVIGATION_SOURCES = [
   "src/venue/registry.ts",
   "src/lib/googleBackendClient.ts",
   "src/context/ShoppingSessionContext.tsx",
+  // Sprint 8 additions: overlay, search vocabulary, pilot telemetry and the app shell.
+  "src/venue/overlay.ts",
+  "src/venue/overlayStore.ts",
+  "src/venue/operationalLog.ts",
+  "src/venue/search.ts",
+  "src/venue/vocabulary.ts",
+  "src/navigation/demoOverlays.ts",
+  "src/navigation/pilotEvents.ts",
+  "src/App.tsx",
+  "src/main.tsx",
 ];
 
 const FORBIDDEN: Array<{ pattern: RegExp; why: string }> = [
@@ -51,6 +61,26 @@ describe("one spatial truth", () => {
     const gemini = read("google-cloud-backend/src/services/geminiService.ts");
     expect(gemini).toMatch(/navigation_request/);
     expect(gemini).not.toMatch(/routingService|buildFallbackRouteSteps/);
+  });
+
+  it("the operational overlay never writes into a Venue Pack and never reaches the legacy backend", () => {
+    const overlay = read("src/venue/overlay.ts");
+    expect(overlay).not.toMatch(/fetch\(|supabase|registerVenuePack|writeFile|pack\.graph\.edges\s*=/);
+    const store = read("src/venue/overlayStore.ts");
+    expect(store).not.toMatch(/fetch\(|supabase|localStorage/);
+    // Overlay authority is an actor role, never the global admin flag.
+    expect(overlay).not.toMatch(/is_admin/);
+    expect(read("src/venue/operationalLog.ts")).not.toMatch(/is_admin|evidence_class|EvidenceLedger/);
+  });
+
+  it("the bucket for legacy map assets is not referenced by any customer navigation source or the factory", () => {
+    for (const file of [...CUSTOMER_NAVIGATION_SOURCES, "src/venue/factory/jobStore.ts", "src/venue/factory/cli.ts"]) expect(read(file), file).not.toMatch(/mall-map-assets/);
+  });
+
+  it("the legacy indoor-map endpoint is no longer anonymous", () => {
+    const route = read("google-cloud-backend/src/routes/indoorMapModel.ts");
+    expect(route).toMatch(/requireAdmin\(req, res\)/);
+    expect(read("google-cloud-backend/src/server.ts")).toMatch(/\/indoor-map-model",\s+publicWrites\.middleware/);
   });
 
   it("the navigation runtime resolves destinations from the Venue Pack vocabulary only", () => {

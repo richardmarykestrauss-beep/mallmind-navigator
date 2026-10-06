@@ -165,7 +165,7 @@ describe("navigationSessionStore — remembers the destination for deep-link re-
     persistNavigationSession(base(), 1_000);
     const raw = JSON.parse(localStorage.getItem(SESSION_STORE_KEY)!);
     expect(raw).toEqual({ mallId: "garden-route-mall", anchorNodeId: "grm-entrance-4", anchorId: "grm-entrance-4", anchorLabel: "Entrance 4", anchorSource: "qr", destinationId: "grm-picknpay-41", status: "navigating", stepIndex: 0, savedAt: 1_000 });
-    expect(loadPersistedNavigationSession("garden-route-mall", 2_000)).toEqual(raw);
+    expect(loadPersistedNavigationSession("garden-route-mall", 2_000)).toEqual({ ...raw, packChanged: false });
     expect(loadPersistedNavigationSession("menlyn-park", 2_000)).toBeNull();
     expect(loadPersistedNavigationSession("garden-route-mall", 1_000 + SESSION_STORE_TTL_MS + 1)).toBeNull();
     expect(loadPersistedNavigationSession("garden-route-mall", 500)).toBeNull(); // clock went backwards

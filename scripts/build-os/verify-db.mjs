@@ -49,9 +49,9 @@ begin
     into migration_count
     from supabase_migrations.schema_migrations;
 
-  if migration_count <> 43 then
+  if migration_count <> 44 then
     raise exception
-      'Expected 43 applied migrations (000-042), found %',
+      'Expected 44 applied migrations (000-043), found %',
       migration_count;
   end if;
 
@@ -66,9 +66,9 @@ begin
   if not exists (
     select 1
       from supabase_migrations.schema_migrations
-     where version = '041'
+     where version = '043'
   ) then
-    raise exception 'Latest migration 041 is missing';
+    raise exception 'Latest migration 043 is missing';
   end if;
 
   select count(*)
@@ -163,6 +163,24 @@ begin
        and policyname = 'app_events_client_insert' and cmd = 'INSERT'
   ) then
     raise exception 'Migration 042: analytics client-insert policies are missing (frontend analytics would break)';
+  end if;
+
+  -- Migration 043 — mall-map-assets bucket writes are admin-only (Sprint 8 legacy containment).
+  -- The any-authenticated insert/delete policies from 018 must be gone and the admin ones present.
+  if exists (
+    select 1 from pg_policies
+     where schemaname = 'storage' and tablename = 'objects'
+       and policyname in ('mall_map_assets_auth_insert', 'mall_map_assets_auth_delete')
+  ) then
+    raise exception 'Migration 043: any-authenticated mall-map-assets write policies must be dropped';
+  end if;
+
+  if (
+    select count(*) from pg_policies
+     where schemaname = 'storage' and tablename = 'objects'
+       and policyname in ('mall_map_assets_admin_insert', 'mall_map_assets_admin_delete')
+  ) <> 2 then
+    raise exception 'Migration 043: admin-only mall-map-assets insert/delete policies are missing';
   end if;
 
   select count(*)
@@ -451,11 +469,11 @@ begin
        and tablename = 'objects'
        and policyname in (
          'mall_map_assets_public_read',
-         'mall_map_assets_auth_insert',
-         'mall_map_assets_auth_delete'
+         'mall_map_assets_admin_insert',
+         'mall_map_assets_admin_delete'
        )
   ) <> 3 then
-    raise exception 'Mall map storage policies are incomplete';
+    raise exception 'Mall map storage policies are incomplete (expected 018 public read + 043 admin-only writes)';
   end if;
 end
 $$;
@@ -492,7 +510,7 @@ run(
 );
 
 run(
-  "Rebuild database from migrations 000-042",
+  "Rebuild database from migrations 000-043",
   "npx",
   ["supabase", "db", "reset"],
 );

@@ -932,7 +932,7 @@ const AssistantPage = () => {
           userId: user?.id,
           mallId: selectedMall?.id,
           mallName: selectedMall?.name,
-          metadata: { status: assistantMsg.navigation?.status ?? null, query: data.navigation_request.destination_query },
+          metadata: { status: assistantMsg.navigation?.status ?? null, query_length: data.navigation_request.destination_query.length },
         });
       }
       if (budget !== null) {

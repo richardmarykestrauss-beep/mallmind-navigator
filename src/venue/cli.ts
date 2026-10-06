@@ -23,7 +23,7 @@ export function runValidateVenues(log: (line: string) => void = console.log): nu
     const v = validateVenuePack(venue.pack);
     if (v.status !== "ok") { failures++; log(`✗ ${id}\n${formatVenueIssues(v.errors)}`); continue; }
     // Routability smoke: every searchable destination reachable from every start anchor.
-    const dests = searchableDestinations(venue);
+    const dests = searchableDestinations(venue).filter((d) => d.routable); // listed-only destinations are never routed
     let unreachable = 0;
     for (const a of venue.startAnchors) for (const d of dests) {
       if (d.arrivalNode === a.node) continue; // an anchor that is also a destination: nothing to route
@@ -31,7 +31,7 @@ export function runValidateVenues(log: (line: string) => void = console.log): nu
       if (!(r.found && !r.fallback)) unreachable++;
     }
     const ev = venue.evidence;
-    log(`✓ ${id} — ${venue.name}: ${venue.floors.length} floor(s), ${venue.nodes.length} nodes, ${venue.edges.length} edges, ${venue.destinations.length} destinations, ${venue.amenities.length} amenities, ${venue.startAnchors.length} start anchor(s); unit ${venue.distanceUnit}, metric ${venue.metric}; evidence geometry=${ev.geometry} measurement=${ev.measurement} field_verification=${ev.field_verification}; ${unreachable === 0 ? "all destinations reachable from every start" : `${unreachable} start→destination pair(s) unroutable`}`);
+    log(`✓ ${id} — ${venue.name}: ${venue.floors.length} floor(s), ${venue.nodes.length} nodes, ${venue.edges.length} edges, ${venue.destinations.length} destinations (${venue.destinations.filter((d) => d.arrival_node === null).length} listed only), ${venue.amenities.length} amenities, ${venue.startAnchors.length} start anchor(s); unit ${venue.distanceUnit}, metric ${venue.metric}; evidence geometry=${ev.geometry} measurement=${ev.measurement} field_verification=${ev.field_verification}; ${unreachable === 0 ? "all destinations reachable from every start" : `${unreachable} start→destination pair(s) unroutable`}`);
     if (unreachable > 0) failures++;
   }
   log(failures ? `\n${failures} venue pack(s) FAILED` : `\nAll ${bundledVenueIds().length} bundled venue packs are valid`);

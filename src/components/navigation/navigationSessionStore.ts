@@ -28,24 +28,31 @@ export interface PersistedNavigationSession {
   /** Index of the step the visitor last confirmed (0 = first step). */
   stepIndex: number;
   savedAt: number;
+  /** The venue pack revision the session was walked on (Sprint 8). Older records have none. */
+  packVersion?: number;
 }
 
 const RESTORABLE: ReadonlySet<NavigationStatus> = new Set(["route_ready", "navigating", "arrived", "unroutable"]);
 const SOURCES: ReadonlySet<string> = new Set(["manual", "url", "qr", "native", "wifi_rtt", "uwb", "apple_indoor"]);
 
-export function persistNavigationSession(s: NavigationSession, now: number = Date.now()): void {
+export function persistNavigationSession(s: NavigationSession, now: number = Date.now(), packVersion?: number): void {
   try {
     if (!s.destination || !RESTORABLE.has(s.status)) { localStorage.removeItem(SESSION_STORE_KEY); return; }
     const record: PersistedNavigationSession = {
       mallId: s.mallId, anchorNodeId: s.anchor.nodeId, anchorId: s.anchor.anchorId ?? null, anchorLabel: s.anchor.label, anchorSource: s.anchor.source,
-      destinationId: s.destination.id, status: s.status, stepIndex: s.stepIndex, savedAt: now,
+      destinationId: s.destination.id, status: s.status, stepIndex: s.stepIndex, savedAt: now, ...(typeof packVersion === "number" ? { packVersion } : {}),
     };
     localStorage.setItem(SESSION_STORE_KEY, JSON.stringify(record));
   } catch { /* storage unavailable — the session still works */ }
 }
 
-/** The remembered session for this venue, if any and still fresh and well-formed; otherwise null. */
-export function loadPersistedNavigationSession(mallId: string, now: number = Date.now()): PersistedNavigationSession | null {
+/**
+ * The remembered session for this venue, if any and still fresh and well-formed; otherwise null.
+ * When `currentPackVersion` is given and differs from the record's, the record comes back with
+ * `packChanged: true`: the destination is still trustworthy, the step position is not — the caller
+ * must recompute the route and restart from the overview rather than restore a stale step.
+ */
+export function loadPersistedNavigationSession(mallId: string, now: number = Date.now(), currentPackVersion?: number): (PersistedNavigationSession & { packChanged: boolean }) | null {
   try {
     const raw = localStorage.getItem(SESSION_STORE_KEY);
     if (!raw) return null;
@@ -55,7 +62,8 @@ export function loadPersistedNavigationSession(mallId: string, now: number = Dat
     if (!RESTORABLE.has(r.status as NavigationStatus)) return null;
     if (typeof r.anchorSource !== "string" || !SOURCES.has(r.anchorSource)) return null;
     const stepIndex = typeof r.stepIndex === "number" && Number.isInteger(r.stepIndex) && r.stepIndex >= 0 ? r.stepIndex : 0;
-    return { ...(r as PersistedNavigationSession), anchorId: typeof r.anchorId === "string" ? r.anchorId : null, stepIndex };
+    const packChanged = typeof currentPackVersion === "number" && r.packVersion !== currentPackVersion;
+    return { ...(r as PersistedNavigationSession), anchorId: typeof r.anchorId === "string" ? r.anchorId : null, stepIndex, packChanged };
   } catch {
     return null;
   }

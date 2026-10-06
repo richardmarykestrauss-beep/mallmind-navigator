@@ -87,6 +87,15 @@ prepared at the MallMind plane aspect (1000:620 ±2 %) and carries its own geome
 `{ id, name, kind ∈ store | service | food | entertainment | landmark, category?, arrival_node, unit?, aliases?,
 evidence { identity, arrival, identity_source? }, notes? }`. The route ends at `arrival_node`.
 
+- **Identity known, geometry unknown (Sprint 8):** `arrival_node: null` with `evidence.arrival: "unknown"`
+  lists a tenant that sources confirm exists at the venue but whose arrival point nobody has
+  placed. It is searchable and shown with its unit and category, never routable, and never counted
+  by the routability gates. Any other `evidence.arrival` with a null node is a validation error.
+- `category` is an id from the closed vocabulary in `src/venue/vocabulary.ts` (`health_beauty`,
+  `supermarket`, `department_store`, `food_drink`). It drives category search ("pharmacy") and
+  product hints ("You may find shampoo at…"); it never claims stock, prices or opening hours.
+- `aliases` are extra searchable names ("Woolies", "PnP"), matched after the name.
+
 ### `anchors[]`
 `{ id, node, label, kind ∈ entrance | landmark | kiosk | parking_interface | amenity, start_permitted, qr_eligible?, evidence?, notes? }`.
 A QR encodes `/navigate?mall=<venue id>&start=<anchor id>&via=qr`. Older links carrying the

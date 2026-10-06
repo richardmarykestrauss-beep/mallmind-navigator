@@ -308,7 +308,8 @@ export function checkExtraction(input: unknown, jobId?: string, knownSources?: R
   each("instructions", ["edge", "direction", "text"], (p, v) => { c.id(`${p}.edge`, v.edge, CANDIDATE_ID_PATTERN); c.oneOf(`${p}.direction`, v.direction, ["forward", "reverse"] as const); c.text(`${p}.text`, v.text, true, 400); });
   each("destinations", ["name", "kind", "category", "arrival_node", "unit", "aliases"], (p, v) => {
     c.text(`${p}.name`, v.name, true, 120); c.oneOf(`${p}.kind`, v.kind, DESTINATION_KINDS); c.text(`${p}.category`, v.category, false, 60);
-    c.id(`${p}.arrival_node`, v.arrival_node, CANDIDATE_ID_PATTERN); if (v.unit != null) c.text(`${p}.unit`, v.unit, false, 40); c.aliases(`${p}.aliases`, v.aliases);
+    if (v.arrival_node !== null) c.id(`${p}.arrival_node`, v.arrival_node, CANDIDATE_ID_PATTERN); // null = identity known, geometry unknown
+    if (v.unit != null) c.text(`${p}.unit`, v.unit, false, 40); c.aliases(`${p}.aliases`, v.aliases);
   });
   each("anchors", ["node", "label", "kind", "start_permitted", "qr_eligible"], (p, v) => {
     c.id(`${p}.node`, v.node, CANDIDATE_ID_PATTERN); c.text(`${p}.label`, v.label, true, 120); c.oneOf(`${p}.kind`, v.kind, ANCHOR_KINDS);

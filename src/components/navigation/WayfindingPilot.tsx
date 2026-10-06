@@ -14,7 +14,7 @@
  * into product language (Preview / Mapped / Verified route) by src/venue/evidence.ts.
  */
 
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from "react";
 import { ArrowLeft, ChevronLeft, ChevronRight, Search, MapPin, Navigation, QrCode, LocateFixed, CheckCircle2, RotateCcw, X, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,6 +34,9 @@ import {
 } from "@/components/navigation/navigationSession";
 import { routeClaim, routeEvidenceTier } from "@/components/navigation/routeEvidence";
 import { safeSink, type NavigationEventSink } from "@/components/navigation/navigationEvents";
+import { subscribeOverlays, overlayVersion } from "@/venue/overlayStore";
+import { classifySearch } from "@/venue/search";
+import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { persistNavigationSession, loadPersistedNavigationSession, type PersistedNavigationSession } from "@/components/navigation/navigationSessionStore";
 
 // ── Product language ─────────────────────────────────────────────────────────
@@ -58,7 +61,7 @@ const poiIcon = (p: PilotPoi): string =>
     : ({ toilet: "🚻", accessible_toilet: "♿", baby_room: "🍼", information: "ℹ️", atm: "🏧", lift: "🛗", escalator: "🪜", stairs: "🪜", parking: "🅿️", charging: "🔌", security: "🛡️", first_aid: "⛑️", food_court: "🍽️", seating: "🪑" }[p.type] ?? "📍");
 
 /** The visitor-facing states this screen can be in (reported to the host so it can adapt its chrome). */
-export type NavigationUiMode = "no-venue" | "search" | "overview" | "unroutable" | "walking" | "arrived";
+export type NavigationUiMode = "no-venue" | "no-start" | "search" | "overview" | "unroutable" | "walking" | "arrived";
 
 export interface WayfindingPilotProps {
   /** Which registered venue to route over; defaults to the registry's first bundled venue. */
@@ -86,10 +89,13 @@ export interface WayfindingPilotProps {
 }
 
 export default function WayfindingPilot({ mallId, onModeChange, ...rest }: WayfindingPilotProps) {
-  const graph = useMemo(() => getWayfindingMall(mallId ?? DEFAULT_WAYFINDING_MALL_ID), [mallId]);
+  // The venue is re-read whenever its operational overlay changes (closures applied / lifted).
+  const overlayV = useSyncExternalStore(subscribeOverlays, overlayVersion, overlayVersion);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const graph = useMemo(() => getWayfindingMall(mallId ?? DEFAULT_WAYFINDING_MALL_ID), [mallId, overlayV]);
   const known = useMemo(() => listWayfindingMalls(), []);
 
-  useEffect(() => { if (!graph) onModeChange?.("no-venue"); }, [graph, onModeChange]);
+  useEffect(() => { if (!graph) onModeChange?.("no-venue"); else if (graph.startAnchors.length === 0) onModeChange?.("no-start"); }, [graph, onModeChange]);
 
   if (!graph) {
     // Never invent a map: say so, and offer the venues MallMind can guide in (data, not code).
@@ -111,11 +117,43 @@ export default function WayfindingPilot({ mallId, onModeChange, ...rest }: Wayfi
       </div>
     );
   }
+  if (graph.startAnchors.length === 0) {
+    // Every start is unavailable (operational overlay): say so; never invent a starting point.
+    return (
+      <div data-testid="wayfinding-pilot" data-mall-id={graph.id} data-ui-mode="no-start" data-session-status="none">
+        {overlayBanner(graph)}
+        <section className="px-4 py-6" data-testid="pilot-no-start" role="status" aria-labelledby="pilot-no-start-title">
+          <h2 id="pilot-no-start-title" className="text-base font-semibold">No MallMind starting point is available at {graph.name} right now.</h2>
+          <p className="mt-1 text-sm text-muted-foreground">Please ask at the information desk. Directions will return when a starting point reopens.</p>
+        </section>
+      </div>
+    );
+  }
   return <WayfindingPilotView key={`${graph.id}:${rest.initialDestination?.destinationId ?? ""}`} graph={graph} onModeChange={onModeChange} {...rest} />;
 }
 
+/** Operational state banner. A simulated state is labelled so it can never pass as a real venue condition. */
+function overlayBanner(graph: LoadedPilotDataset): ReactNode {
+  const o = graph.overlay;
+  if (!o || o.entries.length === 0) return null;
+  return (
+    <div
+      className={`mx-4 mt-3 rounded-xl border px-3 py-2 text-sm ${o.simulated ? "border-fuchsia-500/60 bg-fuchsia-500/10" : "border-amber-500/50 bg-amber-500/10"}`}
+      role="status"
+      data-testid="pilot-overlay-banner"
+      data-simulated={o.simulated ? "true" : "false"}
+    >
+      <p className="font-semibold">{o.simulated ? "DEMO / SIMULATED operational state" : "Operational notice"}</p>
+      {o.simulated && <p className="text-xs text-muted-foreground">Not a real {graph.name} condition. Shown to demonstrate how temporary closures change directions.</p>}
+      <ul className="mt-1 list-disc pl-4 text-xs text-muted-foreground" data-testid="pilot-overlay-entries">
+        {o.entries.map((e) => <li key={e.id}>{e.reason}</li>)}
+      </ul>
+    </div>
+  );
+}
+
 /** Rebuild a session from a remembered record (validated against the venue; anything stale → null). */
-function restoreSession(graph: LoadedPilotDataset, saved: PersistedNavigationSession): NavigationSession | null {
+function restoreSession(graph: LoadedPilotDataset, saved: PersistedNavigationSession & { packChanged?: boolean }): NavigationSession | null {
   const destination = pointsOfInterest(graph).find((p) => p.id === saved.destinationId);
   if (!destination) return null;
   const start = startOptions(graph).find((s) => s.id === saved.anchorId || s.nodeId === saved.anchorNodeId);
@@ -123,6 +161,9 @@ function restoreSession(graph: LoadedPilotDataset, saved: PersistedNavigationSes
   let s = createNavigationSession(graph.id, anchorFor(graph, start.id, saved.anchorSource));
   s = navigationReducer(graph, s, { type: "select_destination", destination });
   if (s.status !== "route_ready") return s.status === "unroutable" ? s : null;
+  // The pack changed since the session was walked: keep the destination and the fresh route, but
+  // never restore a step position computed on different geometry — back to the overview.
+  if (saved.packChanged) return s;
   if (saved.status === "navigating" || saved.status === "arrived") {
     s = navigationReducer(graph, s, { type: "start_navigation" });
     // Clamp: a walking session never restores onto the arrival step; an arrived one restores as arrived.
@@ -140,14 +181,14 @@ function restoreSession(graph: LoadedPilotDataset, saved: PersistedNavigationSes
  * across venues or after expiry, and anything that no longer resolves starts fresh.
  */
 function initialSession(graph: LoadedPilotDataset, initialAnchor: PilotAnchor | null | undefined, remember: boolean, initialDestination?: { destinationId: string } | null): NavigationSession {
-  const anchor = initialAnchor ?? defaultAnchor(graph);
+  const anchor = initialAnchor ?? defaultAnchor(graph)!; // the view is only mounted when a start exists
   const fresh = createNavigationSession(graph.id, anchor);
   // An explicit destination (link / assistant intent) is validated against the venue and, when
   // known, becomes a fresh route from the trusted start — the same reducer path as a manual pick.
   const wanted = initialDestination ? pointsOfInterest(graph).find((p) => p.id === initialDestination.destinationId) ?? null : null;
   const base = (() => {
     if (!remember) return fresh;
-    const saved = loadPersistedNavigationSession(graph.id);
+    const saved = loadPersistedNavigationSession(graph.id, Date.now(), graph.pack.venue.pack_version);
     if (!saved) return fresh;
     const restored = restoreSession(graph, saved);
     if (!restored) return fresh;
@@ -206,7 +247,11 @@ function WayfindingPilotView({ graph, initialAnchor, anchorNotice, embedded, onO
   function send(action: NavigationAction) {
     const next = navigationReducer(graph, session, action);
     setSession(next);
-    const base = { destination: next.destination?.id ?? null, anchor: next.anchor.nodeId, anchorSource: next.anchor.source, evidence: tier };
+    const base = {
+      destination: next.destination?.id ?? null, destination_category: next.destination?.categoryLabel ?? null,
+      anchor: next.anchor.nodeId, anchor_id: next.anchor.anchorId ?? null, anchorSource: next.anchor.source, evidence: tier,
+      floor_changes: next.route?.connector_count ?? 0,
+    };
     switch (action.type) {
       case "select_destination":
         emit({ name: "destination_selected", mallId: graph.id, detail: { ...base, kind: action.destination.kind } });
@@ -218,7 +263,7 @@ function WayfindingPilotView({ graph, initialAnchor, anchorNotice, embedded, onO
         break;
       case "next_step":
         if (next.stepIndex !== session.stepIndex) emit({ name: "navigation_step_advanced", mallId: graph.id, detail: { ...base, step: next.stepIndex + 1 } });
-        if (next.status === "arrived" && session.status !== "arrived") emit({ name: "navigation_arrived", mallId: graph.id, detail: base });
+        if (next.status === "arrived" && session.status !== "arrived") emit({ name: "navigation_arrived_confirmed", mallId: graph.id, detail: base });
         break;
       case "previous_step":
         if (next.stepIndex !== session.stepIndex) emit({ name: "navigation_step_back", mallId: graph.id, detail: { ...base, step: next.stepIndex + 1 } });
@@ -248,7 +293,23 @@ function WayfindingPilotView({ graph, initialAnchor, anchorNotice, embedded, onO
   }, [initialAnchor]);
 
   // Remember the session for refresh / re-entry (best-effort).
-  useEffect(() => { if (rememberSession) persistNavigationSession(session); }, [session, rememberSession]);
+  useEffect(() => { if (rememberSession) persistNavigationSession(session, Date.now(), graph.pack.venue.pack_version); }, [session, rememberSession, graph]);
+
+  // The venue's operational state changed under a live session: a start that is no longer available
+  // moves to the first available one; any route is recomputed against the current graph.
+  const graphRef = useRef(graph);
+  useEffect(() => {
+    if (graphRef.current === graph) return;
+    graphRef.current = graph;
+    setSession((s) => {
+      const startOk = graph.startAnchors.some((a) => a.node === s.anchor.nodeId);
+      const base = startOk ? s : navigationReducer(graph, s, { type: "reanchor", anchor: defaultAnchor(graph)! });
+      if (!s.destination) return base;
+      // Re-read the destination from the CURRENT venue state (availability flags live there).
+      const fresh = pointsOfInterest(graph).find((p) => p.id === s.destination!.id) ?? s.destination;
+      return navigationReducer(graph, { ...base, destination: fresh }, { type: "recalculate" });
+    });
+  }, [graph]);
 
   const { anchor, destination: dest, route, status } = session;
   const hasRoute = isRoutable(session);
@@ -267,6 +328,20 @@ function WayfindingPilotView({ graph, initialAnchor, anchorNotice, embedded, onO
   useWalkingHistory(walking || arrived, () => setSession((s) => (s.status === "navigating" || s.status === "arrived" ? navigationReducer(graph, s, { type: "restart" }) : s)));
 
   const results = useMemo(() => searchPois(graph, query), [graph, query]);
+  // Search demand / friction: one classified event per settled query (no raw text), debounced.
+  const lastSearchKey = useRef<string>("");
+  useEffect(() => {
+    const q = query.trim();
+    if (dest || q.length < 2) return;
+    const t = setTimeout(() => {
+      const c = classifySearch(graph, q);
+      if (c.query_normalized === lastSearchKey.current) return;
+      lastSearchKey.current = c.query_normalized;
+      const detail = { query_length: q.length, query_class: c.matched_via, result_count: c.result_count, categories: c.categories.join("|") || null, miss_reason: c.miss_reason, nearest_known: c.nearest_known };
+      emit({ name: c.result_count === 0 ? "destination_search_no_result" : "destination_search", mallId: graph.id, detail });
+    }, 400);
+    return () => clearTimeout(t);
+  }, [query, dest, graph, emit]);
   // Steps record their "to" node, so prepend the chosen start node: the START pin and the first
   // route segment then begin at the entrance the visitor actually chose, not at the first junction.
   const polyline = useMemo(() => {
@@ -408,6 +483,15 @@ function WayfindingPilotView({ graph, initialAnchor, anchorNotice, embedded, onO
 
   const claimBadge = <Badge variant="outline" className="shrink-0 text-[11px]" data-testid="pilot-route-claim" title={routeClaimExplanation(tier)}>{claim}</Badge>;
 
+  const banner = overlayBanner(graph);
+  const online = useOnlineStatus();
+  // Subtle offline status: everything on this screen (search, route, steps) is local to the phone.
+  const offlinePill = !online ? (
+    <p className="mx-4 mt-2 inline-flex items-center gap-1.5 rounded-full border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-xs" role="status" data-testid="pilot-offline">
+      <span className="h-1.5 w-1.5 rounded-full bg-amber-500" aria-hidden />Offline — directions saved on this phone
+    </p>
+  ) : null;
+
   const header = embedded ? null : (
     <header className="sticky top-0 z-10 flex items-center gap-2 border-b bg-background/95 px-4 py-3 backdrop-blur">
       {dest && (
@@ -464,9 +548,14 @@ function WayfindingPilotView({ graph, initialAnchor, anchorNotice, embedded, onO
               data-testid="pilot-search"
             />
           </div>
-          <p id="pilot-search-help" className="mt-1.5 text-xs text-muted-foreground">Type a name, or pick from the list. Results show where MallMind can walk you to.</p>
+          <p id="pilot-search-help" className="mt-1.5 text-xs text-muted-foreground">Type a shop, a category like “pharmacy”, or a facility. Places MallMind can walk you to are marked with an arrow.</p>
         </div>
 
+        {results.some((p) => p.matchedVia === "product_hint") && (
+          <p className="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm" data-testid="pilot-category-hint" role="status">
+            You may find <span className="font-medium">{query.trim()}</span> at these places. MallMind doesn’t know stock or prices.
+          </p>
+        )}
         {results.length === 0 ? (
           <div className="rounded-xl border border-dashed px-4 py-6 text-center text-sm text-muted-foreground" data-testid="pilot-no-result" role="status">
             <p className="font-medium text-foreground">No match for “{query.trim()}”.</p>
@@ -485,9 +574,12 @@ function WayfindingPilotView({ graph, initialAnchor, anchorNotice, embedded, onO
                   <span className="text-xl" aria-hidden>{poiIcon(p)}</span>
                   <span className="min-w-0 flex-1">
                     <span className="block text-base font-medium leading-snug">{p.name}</span>
-                    <span className="block text-xs text-muted-foreground">{kindLabel(p)}</span>
+                    <span className="block text-xs text-muted-foreground">
+                      {p.categoryLabel ?? kindLabel(p)}{p.unit ? ` · Shop ${p.unit}` : ""}
+                      {p.unavailable ? <span className="text-amber-600 dark:text-amber-400" data-testid="pilot-result-unavailable"> · Temporarily unavailable</span> : !p.routable ? <span data-testid="pilot-result-unmapped"> · Listed, route not yet mapped</span> : null}
+                    </span>
                   </span>
-                  <Navigation className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+                  {p.routable && !p.unavailable ? <Navigation className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden /> : <Info className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />}
                 </button>
               </li>
             ))}
@@ -516,13 +608,29 @@ function WayfindingPilotView({ graph, initialAnchor, anchorNotice, embedded, onO
         </div>
         {startChip}
         {locationOpen && locationPanel}
-        <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3" role="alert" data-testid="pilot-failure">
-          <h2 id="pilot-unroutable-title" className="text-base font-semibold">We don’t have a mapped route between these points yet.</h2>
-          <p className="mt-1 text-sm text-muted-foreground">Try starting from another MallMind location, or choose a different place.</p>
-        </div>
+        {session.unroutableReason === "not_mapped" ? (
+          <div className="rounded-xl border bg-card px-4 py-3" role="status" data-testid="pilot-not-mapped">
+            <h2 id="pilot-unroutable-title" className="text-base font-semibold">{dest.name} is listed at {graph.name}, but MallMind does not yet have a verified route to this {dest.kind === "amenity" ? "place" : "store"}.</h2>
+            <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
+              {dest.unit && <><dt className="text-muted-foreground">Shop</dt><dd data-testid="pilot-dest-unit">{dest.unit}</dd></>}
+              {dest.categoryLabel && <><dt className="text-muted-foreground">Category</dt><dd>{dest.categoryLabel}</dd></>}
+            </dl>
+            <p className="mt-2 text-sm text-muted-foreground">Ask at the information desk, or choose a place MallMind can walk you to.</p>
+          </div>
+        ) : session.unroutableReason === "unavailable" ? (
+          <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3" role="alert" data-testid="pilot-unavailable">
+            <h2 id="pilot-unroutable-title" className="text-base font-semibold">{dest.name} is temporarily unavailable.</h2>
+            <p className="mt-1 text-sm text-muted-foreground">MallMind won’t walk you there right now. Choose a different place.</p>
+          </div>
+        ) : (
+          <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3" role="alert" data-testid="pilot-failure">
+            <h2 id="pilot-unroutable-title" className="text-base font-semibold">We don’t have a mapped route between these points yet.</h2>
+            <p className="mt-1 text-sm text-muted-foreground">Try starting from another MallMind location, or choose a different place.</p>
+          </div>
+        )}
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          <Button type="button" variant="outline" className="h-auto min-h-12 whitespace-normal" onClick={openLocation} data-testid="pilot-reanchor"><LocateFixed className="mr-1.5 h-4 w-4 shrink-0" aria-hidden />Update my location</Button>
-          <Button type="button" className="h-auto min-h-12 whitespace-normal" onClick={changeDestination} data-testid="pilot-change-destination">Choose another destination</Button>
+          {session.unroutableReason === "no_path" && <Button type="button" variant="outline" className="h-auto min-h-12 whitespace-normal" onClick={openLocation} data-testid="pilot-reanchor"><LocateFixed className="mr-1.5 h-4 w-4 shrink-0" aria-hidden />Update my location</Button>}
+          <Button type="button" className={`h-auto min-h-12 whitespace-normal ${session.unroutableReason === "no_path" ? "" : "sm:col-span-2"}`} onClick={changeDestination} data-testid="pilot-change-destination">Choose another destination</Button>
         </div>
         {routeDetails}
       </section>
@@ -782,6 +890,8 @@ function WayfindingPilotView({ graph, initialAnchor, anchorNotice, embedded, onO
       data-ui-mode={mode}
     >
       {header}
+      {offlinePill}
+      {banner && <div className={embedded ? "-mx-0 mb-1" : ""}>{banner}</div>}
       <main className={embedded ? "flex-1 px-4 pb-2" : "flex-1 px-4 py-4"}>
         {anchorNotice && (
           <div className="mb-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm leading-snug" role="status" data-testid="pilot-anchor-notice">

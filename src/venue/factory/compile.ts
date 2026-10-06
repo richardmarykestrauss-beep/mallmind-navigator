@@ -174,21 +174,28 @@ export function compileDraft(job: IngestionJob, ledger: EvidenceLedger, sources:
     const id = f.subject.slice("destination:".length);
     if (statusOf(f.subject, "destination").fact !== f) continue;
     const v = rec(f.value);
-    if (!v || !str(v, "name") || !str(v, "kind") || !str(v, "arrival_node")) { fail(`ledger:${f.fact_id}`, "destination fact needs name/kind/arrival_node"); continue; }
-    const n = needNode(`destination:${id}.arrival_node`, str(v, "arrival_node") as string);
-    if (!n) continue;
+    if (!v || !str(v, "name") || !str(v, "kind")) { fail(`ledger:${f.fact_id}`, "destination fact needs name/kind"); continue; }
+    // arrival_node null = identity known, geometry unknown: listed, never routed, arrival "unknown".
+    const unmapped = v.arrival_node === null || v.arrival_node === undefined;
+    const n = unmapped ? null : needNode(`destination:${id}.arrival_node`, str(v, "arrival_node") as string);
+    if (!unmapped && !n) continue;
     const arrivalFact = statusOf(f.subject, "arrival").fact;
-    let arrival: VenueDestination["evidence"]["arrival"] = "corridor_arrival";
-    if (arrivalFact) {
+    let arrival: VenueDestination["evidence"]["arrival"] = unmapped ? "unknown" : "corridor_arrival";
+    if (arrivalFact && unmapped) fail(`destination:${id}.arrival`, `arrival fact ${arrivalFact.fact_id} cannot apply to a destination without an arrival node`);
+    else if (arrivalFact) {
       if (arrivalFact.value !== "verified_public_door") fail(`destination:${id}.arrival`, `arrival fact ${arrivalFact.fact_id} has unknown value ${JSON.stringify(arrivalFact.value)}`);
       else if (arrivalFact.evidence_class !== "field_verified") fail(`destination:${id}.arrival`, `a verified door needs a field_verified arrival fact (got ${arrivalFact.evidence_class})`);
       else arrival = "verified_public_door";
-    } else if (n.kind === "entrance" || n.kind === "landmark" || n.kind === "amenity" || n.kind === "vertical") arrival = "corridor_arrival";
+    } else if (n && (n.kind === "entrance" || n.kind === "landmark" || n.kind === "amenity" || n.kind === "vertical")) arrival = "corridor_arrival";
     const identity = identityTierOf(f.evidence_class);
-    const aliases = splitAliases(str(v, "aliases"));
+    // Separate accepted "category" / "aliases" facts refine the destination (they carry their own evidence class).
+    const catFact = statusOf(f.subject, "category").fact;
+    const category = catFact && typeof catFact.value === "string" ? catFact.value : str(v, "category");
+    const aliasFact = statusOf(f.subject, "aliases").fact;
+    const aliases = [...new Set([...splitAliases(str(v, "aliases")), ...(aliasFact && typeof aliasFact.value === "string" ? splitAliases(aliasFact.value) : [])])];
     destinations.push({
-      id, name: str(v, "name") as string, kind: str(v, "kind") as DestinationKind, ...(str(v, "category") ? { category: str(v, "category") as string } : {}),
-      arrival_node: n.id, unit: str(v, "unit"), ...(aliases.length ? { aliases } : {}),
+      id, name: str(v, "name") as string, kind: str(v, "kind") as DestinationKind, ...(category ? { category } : {}),
+      arrival_node: n ? n.id : null, unit: str(v, "unit"), ...(aliases.length ? { aliases } : {}),
       evidence: { identity, arrival, identity_source: cite(f) }, ...(f.notes ? { notes: f.notes } : {}),
     });
   }

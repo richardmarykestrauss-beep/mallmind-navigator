@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "reviewer": "dry-run transcriber (Sprint 5)",
-  "reviewed_at": "2026-09-13T15:00:00Z",
+  "reviewer": "Sprint 8 transcriber (dry-run revision v2)",
+  "reviewed_at": "2026-10-05T09:00:00Z",
   "accept_all_of_class": [
     "visual_first_party",
     "secondary_corroboration"
@@ -42,6 +42,30 @@
     {
       "fact_id": "instruction:grm-i-9",
       "reason": "Wording exists only in the legacy dataset (7d638f9); carried over unchanged for the Entrance 4 → south direction. Not research-backed — provenance gap recorded."
+    },
+    {
+      "fact_id": "S8-cat-clicks",
+      "reason": "Accepted as a visitor-search category, not a directory fact: Clicks is a national pharmacy / health & beauty chain. Nothing about stock, hours or prices follows from this."
+    },
+    {
+      "fact_id": "S8-alias-picknpay",
+      "reason": "Visitor vocabulary only (supermarket/groceries/PnP); the mall's own category remains Department Stores."
+    },
+    {
+      "fact_id": "S8-alias-woolworths",
+      "reason": "Visitor vocabulary only (Woolies/groceries); the mall's own category remains Department Stores."
+    },
+    {
+      "fact_id": "S8-alias-foodlovers",
+      "reason": "Visitor vocabulary only; the mall's own category remains Department Stores."
+    },
+    {
+      "fact_id": "S8-alias-dischem",
+      "reason": "Visitor vocabulary only (common spellings + 'pharmacy'); the mall lists Dis-Chem under Health & Beauty."
+    },
+    {
+      "fact_id": "S8-alias-clicks",
+      "reason": "Visitor vocabulary only ('pharmacy')."
     }
   ],
   "reject": [],

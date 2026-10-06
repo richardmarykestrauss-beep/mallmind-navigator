@@ -10,5 +10,7 @@
   ],
   "approve": "review-2-approve.json",
   "compare_to": "src/venue/packs/garden-route-mall.venue.json",
-  "note": "Reproduces the Garden Route Mall pack from research/garden-route-mall-field-pilot evidence through the factory. No new facts, no geometry change. The production pack is NOT replaced."
+  "note": "Revises the Garden Route Mall pack (v1 \u2192 v2) from research/garden-route-mall-field-pilot evidence through the factory. Adds IDENTITY-ONLY destinations (arrival_node null), categories from the official category pages and visitor aliases recorded as manual inference. No node, edge or coordinate changes. Output is compared against the production pack; copying it into src/venue/packs is a separate, reviewed step.",
+  "from_pack": "src/venue/packs/garden-route-mall.venue.json",
+  "revision_note": "Sprint 8: listed-but-unmapped tenants (Dis-Chem 122/123, Game 129, Food Lovers Market 131), official categories and visitor aliases. No geometry change."
 }
