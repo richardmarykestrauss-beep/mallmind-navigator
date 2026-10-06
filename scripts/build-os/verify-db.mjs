@@ -469,11 +469,11 @@ begin
        and tablename = 'objects'
        and policyname in (
          'mall_map_assets_public_read',
-         'mall_map_assets_auth_insert',
-         'mall_map_assets_auth_delete'
+         'mall_map_assets_admin_insert',
+         'mall_map_assets_admin_delete'
        )
   ) <> 3 then
-    raise exception 'Mall map storage policies are incomplete';
+    raise exception 'Mall map storage policies are incomplete (expected 018 public read + 043 admin-only writes)';
   end if;
 end
 $$;
